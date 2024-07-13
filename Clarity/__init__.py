@@ -1,3 +1,16 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:13a428041562f87eee3737cb61f92afbaae18963f1616013090700a2839b27b2
-size 522
+__version__ = "0.0.1"
+import logging
+import sys
+
+logger = logging.getLogger("CellPath")
+# check if logger has been initialized
+if not logger.hasHandlers() or len(logger.handlers) == 0:
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
