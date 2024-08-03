@@ -1,3 +1,20 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2768c78099d372e453cdc04b8ac40f60d48705e319d7e70ce83df54ee0806473
-size 577
+__version__ = "0.1.0"
+import logging
+import sys
+
+logger = logging.getLogger("Concord")
+# check if logger has been initialized
+if not logger.hasHandlers() or len(logger.handlers) == 0:
+    logger.propagate = False
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+
+from . import ml
+from . import pl
+from . import ul

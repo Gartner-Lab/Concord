@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:c95caa0135a753d8f2e0ea44ab2d3f5de1bf3fdc738609aad6cbd431f4557080
-size 492
+
+
+
+
+def validate_probability(prob, name):
+    if prob is not None:
+        if not (0.0 <= prob <= 1.0):
+            raise ValueError(f"{name} should be between 0 and 1.0, got {prob}")
+
+def validate_probability_dict_compatible(prob, name):
+    if isinstance(prob, dict):
+        # Validate each probability in the dictionary
+        for key, value in prob.items():
+            validate_probability(value, f"{name}_[{key}]")
+    else:
+        validate_probability(prob, name)
+
