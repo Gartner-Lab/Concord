@@ -7,7 +7,6 @@ from ..utils.anndata_utils import ensure_categorical
 from .dataloader import anndata_to_dataloader
 from .chunkloader import ChunkLoader
 from ..utils.other_util import add_file_handler, update_wandb_params
-from .evaluator import eval_scib_metrics
 from .. import logger
 from .trainer import Trainer
 import numpy as np
@@ -31,10 +30,11 @@ class Concord:
         self.adata = adata
         self.proj_name = proj_name
         self.save_dir = Path(save_dir)
-        self.use_wandb = use_wandb
         self.config = None
-        self.run = None
+        self.loader = None
         self.model = None
+        self.use_wandb = use_wandb
+        self.run = None
         self.n_epochs_run = 0
 
         if not self.save_dir.exists():
@@ -77,7 +77,6 @@ class Concord:
                      chunked=False,
                      chunk_size=10000,
                      wandb_reinit=True,
-                     eval_epoch_interval=5,
                      device='cpu'):
         initial_params = dict(
             seed=seed,
@@ -109,7 +108,6 @@ class Concord:
             doublet_synth_ratio=doublet_synth_ratio,
             chunked=chunked,  # Add chunked parameter
             chunk_size=chunk_size,
-            eval_epoch_interval=eval_epoch_interval,
             device=device
         )
 
@@ -120,8 +118,6 @@ class Concord:
             print(config)
         else:
             self.config = Config(initial_params)
-
-
 
 
     def init_model(self):
@@ -170,7 +166,6 @@ class Concord:
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-
     def init_dataloader(self, input_layer_key='X_log1p',
                         train_frac=1.0,
                         sampler_mode=None, emb_key=None,
@@ -207,25 +202,23 @@ class Concord:
         }
 
         if self.config.chunked:
-            chunk_loader = ChunkLoader(
+            self.loader = ChunkLoader(
                 chunk_size=self.config.chunk_size,
                 **kwargs
             )
-            self.data_structure = chunk_loader.data_structure  # Retrieve data_structure
+            self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
             train_dataloader, val_dataloader, self.data_structure = anndata_to_dataloader(
                 **kwargs
             )
-            chunk_loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
-
-        return chunk_loader
+            self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 
-    def train_and_eval(self, chunk_loader, n_epochs=3):
+    def train(self, n_epochs=3):
         for epoch in range(n_epochs):
             logger.info(f'Starting epoch {self.n_epochs_run + epoch + 1}/{self.n_epochs_run + n_epochs}')
-            for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(chunk_loader):
-                logger.info(f'Processing chunk {chunk_idx + 1}/{len(chunk_loader)} for epoch {self.n_epochs_run + epoch + 1}')
+            for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
+                logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {self.n_epochs_run + epoch + 1}')
                 if train_dataloader is not None:
                     print(f"Number of samples in train_dataloader: {len(train_dataloader.dataset)}")
                 if val_dataloader is not None:
@@ -238,107 +231,109 @@ class Concord:
 
             self.trainer.scheduler.step()
 
-            if self.config.eval_epoch_interval > 0 and (self.n_epochs_run + epoch + 1) % self.config.eval_epoch_interval == 0:
-                full_embeddings = self.get_full_embeddings()
-                self.adata.obsm['encoded'] = full_embeddings
-                logger.info(f'Evaluating scib metrics at epoch {self.n_epochs_run + epoch + 1}')
-                eval_results = eval_scib_metrics(self.adata, batch_key=self.config.domain_key,
-                                                 label_key=self.config.class_key, )
-                logger.info(f"Evaluation results at epoch {self.n_epochs_run + epoch + 1}: {eval_results}")
-                if self.use_wandb:
-                    wandb.log(eval_results)
-
         self.n_epochs_run += n_epochs  # Update epoch counter
         model_save_path = self.save_dir / "final_model.pth"
         self.save_model(self.model, model_save_path)
 
 
-    def predict_with_model(self, model, dataloader, device, data_structure, sort_by_indices=False):  # Added data_structure to function parameters
-        model.eval()
+    def predict(self, loader, sort_by_indices=False):  
+        self.model.eval()
         class_preds = []
         class_true = []
         embeddings = []
         indices = []
 
-        with torch.no_grad():
-            for data in dataloader:
-                # Unpack data based on the provided structure
-                data_dict = {key: value.to(device) for key, value in zip(data_structure, data)}
+        if isinstance(loader, list) and all(isinstance(item, tuple) for item in loader):
+            all_embeddings = []
+            all_class_preds = []
+            all_class_true = []
+            all_indices = []
 
-                inputs = data_dict.get('input')
-                domain_labels = data_dict.get('domain', None)
-                class_labels = data_dict.get('class', None)
-                original_indices = data_dict.get('indices')
+            for chunk_idx, (dataloader, _, ck_indices) in enumerate(loader):
+                logger.info(f'Predicting for chunk {chunk_idx + 1}/{len(loader)}')
+                ck_embeddings, ck_class_preds, ck_class_true = self.predict(dataloader, sort_by_indices=True)
+                all_embeddings.append(ck_embeddings)
+                all_indices.extend(ck_indices)
+                if ck_class_preds is not None:
+                    all_class_preds.extend(ck_class_preds)
+                if ck_class_true is not None:
+                    all_class_true.extend(ck_class_true)
 
-                if class_labels is not None:
-                    class_true.extend(class_labels.cpu().numpy())
+            all_embeddings = np.vstack(all_embeddings)
+            all_indices = np.array(all_indices)
+            sorted_indices = np.argsort(all_indices)
+            all_embeddings = all_embeddings[sorted_indices]
+            if all_class_preds:
+                all_class_preds = np.array(all_class_preds)[sorted_indices]
+            else:
+                all_class_preds = None
+            if all_class_true:
+                all_class_true = np.array(all_class_true)[sorted_indices]
+            else:
+                all_class_true = None
+            return all_embeddings, all_class_preds, all_class_true
+        
+        else:
+            with torch.no_grad():
+                for data in loader:
+                    # Unpack data based on the provided structure
+                    data_dict = {key: value.to(self.config.device) for key, value in zip(self.data_structure, data)}
 
-                if original_indices is not None:
-                    indices.extend(original_indices.cpu().numpy())
+                    inputs = data_dict.get('input')
+                    domain_labels = data_dict.get('domain', None)
+                    class_labels = data_dict.get('class', None)
+                    original_indices = data_dict.get('indices')
 
-                domain_idx = domain_labels[0].item() if domain_labels is not None else None
-                outputs = model(inputs, domain_idx)
-                class_pred = outputs.get('class_pred')
+                    if class_labels is not None:
+                        class_true.extend(class_labels.cpu().numpy())
 
-                if class_pred is not None:
-                    class_preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
+                    if original_indices is not None:
+                        indices.extend(original_indices.cpu().numpy())
 
-                if 'encoded' in outputs:
-                    embeddings.append(outputs['encoded'].cpu().numpy())
-                else:
-                    raise ValueError("Model output does not contain 'encoded' embeddings.")
+                    domain_idx = domain_labels[0].item() if domain_labels is not None else None
+                    outputs = self.model(inputs, domain_idx)
+                    class_pred = outputs.get('class_pred')
 
-        if not embeddings:
-            raise ValueError("No embeddings were extracted. Check the model and dataloader.")
+                    if class_pred is not None:
+                        class_preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
 
-        # Concatenate embeddings
-        embeddings = np.concatenate(embeddings, axis=0)
+                    if 'encoded' in outputs:
+                        embeddings.append(outputs['encoded'].cpu().numpy())
+                    else:
+                        raise ValueError("Model output does not contain 'encoded' embeddings.")
 
-        # Convert predictions and true labels to numpy arrays
-        class_preds = np.array(class_preds) if class_preds else None
-        class_true = np.array(class_true) if class_true else None
+            if not embeddings:
+                raise ValueError("No embeddings were extracted. Check the model and dataloader.")
 
-        if sort_by_indices and indices:
-            # Sort embeddings and predictions back to the original order
-            indices = np.array(indices)
-            sorted_indices = np.argsort(indices)
-            embeddings = embeddings[sorted_indices]
-            if class_preds is not None:
-                class_preds = class_preds[sorted_indices]
-            if class_true is not None:
-                class_true = class_true[sorted_indices]
+            # Concatenate embeddings
+            embeddings = np.concatenate(embeddings, axis=0)
 
-        return embeddings, class_preds, class_true
+            # Convert predictions and true labels to numpy arrays
+            class_preds = np.array(class_preds) if class_preds else None
+            class_true = np.array(class_true) if class_true else None
 
+            if sort_by_indices and indices:
+                # Sort embeddings and predictions back to the original order
+                indices = np.array(indices)
+                sorted_indices = np.argsort(indices)
+                embeddings = embeddings[sorted_indices]
+                if class_preds is not None:
+                    class_preds = class_preds[sorted_indices]
+                if class_true is not None:
+                    class_true = class_true[sorted_indices]
 
-    def get_full_embeddings(self, chunk_loader):
-        all_embeddings = []
-        all_indices = []
-
-        for chunk_idx, (train_dataloader, _, chunk_indices) in enumerate(chunk_loader):
-            logger.info(f'Predicting embeddings for chunk {chunk_idx + 1}/{len(chunk_loader)}')
-            embeddings, _, _ = self.predict_with_model(self.model, train_dataloader, self.config.device, self.data_structure,
-                                                  sort_by_indices=True)
-            all_embeddings.append(embeddings)
-            all_indices.extend(chunk_indices)
-
-        all_embeddings = np.vstack(all_embeddings)
-        all_indices = np.array(all_indices)
-        sorted_indices = np.argsort(all_indices)
-        return all_embeddings[sorted_indices]
+            return embeddings, class_preds, class_true
 
 
     def encode_adata(self, input_layer_key='X_log1p', n_epochs = 3, lr=1e-3, class_weights=None):
         # Model Training
         self.init_model()
-        chunk_loader = self.init_dataloader(input_layer_key, class_weights=class_weights)
+        self.init_dataloader(input_layer_key, class_weights=class_weights)
         self.init_trainer(lr=lr)
-        self.train_and_eval(chunk_loader, n_epochs=n_epochs)
+        self.train(n_epochs=n_epochs)
         # Predict Embeddings after all epochs have been run
         full_data_loader = self.init_dataloader(input_layer_key)
         self.adata.obsm['encoded'] = self.get_full_embeddings(full_data_loader)
-
-
 
     def save_model(self, model, save_path):
         torch.save(model.state_dict(), save_path)
@@ -364,56 +359,6 @@ class Concord:
 
         return weights
 
-    @staticmethod
-    def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra = 0.1, max_p_intra = 1.0,
-                                   scale_to_min_max=False):
-        """
-            Convert coverage values to p_intra values, with optional scaling and capping.
 
-            Args:
-                domain_labels (pd.Series or similar): A categorical series of domain labels.
-                coverage (dict): Dictionary with domain keys and coverage values.
-                min_p_intra (float): Minimum allowed p_intra value.
-                max_p_intra (float): Maximum allowed p_intra value.
-                scale_to_min_max (bool): Whether to scale the values to the range [min_p_intra, max_p_intra].
-
-            Returns:
-                dict: p_intra_domain_dict with domain codes as keys and p_intra values as values.
-        """
-
-        unique_domains = domain_labels.cat.categories
-
-        if coverage is None:
-            raise ValueError("Coverage dictionary must be provided.")
-        missing_domains = set(unique_domains) - set(coverage.keys())
-        if missing_domains:
-            raise ValueError(f"Coverage values are missing for the following domains: {missing_domains}")
-
-        p_intra_domain_dict = coverage.copy()
-
-        if scale_to_min_max:
-            # Linearly scale the values in p_intra_domain_dict to the range between min_p_intra and max_p_intra
-            min_coverage = min(p_intra_domain_dict.values())
-            max_coverage = max(p_intra_domain_dict.values())
-            if min_coverage != max_coverage:  # Avoid division by zero
-                scale = (max_p_intra - min_p_intra) / (max_coverage - min_coverage)
-                p_intra_domain_dict = {
-                    domain: min_p_intra + (value - min_coverage) * scale
-                    for domain, value in p_intra_domain_dict.items()
-                }
-            else:
-                p_intra_domain_dict = {domain: (min_p_intra + max_p_intra) / 2 for domain in p_intra_domain_dict}
-        else:
-            # Cap values to the range [min_p_intra, max_p_intra]
-            p_intra_domain_dict = {
-                domain: max(min(value, max_p_intra), min_p_intra)
-                for domain, value in p_intra_domain_dict.items()
-            }
-
-        # Convert the domain labels to their corresponding category codes
-        domain_codes = {domain: code for code, domain in enumerate(domain_labels.cat.categories)}
-        p_intra_domain_dict = {domain_codes[domain]: value for domain, value in p_intra_domain_dict.items()}
-
-        return p_intra_domain_dict
-
+    
 

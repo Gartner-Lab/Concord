@@ -3,7 +3,7 @@ from torch import nn, optim
 from tqdm import tqdm
 import wandb
 import copy
-from .evaluator import log_classification
+from ..utils.evaluator import log_classification
 from .loss import ContrastiveLoss, importance_penalty_loss
 
 class Trainer:

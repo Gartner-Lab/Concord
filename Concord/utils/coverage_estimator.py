@@ -54,3 +54,60 @@ def calculate_dataset_coverage(adata, k=128, emb_key='X_pca', dataset_key=None,
         dataset_coverage[dataset] = coverage
 
     return dataset_coverage
+
+
+
+def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra = 0.1, max_p_intra = 1.0,
+                                   scale_to_min_max=False):
+        """
+            Convert coverage values to p_intra values, with optional scaling and capping.
+
+            Args:
+                domain_labels (pd.Series or similar): A categorical series of domain labels.
+                coverage (dict): Dictionary with domain keys and coverage values.
+                min_p_intra (float): Minimum allowed p_intra value.
+                max_p_intra (float): Maximum allowed p_intra value.
+                scale_to_min_max (bool): Whether to scale the values to the range [min_p_intra, max_p_intra].
+
+            Returns:
+                dict: p_intra_domain_dict with domain codes as keys and p_intra values as values.
+        """
+
+        unique_domains = domain_labels.cat.categories
+
+        if coverage is None:
+            raise ValueError("Coverage dictionary must be provided.")
+        missing_domains = set(unique_domains) - set(coverage.keys())
+        if missing_domains:
+            raise ValueError(f"Coverage values are missing for the following domains: {missing_domains}")
+
+        p_intra_domain_dict = coverage.copy()
+
+        if scale_to_min_max:
+            # Linearly scale the values in p_intra_domain_dict to the range between min_p_intra and max_p_intra
+            min_coverage = min(p_intra_domain_dict.values())
+            max_coverage = max(p_intra_domain_dict.values())
+            if min_p_intra < min_coverage:
+                raise ValueError(f"Minimum coverage value ({min_coverage:.3f}) is greater than min_p_intra ({min_p_intra:.3f}) when scale_to_min_max is True." 
+                                 "Please set min_p_intra to a value greater than or equal to the minimum coverage value.")
+
+            if min_coverage != max_coverage:  # Avoid division by zero
+                scale = (max_p_intra - min_p_intra) / (max_coverage - min_coverage)
+                p_intra_domain_dict = {
+                    domain: min_p_intra + (value - min_coverage) * scale
+                    for domain, value in p_intra_domain_dict.items()
+                }
+            else:
+                p_intra_domain_dict = {domain: (min_p_intra + max_p_intra) / 2 for domain in p_intra_domain_dict}
+        else:
+            # Cap values to the range [min_p_intra, max_p_intra]
+            p_intra_domain_dict = {
+                domain: max(min(value, max_p_intra), min_p_intra)
+                for domain, value in p_intra_domain_dict.items()
+            }
+
+        # Convert the domain labels to their corresponding category codes
+        domain_codes = {domain: code for code, domain in enumerate(domain_labels.cat.categories)}
+        p_intra_domain_dict = {domain_codes[domain]: value for domain, value in p_intra_domain_dict.items()}
+
+        return p_intra_domain_dict
