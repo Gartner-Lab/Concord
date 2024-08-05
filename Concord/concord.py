@@ -7,6 +7,7 @@ from .utils.anndata_utils import ensure_categorical
 from .model.dataloader import anndata_to_dataloader
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, update_wandb_params
+from .utils.value_check import validate_probability, validate_probability_dict_compatible
 from . import logger
 from .model.trainer import Trainer
 import numpy as np
@@ -157,27 +158,26 @@ class Concord:
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
 
-
-    def init_dataloader(self, input_layer_key='X_log1p',
-                        train_frac=1.0,
-                        sampler_mode=None, emb_key=None,
-                        manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
-                        use_faiss=True, use_ivf=False, ivf_nprobe=8, class_weights=None, p_intra_class=None):
+    def init_sampler_params(self, sampler_mode, class_weights, emb_key, manifold_knn, p_intra_knn, p_intra_domain, use_faiss, use_ivf, ivf_nprobe, p_intra_class):
         if sampler_mode and self.config.domain_key is not None:
             ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
         if class_weights and self.config.class_key is not None:
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
             weights_show = {k: f"{v:.2e}" for k, v in class_weights.items()}
             print(f"Creating weighted samplers with specified weights: {weights_show}")
+        
+        # Validate probability values
+        validate_probability(p_intra_knn, "p_intra_knn")
+        validate_probability_dict_compatible(p_intra_domain, "p_intra_domain")
+        validate_probability(p_intra_class, "p_intra_class")
 
-        kwargs = {
-            'adata': self.adata,
-            'batch_size': self.config.batch_size,
-            'input_layer_key': input_layer_key,
-            'domain_key': self.config.domain_key,
-            'class_key': self.config.class_key,
-            'extra_keys': self.config.extra_keys,
-            'train_frac': train_frac,
+        # Additional checks
+        if p_intra_knn is not None and p_intra_knn > 0.5:
+            raise ValueError("p_intra_knn should not exceed 0.5 as it can lead to deteriorating performance.")
+        if p_intra_class is not None and p_intra_class > 0.5:
+            raise ValueError("p_intra_class should not exceed 0.5 as it can lead to deteriorating performance.")
+
+        return {
             'sampler_mode': sampler_mode,
             'emb_key': emb_key,
             'manifold_knn': manifold_knn,
@@ -187,10 +187,29 @@ class Concord:
             'use_ivf': use_ivf,
             'ivf_nprobe': ivf_nprobe,
             'class_weights': class_weights,
-            'p_intra_class': p_intra_class,
+            'p_intra_class': p_intra_class
+        }
+
+    def init_dataloader(self, input_layer_key='X_log1p',
+                        train_frac=1.0,
+                        sampler_mode=None, emb_key=None,
+                        manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
+                        use_faiss=True, use_ivf=False, ivf_nprobe=8, class_weights=None, p_intra_class=None):
+        
+        sampler_kwargs = self.init_sampler_params(sampler_mode, class_weights, emb_key, manifold_knn, p_intra_knn, p_intra_domain, use_faiss, use_ivf, ivf_nprobe, p_intra_class)
+
+        kwargs = {
+            'adata': self.adata,
+            'batch_size': self.config.batch_size,
+            'input_layer_key': input_layer_key,
+            'domain_key': self.config.domain_key,
+            'class_key': self.config.class_key,
+            'extra_keys': self.config.extra_keys,
+            'train_frac': train_frac,
             'drop_last': False,
             'preprocess': self.preprocessor,
-            'device': self.config.device
+            'device': self.config.device,
+            **sampler_kwargs
         }
 
         if self.config.chunked:

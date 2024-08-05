@@ -3,7 +3,6 @@ from .classSampler import ClassSampler
 from .neighborhoodSampler import NeighborhoodSampler
 from .anndataset import AnnDataset
 from torch.utils.data import DataLoader, random_split, Subset
-from ..utils.value_check import validate_probability, validate_probability_dict_compatible
 from .. import logger
 
 
@@ -11,16 +10,6 @@ def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True,
                       manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
                       class_weights=None, p_intra_class=0.3,
                       use_faiss=True, use_ivf=False, ivf_nprobe=8, ):
-    # Validate probability values
-    validate_probability(p_intra_knn, "p_intra_knn")
-    validate_probability_dict_compatible(p_intra_domain, "p_intra_domain")
-    validate_probability(p_intra_class, "p_intra_class")
-
-    # Additional checks
-    if p_intra_knn is not None and p_intra_knn > 0.5:
-        raise ValueError("p_intra_knn should not exceed 0.5 as it can lead to deteriorating performance.")
-    if p_intra_class is not None and p_intra_class > 0.5:
-        raise ValueError("p_intra_class should not exceed 0.5 as it can lead to deteriorating performance.")
 
     if sampler_mode == "domain":
         sampler = ClassSampler(dataset, batch_size=batch_size, class_weights=None, p_intra=None, drop_last=drop_last, device=device)
