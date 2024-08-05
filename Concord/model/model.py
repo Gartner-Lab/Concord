@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from .dab import AdversarialDiscriminator
 
 class DSBN(nn.Module):
     def __init__(self, num_features, num_domains):
@@ -49,9 +48,9 @@ def build_layers(input_dim, hidden_dim, layer_dims, dropout_prob, norm_type, num
 
 
 class ConcordModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_domain, num_classes, encoder_dims=[], decoder_dims=[], dab_lambd: float = 1.0,
+    def __init__(self, input_dim, hidden_dim, num_domain, num_classes, encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', use_decoder=False,
-                 use_classifier=True, use_dab=False, use_importance_mask=False):
+                 use_classifier=True, use_importance_mask=False):
         super().__init__()
 
         # Encoder
@@ -61,7 +60,6 @@ class ConcordModel(nn.Module):
         self.num_domain = num_domain
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
-        self.use_dab = use_dab
         self.use_importance_mask = use_importance_mask
 
         if encoder_dims:
@@ -81,9 +79,6 @@ class ConcordModel(nn.Module):
                 self.decoder = nn.Sequential(
                     nn.Linear(hidden_dim, input_dim)
                 )
-
-        if self.use_dab:
-            self.dab_decoder = AdversarialDiscriminator(hidden_dim, num_domain, reverse_grad=True, lambd = dab_lambd)
 
         # Classifier head
         if self.use_classifier:
@@ -127,9 +122,6 @@ class ConcordModel(nn.Module):
                 out['decoded'] = x * importance_weights
             else:
                 out['decoded'] = x
-
-        if self.use_dab:
-            out['dab_pred'] = self.dab_decoder(out['encoded'])
 
         if self.use_classifier:
             out['class_pred'] = self.classifier(out['encoded'])
