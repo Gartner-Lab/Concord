@@ -1,6 +1,4 @@
 import numpy as np
-import pandas as pd
-import time
 from .knn import initialize_faiss_index, get_knn_indices
 
 def calculate_dataset_coverage(adata, k=128, emb_key='X_pca', dataset_key=None,

@@ -35,7 +35,7 @@ def plot_results_table(
         result_df = (result_df - result_df.min()) / (result_df.max() - result_df.min())
     
     # Sort by total score
-    plot_df = result_df.sort_values(by=result_df.columns[0], ascending=False).astype(np.float64)
+    plot_df = result_df
     plot_df["Method"] = plot_df.index
 
     # Define column definitions

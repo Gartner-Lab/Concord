@@ -15,6 +15,5 @@ if not logger.hasHandlers() or len(logger.handlers) == 0:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-from . import ml
-from . import pl
-from . import ul
+from . import ml, pl, ul
+from .concord import Concord
