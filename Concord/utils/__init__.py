@@ -16,3 +16,4 @@ from .Hs_Mm_conversion import *
 from .iff_selection import *
 from .run_umap import *
 from .coverage_estimator import *
+from .feature_selector import *

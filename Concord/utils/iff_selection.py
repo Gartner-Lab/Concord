@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import gseapy as gp
 import time
 from ..plotting.pl_enrichment import plot_go_enrichment
 from .knn import initialize_faiss_index, get_knn_indices
@@ -28,15 +27,10 @@ def iff_select(adata,
                knn_samples = 100,
                use_faiss=True,
                use_ivf=True,
+               n_top_genes=None,
                gini_cut=None,
                gini_cut_qt=0.75,
-               compute_go=False,
-               organism="human",
-               top_n=10,
-               qval_correct=1e-10,
-               color_palette='viridis_r',
-               font_size=12,
-               figsize = (4,3),
+               figsize=(10, 3),
                save_path=None):
     if not use_knn and (cluster is None or adata.shape[0] != len(cluster)):
         raise ValueError("Cell number does not match cluster length or cluster is None.")
@@ -45,6 +39,8 @@ def iff_select(adata,
         if knn_emb_key == 'X':
             emb = adata.X
         else:
+            if knn_emb_key not in adata.obsm:
+                raise ValueError(f"{knn_emb_key} does not exist in adata.obsm.")
             emb = adata.obsm[knn_emb_key]
         with Timer() as timer:
             index, nbrs, use_faiss_flag = initialize_faiss_index(emb, k, use_faiss=use_faiss, use_ivf=use_ivf)
@@ -72,36 +68,29 @@ def iff_select(adata,
         gene_clus_gini = expr_clus_frac.apply(gini_coefficient, axis=1)
     logger.info(f"Took {timer.interval:.2f} seconds to compute gini coefficient.")
 
-    if gini_cut is None:
-        gini_cut = gene_clus_gini.quantile(gini_cut_qt)
-        logger.info(f"Cut at gini quantile {gini_cut_qt} with value {gini_cut:.3f}")
+    if n_top_genes is not None:
+        include_g = gene_clus_gini.nlargest(n_top_genes).index.tolist()
+        logger.info(f"Selected top {n_top_genes} genes based on gini coefficient.")
     else:
-        print(f"Cut at gini value {gini_cut}")
+        if gini_cut is None:
+            gini_cut = gene_clus_gini.quantile(gini_cut_qt)
+            logger.info(f"Cut at gini quantile {gini_cut_qt} with value {gini_cut:.3f}")
+        else:
+            logger.info(f"Cut at gini value {gini_cut}")
 
-    plt.figure(figsize=figsize)
-    gene_clus_gini.hist(bins=100)
-    plt.axvline(gini_cut, color='red', linestyle='dashed', linewidth=3)
-    if save_path:
-        file_suffix = f"{time.strftime('%b%d-%H%M')}"
-        plt.savefig(f"{save_path}feature_gini_hist_{file_suffix}.png")
-    else:
-        plt.show()
-    plt.close()
+        plt.figure(figsize=figsize)
+        gene_clus_gini.hist(bins=100)
+        plt.axvline(gini_cut, color='red', linestyle='dashed', linewidth=3)
+        if save_path:
+            file_suffix = f"{time.strftime('%b%d-%H%M')}"
+            plt.savefig(f"{save_path}feature_gini_hist_{file_suffix}.png")
+        else:
+            plt.show()
+        plt.close()
 
-    exclude_g = gene_clus_gini[gene_clus_gini < gini_cut].index.tolist()
-    include_g = gene_clus_gini[gene_clus_gini >= gini_cut].index.tolist()
+        include_g = gene_clus_gini[gene_clus_gini >= gini_cut].index.tolist()
 
-    logger.info(f"Found {len(exclude_g)} less specific features.")
-    logger.info(f"Returning {len(include_g)} specific features.")
-
-    if compute_go:
-        with Timer() as timer:
-            gp_results = gp.enrichr(gene_list=include_g, gene_sets='GO_Biological_Process_2021', organism=organism,
-                                    outdir=None)
-        logger.info(f"Took {timer.interval:.2f} seconds to compute GO.")
-
-        plot_go_enrichment(gp_results, top_n, qval_correct, figsize, color_palette, font_size, save_path)
-
+    logger.info(f"Returning {len(include_g)} informative features.")
 
     return include_g
 

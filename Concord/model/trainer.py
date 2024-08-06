@@ -1,3 +1,4 @@
+
 import torch
 from torch import nn, optim
 from tqdm import tqdm
@@ -193,7 +194,7 @@ class Trainer:
 
         return avg_loss
 
-    def main_training_loop(self, train_dataloader, val_dataloader, num_epochs, min_epochs_for_best_model, unique_classes):
+    def main_training_loop(self, train_dataloader, val_dataloader, num_epochs, unique_classes):
         best_model = None
         best_loss = float("inf")
         best_model_epoch = 0
@@ -211,7 +212,7 @@ class Trainer:
             else:
                 judging_loss = avg_train_loss
 
-            if epoch >= min_epochs_for_best_model and judging_loss < best_loss:
+            if judging_loss < best_loss:
                 best_loss = judging_loss
                 best_model = copy.deepcopy(self.model)
                 best_model_epoch = epoch

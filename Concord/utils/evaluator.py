@@ -5,7 +5,6 @@ import scib
 from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
-from archive.predict_functions import predict_with_model
 import pandas as pd
 
 def evaluate_scib(
@@ -88,30 +87,30 @@ def log_classification(epoch, phase, preds, labels, logger, target_names):
     return accuracy, precision, recall, f1
 
 
+# To be fixed
+
+# def evaluate_classifier(model, dataloader, data_structure, device, target_names, plot_path = None):
+#     model.eval()
+#     embeddings, class_preds, class_true = predict_with_model(model, dataloader, device, data_structure, sort_by_indices=True)
+
+#     # Calculate metrics
+#     report = classification_report(class_true, class_preds, target_names=target_names, output_dict=True)
+#     accuracy = report['accuracy']
+#     precision = {label: metrics['precision'] for label, metrics in report.items() if label in target_names}
+#     recall = {label: metrics['recall'] for label, metrics in report.items() if label in target_names}
+#     f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in target_names}
 
 
-def evaluate_classifier(model, dataloader, data_structure, device, target_names, plot_path = None):
-    model.eval()
-    embeddings, class_preds, class_true = predict_with_model(model, dataloader, device, data_structure, sort_by_indices=True)
+#     # Generate confusion matrix
+#     conf_matrix = confusion_matrix(class_true, class_preds)
 
-    # Calculate metrics
-    report = classification_report(class_true, class_preds, target_names=target_names, output_dict=True)
-    accuracy = report['accuracy']
-    precision = {label: metrics['precision'] for label, metrics in report.items() if label in target_names}
-    recall = {label: metrics['recall'] for label, metrics in report.items() if label in target_names}
-    f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in target_names}
+#     # Plot confusion matrix as heatmap
+#     plt.figure(figsize=(5, 3))
+#     sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=target_names, yticklabels=target_names)
+#     plt.xlabel("Predicted")
+#     plt.ylabel("True")
+#     plt.title("Confusion Matrix")
 
-
-    # Generate confusion matrix
-    conf_matrix = confusion_matrix(class_true, class_preds)
-
-    # Plot confusion matrix as heatmap
-    plt.figure(figsize=(5, 3))
-    sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=target_names, yticklabels=target_names)
-    plt.xlabel("Predicted")
-    plt.ylabel("True")
-    plt.title("Confusion Matrix")
-
-    plt.show()
-    plt.close()
-    return accuracy, precision, recall, f1, conf_matrix, class_preds, embeddings
+#     plt.show()
+#     plt.close()
+#     return accuracy, precision, recall, f1, conf_matrix, class_preds, embeddings

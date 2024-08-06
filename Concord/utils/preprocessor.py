@@ -1,36 +1,26 @@
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 
 import scanpy as sc
 import anndata as ad
-from .. import logger
-
+import logging
+logger = logging.getLogger(__name__)
 
 class Preprocessor:
     def __init__(
         self,
         use_key: Optional[str] = None,
-        filter_gene_by_counts: Union[int, bool] = False,
         filter_cell_by_counts: Union[int, bool] = False,
         normalize_total: Union[float, bool] = 1e4,
         result_normed_key: Optional[str] = "X_normed",
         log1p: bool = False,
-        result_log1p_key: str = "X_log1p",
-        subset_hvg: Union[int, bool] = False,
-        hvg_use_key: Optional[str] = None,
-        hvg_flavor: str = "seurat_v3",
-        domain_key: Optional[str] = None
+        result_log1p_key: str = "X_log1p"
     ):
         self.use_key = use_key
-        self.filter_gene_by_counts = filter_gene_by_counts
         self.filter_cell_by_counts = filter_cell_by_counts
         self.normalize_total = normalize_total
         self.result_normed_key = result_normed_key
         self.log1p = log1p
         self.result_log1p_key = result_log1p_key
-        self.subset_hvg = subset_hvg
-        self.hvg_use_key = hvg_use_key
-        self.hvg_flavor = hvg_flavor
-        self.domain_key = domain_key
 
     def __call__(self, adata) -> Dict:
         key_to_process = self.use_key
@@ -38,15 +28,6 @@ class Preprocessor:
             key_to_process = None
         is_logged = self.check_logged(adata, obs_key=key_to_process)
 
-        # filter genes
-        if self.filter_gene_by_counts:
-            logger.info("Filtering genes by counts ...")
-            sc.pp.filter_genes(
-                adata,
-                min_counts=self.filter_gene_by_counts
-                if isinstance(self.filter_gene_by_counts, int)
-                else None,
-            )
 
         # filter cells
         if (
@@ -95,23 +76,6 @@ class Preprocessor:
                 if self.result_log1p_key:
                     self._set_obs_rep(adata, self._get_obs_rep(adata, layer=key_to_process), layer=self.result_log1p_key)
 
-        # subset hvg
-        if self.subset_hvg:
-            logger.info("Subsetting highly variable genes ...")
-            if self.domain_key is None:
-                logger.warning(
-                    "No domain_key is provided, will use all cells for HVG selection."
-                )
-            sc.pp.highly_variable_genes(
-                adata,
-                layer=self.hvg_use_key,
-                n_top_genes=self.subset_hvg
-                if isinstance(self.subset_hvg, int)
-                else None,
-                batch_key=self.domain_key,
-                flavor=self.hvg_flavor,
-                subset=True,
-            )
 
     def _get_obs_rep(self, adata, layer: Optional[str] = None):
         if layer is None:

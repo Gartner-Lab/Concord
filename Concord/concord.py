@@ -11,6 +11,7 @@ from .utils.value_check import validate_probability, validate_probability_dict_c
 from .utils.coverage_estimator import calculate_dataset_coverage, coverage_to_p_intra
 from .model.trainer import Trainer
 import numpy as np
+import scanpy as sc
 from . import logger
 
 class Config:
@@ -27,8 +28,8 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, proj_name, save_dir='save/', use_wandb=False, **kwargs):
-        self.adata = adata
+    def __init__(self, adata, proj_name=None, save_dir='save/', use_wandb=False, **kwargs):
+        self.adata = adata.copy()
         self.proj_name = proj_name
         self.save_dir = Path(save_dir)
         self.config = None
@@ -45,17 +46,24 @@ class Concord:
         add_file_handler(logger, self.save_dir / "run.log")
         self.setup_config(**kwargs)
 
+        if self.config.input_feature is None:
+            logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
+            logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
+        else:
+            logger.info(f"Subsetting with provided {len(self.config.input_feature)} features...")
+            self.adata._inplace_subset_var(adata.var_names.isin(self.config.input_feature))
+        # to be used by chunkloader for data transformation
         self.preprocessor = Preprocessor(
             use_key="X",
             normalize_total=1e4,
             result_normed_key="X_normed",
             log1p=True,
-            result_log1p_key="X_log1p",
-            domain_key=self.config.domain_key
+            result_log1p_key="X_log1p"
         )
 
 
     def setup_config(self, 
+                     input_feature=None,
                      batch_size=64, 
                      schedule_ratio=0.9, 
                      latent_dim=32, 
@@ -93,6 +101,7 @@ class Concord:
                      seed=0):
         initial_params = dict(
             seed=seed,
+            input_feature=input_feature,
             project_name=self.proj_name,
             batch_size=batch_size,
             schedule_ratio=schedule_ratio,
@@ -215,6 +224,12 @@ class Concord:
             logger.warning("It is recommended to set p_intra_domain values above 0.1 for good batch-correction performance.")
 
         if p_intra_domain is None:
+            if sampler_emb not in self.adata.obsm:
+                if sampler_emb == "X_pca":
+                    logger.warning("PCA embeddings are not found in adata.obsm. Computing PCA...")
+                    sc.tl.pca(self.adata, n_comps=50)
+                else:
+                    raise ValueError(f"Embedding {sampler_emb} is not found in adata.obsm. Please provide a valid embedding key.")
             logger.info(f"Calculating each domain's coverage of the global manifold with knn (k={coverage_knn}) constructed on {sampler_emb}.")
             dataset_coverage = calculate_dataset_coverage(self.adata,
                                                             k=coverage_knn,

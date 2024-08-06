@@ -2,6 +2,13 @@
 import gseapy as gp
 import pandas as pd
 import os
+from ..plotting.pl_enrichment import plot_go_enrichment
+
+
+def compute_go(feature_list, organism="human", top_n=10, qval_correct=1e-10, color_palette='viridis_r', font_size=12, dpi=300, figsize=(10,3), save_path=None):
+    gp_results = gp.enrichr(gene_list=feature_list, gene_sets='GO_Biological_Process_2021', organism=organism, outdir=None)
+    plot_go_enrichment(gp_results, top_n=top_n, qval_correct=qval_correct, color_palette=color_palette, font_size=font_size, figsize=figsize, dpi=dpi, save_path=save_path)
+    return gp_results
 
 def run_gsea_for_all_neurons(ranked_lists, gene_sets='GO_Biological_Process_2021', outdir='GSEA_results',
                              processes = 4, permutation_num=500, seed=0):

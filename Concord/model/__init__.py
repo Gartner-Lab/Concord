@@ -5,4 +5,4 @@ from .loss import *
 from .model import *
 from .classSampler import *
 from .neighborhoodSampler import *
-from .trainer import *
+from .trainer import Trainer
