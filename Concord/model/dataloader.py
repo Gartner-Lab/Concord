@@ -7,7 +7,7 @@ from .. import logger
 
 
 def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True, emb_key='encoded',
-                      manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
+                      sampler_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
                       class_weights=None, p_intra_class=0.3,
                       use_faiss=True, use_ivf=False, ivf_nprobe=8, ):
 
@@ -22,7 +22,7 @@ def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True,
         if p_intra_knn is None:
             raise ValueError("p_intra_knn is required for neighborhood sampler.")
         sampler = NeighborhoodSampler(dataset, batch_size=batch_size, emb_key=emb_key,
-                                      manifold_knn=manifold_knn, p_intra_knn=p_intra_knn, p_intra_domain=p_intra_domain,
+                                      sampler_knn=sampler_knn, p_intra_knn=p_intra_knn, p_intra_domain=p_intra_domain,
                                       use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe, device=device)
         dataloader = DataLoader(dataset, batch_sampler=sampler)
     elif sampler_mode is None:
@@ -40,7 +40,7 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
                           batch_size=32,
                           sampler_mode="domain",
                           emb_key=None,
-                          manifold_knn=300,
+                          sampler_knn=300,
                           p_intra_knn=0.3,
                           p_intra_domain=1.0,
                           use_faiss=True, use_ivf=False, ivf_nprobe=8,
@@ -63,7 +63,7 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
         'batch_size': batch_size,
         'sampler_mode': sampler_mode,
         'emb_key': emb_key,
-        'manifold_knn': manifold_knn,
+        'sampler_knn': sampler_knn,
         'p_intra_knn': p_intra_knn,
         'p_intra_domain': p_intra_domain,
         'use_faiss': use_faiss,

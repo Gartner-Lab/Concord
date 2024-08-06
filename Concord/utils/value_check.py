@@ -1,7 +1,6 @@
 
 
 
-
 def validate_probability(prob, name):
     if prob is not None:
         if not (0.0 <= prob <= 1.0):
@@ -15,3 +14,8 @@ def validate_probability_dict_compatible(prob, name):
     else:
         validate_probability(prob, name)
 
+def check_dict_condition(dictionary, condition):
+    for _, value in dictionary.items():
+        if value is not None and condition(value):
+            return True
+    return False

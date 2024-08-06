@@ -1,6 +1,6 @@
 
 import torch
-from torch.utils.data import WeightedRandomSampler, Sampler
+from torch.utils.data import Sampler
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 from ..utils.knn import initialize_faiss_index, get_knn_indices
@@ -10,14 +10,14 @@ from .. import logger
 class NeighborhoodSampler(Sampler):
     def __init__(self, dataset, batch_size, emb_key="encoded",
                  local_sampling_method=None,
-                 manifold_knn=300, p_intra_knn=0.3,
+                 sampler_knn=300, p_intra_knn=0.3,
                  p_intra_domain=1.0,
                  use_faiss=True, use_ivf=False, ivf_nprobe=8,
                  device=None):
         self.dataset = dataset
         self.batch_size = batch_size
         self.local_sampling_method=local_sampling_method
-        self.manifold_knn = manifold_knn
+        self.sampler_knn = sampler_knn
         self.p_intra_knn = p_intra_knn
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
@@ -54,11 +54,11 @@ class NeighborhoodSampler(Sampler):
         self.index = None
         self.nbrs = None
         if self.use_faiss:
-            self.index, self.nbrs, self.use_faiss = initialize_faiss_index(emb=self.emb, k=self.manifold_knn,
+            self.index, self.nbrs, self.use_faiss = initialize_faiss_index(emb=self.emb, k=self.sampler_knn,
                                                                            use_faiss=self.use_faiss, use_ivf=self.use_ivf,
                                                                            ivf_nprobe=self.ivf_nprobe)
         if not self.use_faiss:
-            self.nbrs = NearestNeighbors(n_neighbors=self.manifold_knn + 1).fit(self.emb)
+            self.nbrs = NearestNeighbors(n_neighbors=self.sampler_knn + 1).fit(self.emb)
 
         self.valid_batches = self._generate_batches()
 
@@ -87,7 +87,7 @@ class NeighborhoodSampler(Sampler):
             core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_core_samples]]
 
             # Sample within knn neighborhood
-            knn_around_core = get_knn_indices(self.emb, core_samples, k=self.manifold_knn,
+            knn_around_core = get_knn_indices(self.emb, core_samples, k=self.sampler_knn,
                                               use_faiss=self.use_faiss,
                                               index=self.index, nbrs=self.nbrs) # (core_samples, k), contains knn around the core samples
             knn_around_core = torch.tensor(knn_around_core).to(self.device)

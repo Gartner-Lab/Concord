@@ -7,11 +7,11 @@ from .utils.anndata_utils import ensure_categorical
 from .model.dataloader import anndata_to_dataloader
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, update_wandb_params
-from .utils.value_check import validate_probability, validate_probability_dict_compatible
-from . import logger
+from .utils.value_check import validate_probability, validate_probability_dict_compatible, check_dict_condition
+from .utils.coverage_estimator import calculate_dataset_coverage, coverage_to_p_intra
 from .model.trainer import Trainer
 import numpy as np
-
+from . import logger
 
 class Config:
     def __init__(self, config_dict):
@@ -36,6 +36,7 @@ class Concord:
         self.model = None
         self.use_wandb = use_wandb
         self.run = None
+        self.sampler_kwargs = {}
         self.n_epochs_run = 0
 
         if not self.save_dir.exists():
@@ -54,32 +55,45 @@ class Concord:
         )
 
 
-    def setup_config(self, seed=0, data_path="data/",
-                     batch_size=64, schedule_ratio=0.9, latent_dim=32, encoder_dims=[128],decoder_dims=[128],
+    def setup_config(self, 
+                     batch_size=64, 
+                     schedule_ratio=0.9, 
+                     latent_dim=32, 
+                     encoder_dims=[128],
+                     decoder_dims=[128],
                      augmentation_mask_prob=0.6,
+                     use_decoder=True, # Consider fix
+                     use_clr=True, # Consider fix
+                     use_classifier=False,
+                     use_importance_mask = False,
+                     importance_penalty_weight=0,
+                     importance_penalty_type='L1',
+                     dropout_prob=0.1,
+                     norm_type="layer_norm", # Consider fix
                      domain_key=None,
                      class_key=None,
                      extra_keys=None,
-                     use_decoder=True,
-                     use_clr=True,
-                     use_classifier=False,
-                     use_importance_mask = False,
-                     importance_penalty_weight=0.1,
-                     importance_penalty_type='L1',
-                     dropout_prob=0.1,
-                     norm_type="layer_norm",
-                     min_epochs_for_best_model=0,
+                     sampler_mode="neighborhood",
+                     sampler_emb="X_pca",
+                     sampler_knn=256, 
+                     p_intra_knn=0.3,
+                     p_intra_domain=None,
+                     min_p_intra_domain=0.5,
+                     max_p_intra_domain=1.0,
+                     use_faiss=True, 
+                     use_ivf=True, 
+                     ivf_nprobe=10,
                      pretrained_model=None,
                      classifier_freeze_param=False,
                      doublet_synth_ratio=0.4,
                      chunked=False,
                      chunk_size=10000,
                      wandb_reinit=True,
-                     device='cpu'):
+                     device='cpu',
+                     seed=0):
         initial_params = dict(
             seed=seed,
             project_name=self.proj_name,
-            data_path=data_path,
             batch_size=batch_size,
             schedule_ratio=schedule_ratio,
             latent_dim=latent_dim,
@@ -97,7 +111,16 @@ class Concord:
             augmentation_mask_prob=augmentation_mask_prob,
             dropout_prob=dropout_prob,
             norm_type=norm_type,
-            min_epochs_for_best_model=min_epochs_for_best_model,
+            sampler_mode=sampler_mode,
+            sampler_emb=sampler_emb,
+            sampler_knn=sampler_knn,
+            p_intra_knn=p_intra_knn,
+            p_intra_domain=p_intra_domain,
+            min_p_intra_domain=min_p_intra_domain,
+            max_p_intra_domain=max_p_intra_domain,
+            use_faiss=use_faiss,
+            use_ivf=use_ivf,
+            ivf_nprobe=ivf_nprobe,
             pretrained_model=pretrained_model,
             classifier_freeze_param=classifier_freeze_param,
             doublet_synth_ratio=doublet_synth_ratio,
@@ -146,6 +169,7 @@ class Concord:
 
         self.n_epochs_run = 0
 
+
     def init_trainer(self, lr=1e-3):
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
@@ -158,17 +182,26 @@ class Concord:
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
 
-    def init_sampler_params(self, sampler_mode, class_weights, emb_key, manifold_knn, p_intra_knn, p_intra_domain, use_faiss, use_ivf, ivf_nprobe, p_intra_class):
+
+    def init_sampler_params(self, sampler_mode, 
+                            sampler_emb, 
+                            sampler_knn=256, 
+                            p_intra_knn=0.3,  
+                            p_intra_class=None,
+                            p_intra_domain=None,
+                            class_weights=None, 
+                            coverage_knn=256, 
+                            min_p_intra_domain=0.5, max_p_intra_domain=1.0, scale_to_min_max=True,
+                            use_faiss=True, use_ivf=True, ivf_nprobe=10):
         if sampler_mode and self.config.domain_key is not None:
             ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
         if class_weights and self.config.class_key is not None:
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
             weights_show = {k: f"{v:.2e}" for k, v in class_weights.items()}
-            print(f"Creating weighted samplers with specified weights: {weights_show}")
+            logger.info(f"Creating weighted samplers with specified weights: {weights_show}")
         
         # Validate probability values
         validate_probability(p_intra_knn, "p_intra_knn")
-        validate_probability_dict_compatible(p_intra_domain, "p_intra_domain")
         validate_probability(p_intra_class, "p_intra_class")
 
         # Additional checks
@@ -176,13 +209,42 @@ class Concord:
             raise ValueError("p_intra_knn should not exceed 0.5 as it can lead to deteriorating performance.")
         if p_intra_class is not None and p_intra_class > 0.5:
             raise ValueError("p_intra_class should not exceed 0.5 as it can lead to deteriorating performance.")
+        
+        if (isinstance(p_intra_domain, dict) and check_dict_condition(p_intra_domain, lambda x: x < 0.1)) or \
+           (p_intra_domain is not None and not isinstance(p_intra_domain, dict) and p_intra_domain < 0.1):
+            logger.warning("It is recommended to set p_intra_domain values above 0.1 for good batch-correction performance.")
 
-        return {
+        if p_intra_domain is None:
+            logger.info(f"Calculating each domain's coverage of the global manifold with knn (k={coverage_knn}) constructed on {sampler_emb}.")
+            dataset_coverage = calculate_dataset_coverage(self.adata,
+                                                            k=coverage_knn,
+                                                            emb_key=sampler_emb,
+                                                            dataset_key=self.config.domain_key,
+                                                            use_faiss=use_faiss,
+                                                            use_ivf=use_ivf,
+                                                            ivf_nprobe=ivf_nprobe)
+            logger.info(f"Converting coverage to p_intra_domain with specified min: {min_p_intra_domain:.2f}, max: {max_p_intra_domain:.2f}, rescale: {scale_to_min_max}.")
+            p_intra_domain_dict = coverage_to_p_intra(self.adata.obs[self.config.domain_key], 
+                                                    coverage=dataset_coverage, 
+                                                    min_p_intra_domain=min_p_intra_domain, 
+                                                    max_p_intra_domain=max_p_intra_domain, 
+                                                    scale_to_min_max=scale_to_min_max)
+            logger.info(f"Final p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in p_intra_domain_dict.items())}")
+        else:
+            if isinstance(p_intra_domain, dict):
+                logger.info(f"Using provided p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in p_intra_domain.items())}.")
+            else:
+                logger.info(f"Using provided p_intra_domain values: {p_intra_domain:.2f}.")
+            p_intra_domain_dict = p_intra_domain
+
+        validate_probability_dict_compatible(p_intra_domain_dict, "p_intra_domain")
+
+        self.sampler_kwargs = {
             'sampler_mode': sampler_mode,
-            'emb_key': emb_key,
-            'manifold_knn': manifold_knn,
+            'emb_key': sampler_emb,
+            'sampler_knn': sampler_knn,
             'p_intra_knn': p_intra_knn,
-            'p_intra_domain': p_intra_domain,
+            'p_intra_domain': p_intra_domain_dict,
             'use_faiss': use_faiss,
             'use_ivf': use_ivf,
             'ivf_nprobe': ivf_nprobe,
@@ -190,14 +252,17 @@ class Concord:
             'p_intra_class': p_intra_class
         }
 
-    def init_dataloader(self, input_layer_key='X_log1p',
-                        train_frac=1.0,
-                        sampler_mode=None, emb_key=None,
-                        manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
-                        use_faiss=True, use_ivf=False, ivf_nprobe=8, class_weights=None, p_intra_class=None):
-        
-        sampler_kwargs = self.init_sampler_params(sampler_mode, class_weights, emb_key, manifold_knn, p_intra_knn, p_intra_domain, use_faiss, use_ivf, ivf_nprobe, p_intra_class)
 
+    def init_dataloader(self, input_layer_key='X_log1p',
+                        train_frac=1.0, use_sampler=True):
+        if use_sampler:
+            if not self.sampler_kwargs:
+                raise ValueError("Sampler parameters are not initialized. Please call init_sampler_params() before initializing the dataloader.")
+            else:
+                sampler_kwargs = self.sampler_kwargs
+        else:
+            sampler_kwargs={}
+        
         kwargs = {
             'adata': self.adata,
             'batch_size': self.config.batch_size,
@@ -336,15 +401,40 @@ class Concord:
             return embeddings, class_preds, class_true
 
 
-    def encode_adata(self, input_layer_key='X_log1p', n_epochs = 3, lr=1e-3, class_weights=None):
-        # Model Training
+    def encode_adata(self, input_layer_key="X_log1p", 
+                     lr=1e-3, n_epochs=3):
+        # Initialize sampler parameters
+        self.init_sampler_params(
+            sampler_mode=self.config.sampler_mode, 
+            sampler_emb=self.config.sampler_emb, 
+            sampler_knn=self.config.sampler_knn, 
+            p_intra_knn=self.config.p_intra_knn, 
+            p_intra_domain=self.config.p_intra_domain, 
+            min_p_intra_domain=self.config.min_p_intra_domain, 
+            max_p_intra_domain=self.config.max_p_intra_domain,
+            use_faiss=self.config.use_faiss,
+            use_ivf=self.config.use_ivf,
+            ivf_nprobe=self.config.ivf_nprobe
+        )
+        
+        # Initialize the model
         self.init_model()
-        self.init_dataloader(input_layer_key, class_weights=class_weights)
+        
+        # Initialize the dataloader
+        self.init_dataloader(input_layer_key=input_layer_key)
+        
+        # Initialize the trainer
         self.init_trainer(lr=lr)
+        
+        # Train the model
         self.train(n_epochs=n_epochs)
-        # Predict Embeddings after all epochs have been run
-        full_data_loader = self.init_dataloader(input_layer_key)
-        self.adata.obsm['encoded'] = self.get_full_embeddings(full_data_loader)
+        
+        # Reinitialize the dataloader without using the sampler
+        self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
+        
+        # Predict and store the results in adata.obsm['Concord']
+        self.adata.obsm['Concord'], _, _ = self.predict(self.loader)
+
 
     def save_model(self, model, save_path):
         torch.save(model.state_dict(), save_path)
