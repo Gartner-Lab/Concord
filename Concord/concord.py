@@ -44,7 +44,6 @@ class Concord:
         self.use_wandb = use_wandb
         self.run = None
         self.sampler_kwargs = {}
-        self.n_epochs_run = 0
 
         if not self.save_dir.exists():
             self.save_dir.mkdir(parents=True, exist_ok=True)
@@ -71,6 +70,8 @@ class Concord:
     def setup_config(self, 
                      input_feature=None,
                      batch_size=64, 
+                     n_epochs=3,
+                     lr=1e-3,
                      schedule_ratio=0.9, 
                      latent_dim=32, 
                      encoder_dims=[128],
@@ -110,6 +111,8 @@ class Concord:
             input_feature=input_feature,
             project_name=self.proj_name,
             batch_size=batch_size,
+            n_epochs=n_epochs,
+            lr=lr,
             schedule_ratio=schedule_ratio,
             latent_dim=latent_dim,
             encoder_dims=encoder_dims,
@@ -182,15 +185,13 @@ class Concord:
             else:
                 raise FileNotFoundError(f"Model file not found at {best_model_path}")
 
-        self.n_epochs_run = 0
 
-
-    def init_trainer(self, lr=1e-3):
+    def init_trainer(self):
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
                                logger=logger,
-                               lr=lr,
+                               lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
                                use_classifier=self.config.use_classifier, use_decoder=self.config.use_decoder,
                                use_clr=self.config.use_clr, use_wandb=self.use_wandb,
@@ -312,11 +313,11 @@ class Concord:
             self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 
-    def train(self, n_epochs=3):
-        for epoch in range(n_epochs):
-            logger.info(f'Starting epoch {self.n_epochs_run + epoch + 1}/{self.n_epochs_run + n_epochs}')
+    def train(self):
+        for epoch in range(self.config.n_epochs):
+            logger.info(f'Starting epoch {epoch + 1}/{self.config.n_epochs}')
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
-                logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {self.n_epochs_run + epoch + 1}')
+                logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {epoch + 1}')
                 if train_dataloader is not None:
                     print(f"Number of samples in train_dataloader: {len(train_dataloader.dataset)}")
                 if val_dataloader is not None:
@@ -329,7 +330,6 @@ class Concord:
 
             self.trainer.scheduler.step()
 
-        self.n_epochs_run += n_epochs  # Update epoch counter
         model_save_path = self.save_dir / "final_model.pth"
         self.save_model(self.model, model_save_path)
 
@@ -423,8 +423,7 @@ class Concord:
             return embeddings, class_preds, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="encoded",
-                     lr=1e-3, n_epochs=3):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="encoded"):
         # Initialize sampler parameters
         self.init_sampler_params(
             sampler_mode=self.config.sampler_mode, 
@@ -446,10 +445,10 @@ class Concord:
         self.init_dataloader(input_layer_key=input_layer_key)
         
         # Initialize the trainer
-        self.init_trainer(lr=lr)
+        self.init_trainer()
         
         # Train the model
-        self.train(n_epochs=n_epochs)
+        self.train()
         
         # Reinitialize the dataloader without using the sampler
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)

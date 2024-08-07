@@ -34,7 +34,7 @@ def run_hyperparameter_tests(adata, base_params, param_grid, save_dir):
                 file_suffix = f"{param_name}_{value}_{time.strftime('%b%d-%H%M')}"
 
                 # Encode adata and store the results in adata.obsm
-                ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key, lr=1e-3, n_epochs=3)
+                ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key)
 
                 # Save the parameter settings
                 config_filename = Path(save_dir) / f"config_{file_suffix}.json"
