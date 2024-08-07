@@ -23,13 +23,19 @@ class Config:
         return getattr(self, item)
 
     def to_dict(self):
-        return {key: getattr(self, key) for key in dir(self) if
-                not key.startswith('__') and not callable(getattr(self, key))}
+        def serialize(value):
+            if isinstance(value, (torch.device,)):
+                return str(value)
+            # Add more cases if needed for other non-serializable types
+            return value
+
+        return {key: serialize(getattr(self, key)) for key in dir(self)
+                if not key.startswith('__') and not callable(getattr(self, key))}
 
 
 class Concord:
-    def __init__(self, adata, proj_name=None, save_dir='save/', use_wandb=False, **kwargs):
-        self.adata = adata.copy()
+    def __init__(self, adata, proj_name=None, save_dir='save/', inplace=True, use_wandb=False, **kwargs):
+        self.adata = adata if inplace else adata.copy()
         self.proj_name = proj_name
         self.save_dir = Path(save_dir)
         self.config = None
@@ -49,12 +55,12 @@ class Concord:
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
-        else:
-            logger.info(f"Subsetting with provided {len(self.config.input_feature)} features...")
-            self.adata._inplace_subset_var(adata.var_names.isin(self.config.input_feature))
+            self.config.input_feature = self.adata.var_names.tolist()
+        
         # to be used by chunkloader for data transformation
         self.preprocessor = Preprocessor(
             use_key="X",
+            feature_list=self.config.input_feature,
             normalize_total=1e4,
             result_normed_key="X_normed",
             log1p=True,
@@ -148,7 +154,7 @@ class Concord:
 
 
     def init_model(self):
-        input_dim = self.adata.shape[1]
+        input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
         num_domain = len(self.adata.obs[self.config.domain_key].unique()) if self.config.domain_key is not None else 0
         num_classes = 0  # No classification for this run
@@ -227,6 +233,7 @@ class Concord:
             if sampler_emb not in self.adata.obsm:
                 if sampler_emb == "X_pca":
                     logger.warning("PCA embeddings are not found in adata.obsm. Computing PCA...")
+                    self.preprocessor(adata=self.adata)
                     sc.tl.pca(self.adata, n_comps=50)
                 else:
                     raise ValueError(f"Embedding {sampler_emb} is not found in adata.obsm. Please provide a valid embedding key.")
@@ -416,7 +423,7 @@ class Concord:
             return embeddings, class_preds, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", 
+    def encode_adata(self, input_layer_key="X_log1p", output_key="encoded",
                      lr=1e-3, n_epochs=3):
         # Initialize sampler parameters
         self.init_sampler_params(
@@ -447,8 +454,8 @@ class Concord:
         # Reinitialize the dataloader without using the sampler
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
         
-        # Predict and store the results in adata.obsm['Concord']
-        self.adata.obsm['Concord'], _, _ = self.predict(self.loader)
+        # Predict and store the results
+        self.adata.obsm[output_key], _, _ = self.predict(self.loader)
 
 
     def save_model(self, model, save_path):

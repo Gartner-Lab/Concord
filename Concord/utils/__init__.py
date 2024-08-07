@@ -17,3 +17,4 @@ from .iff_selection import *
 from .run_umap import *
 from .coverage_estimator import *
 from .feature_selector import *
+from .benchmarker import *

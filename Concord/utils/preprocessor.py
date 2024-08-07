@@ -10,6 +10,7 @@ class Preprocessor:
         self,
         use_key: Optional[str] = None,
         filter_cell_by_counts: Union[int, bool] = False,
+        feature_list: Optional[List[str]] = None,
         normalize_total: Union[float, bool] = 1e4,
         result_normed_key: Optional[str] = "X_normed",
         log1p: bool = False,
@@ -17,6 +18,7 @@ class Preprocessor:
     ):
         self.use_key = use_key
         self.filter_cell_by_counts = filter_cell_by_counts
+        self.feature_list = feature_list
         self.normalize_total = normalize_total
         self.result_normed_key = result_normed_key
         self.log1p = log1p
@@ -76,6 +78,9 @@ class Preprocessor:
                 if self.result_log1p_key:
                     self._set_obs_rep(adata, self._get_obs_rep(adata, layer=key_to_process), layer=self.result_log1p_key)
 
+        if self.feature_list:
+            logger.info(f"Filtering features with provided list ({len(self.feature_list)} features)...")
+            adata._inplace_subset_var(adata.var_names.isin(self.feature_list))
 
     def _get_obs_rep(self, adata, layer: Optional[str] = None):
         if layer is None:

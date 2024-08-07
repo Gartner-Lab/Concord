@@ -1,5 +1,6 @@
 import numpy as np
 from .knn import initialize_faiss_index, get_knn_indices
+from .. import logger
 
 def calculate_dataset_coverage(adata, k=128, emb_key='X_pca', dataset_key=None,
                                use_faiss=True, use_ivf=False, ivf_nprobe=10):
@@ -85,9 +86,9 @@ def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, 
             min_coverage = min(p_intra_domain_dict.values())
             max_coverage = max(p_intra_domain_dict.values())
             if min_p_intra_domain < min_coverage:
-                raise ValueError(f"Minimum coverage value ({min_coverage:.3f}) is greater than min_p_intra_domain ({min_p_intra_domain:.3f}) when scale_to_min_max is True." 
-                                 "Please set min_p_intra_domain to a value greater than or equal to the minimum coverage value.")
-
+                logger.warn(f"Minimum coverage value ({min_coverage:.3f}) is greater than min_p_intra_domain ({min_p_intra_domain:.3f}) when scale_to_min_max is True." 
+                                 "Resetting min_p_intra_domain equal to the minimum coverage value.")
+                min_p_intra_domain = min_coverage
             if min_coverage != max_coverage:  # Avoid division by zero
                 scale = (max_p_intra_domain - min_p_intra_domain) / (max_coverage - min_coverage)
                 p_intra_domain_dict = {

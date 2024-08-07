@@ -3,7 +3,8 @@ import torch
 from torch.utils.data import Dataset
 from scipy.sparse import issparse
 import numpy as np
-from .. import logger
+import logging
+logger = logging.getLogger(__name__)
 
 
 class AnnDataset(Dataset):

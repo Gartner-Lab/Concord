@@ -3,7 +3,8 @@ from .classSampler import ClassSampler
 from .neighborhoodSampler import NeighborhoodSampler
 from .anndataset import AnnDataset
 from torch.utils.data import DataLoader, random_split, Subset
-from .. import logger
+import logging
+logger = logging.getLogger(__name__)
 
 
 def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True, emb_key='encoded',
@@ -53,6 +54,7 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     if preprocess:
+        logger.info("Preprocessing adata...")
         preprocess(adata)
 
     dataset = AnnDataset(adata, input_layer_key=input_layer_key, domain_key=domain_key,

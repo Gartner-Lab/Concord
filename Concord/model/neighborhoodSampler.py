@@ -4,7 +4,8 @@ from torch.utils.data import Sampler
 from sklearn.neighbors import NearestNeighbors
 import numpy as np
 from ..utils.knn import initialize_faiss_index, get_knn_indices
-from .. import logger
+import logging
+logger = logging.getLogger(__name__)
 
 
 class NeighborhoodSampler(Sampler):
