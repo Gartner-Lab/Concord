@@ -159,10 +159,9 @@ class Concord:
     def init_model(self):
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
-        num_domain = len(self.adata.obs[self.config.domain_key].unique()) if self.config.domain_key is not None else 0
         num_classes = 0  # No classification for this run
 
-        self.model = ConcordModel(input_dim, hidden_dim, num_domain, num_classes,
+        self.model = ConcordModel(input_dim, hidden_dim, num_classes,
                                encoder_dims=self.config.encoder_dims,
                                decoder_dims=self.config.decoder_dims,
                                augmentation_mask_prob=self.config.augmentation_mask_prob,
