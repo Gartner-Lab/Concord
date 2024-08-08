@@ -334,23 +334,26 @@ class Concord:
         self.save_model(self.model, model_save_path)
 
 
-    def predict(self, loader, sort_by_indices=False):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False):  
         self.model.eval()
         class_preds = []
         class_true = []
         embeddings = []
+        decoded_mtx = []
         indices = []
 
         if isinstance(loader, list) and all(isinstance(item, tuple) for item in loader):
             all_embeddings = []
+            all_decoded = []
             all_class_preds = []
             all_class_true = []
             all_indices = []
 
             for chunk_idx, (dataloader, _, ck_indices) in enumerate(loader):
                 logger.info(f'Predicting for chunk {chunk_idx + 1}/{len(loader)}')
-                ck_embeddings, ck_class_preds, ck_class_true = self.predict(dataloader, sort_by_indices=True)
+                ck_embeddings, ck_decoded, ck_class_preds, ck_class_true = self.predict(dataloader, sort_by_indices=True, return_decoded=return_decoded)
                 all_embeddings.append(ck_embeddings)
+                all_decoded.append(ck_decoded) if return_decoded else None
                 all_indices.extend(ck_indices)
                 if ck_class_preds is not None:
                     all_class_preds.extend(ck_class_preds)
@@ -358,6 +361,7 @@ class Concord:
                     all_class_true.extend(ck_class_true)
 
             all_embeddings = np.vstack(all_embeddings)
+            all_decoded = np.vstack(all_decoded) if all_decoded else None
             all_indices = np.array(all_indices)
             sorted_indices = np.argsort(all_indices)
             all_embeddings = all_embeddings[sorted_indices]
@@ -369,7 +373,7 @@ class Concord:
                 all_class_true = np.array(all_class_true)[sorted_indices]
             else:
                 all_class_true = None
-            return all_embeddings, all_class_preds, all_class_true
+            return all_embeddings, all_decoded, all_class_preds, all_class_true
         
         else:
             with torch.no_grad():
@@ -390,21 +394,21 @@ class Concord:
 
                     domain_idx = domain_labels[0].item() if domain_labels is not None else None
                     outputs = self.model(inputs, domain_idx)
-                    class_pred = outputs.get('class_pred')
-
-                    if class_pred is not None:
-                        class_preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
-
+                    if 'class_pred' in outputs:
+                        class_preds.extend(torch.argmax(outputs['class_pred'], dim=1).cpu().numpy())
                     if 'encoded' in outputs:
                         embeddings.append(outputs['encoded'].cpu().numpy())
-                    else:
-                        raise ValueError("Model output does not contain 'encoded' embeddings.")
+                    if 'decoded' in outputs and return_decoded:
+                        decoded_mtx.append(outputs['decoded'].cpu().numpy())
 
             if not embeddings:
                 raise ValueError("No embeddings were extracted. Check the model and dataloader.")
 
             # Concatenate embeddings
             embeddings = np.concatenate(embeddings, axis=0)
+
+            if decoded_mtx:
+                decoded_mtx = np.concatenate(decoded_mtx, axis=0)
 
             # Convert predictions and true labels to numpy arrays
             class_preds = np.array(class_preds) if class_preds else None
@@ -415,15 +419,17 @@ class Concord:
                 indices = np.array(indices)
                 sorted_indices = np.argsort(indices)
                 embeddings = embeddings[sorted_indices]
+                if return_decoded:
+                    decoded_mtx = decoded_mtx[sorted_indices]
                 if class_preds is not None:
                     class_preds = class_preds[sorted_indices]
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
 
-            return embeddings, class_preds, class_true
+            return embeddings, decoded_mtx, class_preds, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="encoded"):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="X_concord", return_decoded=False):
         # Initialize sampler parameters
         self.init_sampler_params(
             sampler_mode=self.config.sampler_mode, 
@@ -454,7 +460,10 @@ class Concord:
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
         
         # Predict and store the results
-        self.adata.obsm[output_key], _, _ = self.predict(self.loader)
+        encoded, decoded, _, _ = self.predict(self.loader, return_decoded=return_decoded)
+        self.adata.obsm[output_key] = encoded
+        if decoded is not None:
+            self.adata.layers[output_key+'_decoded'] = decoded # Store decoded values in adata.layers
 
 
     def save_model(self, model, save_path):

@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def clustermap_with_annotations(adata, obsm_key, obs_keys, cmap='viridis', figsize=(12, 8), save_path=None):
+def clustermap_with_annotations(adata, obsm_key, obs_keys, cmap='viridis', figsize=(12, 8), dpi=300, save_path=None):
     """
     Create a clustermap colored by multiple columns in adata.obs and optionally save the figure.
 
@@ -46,12 +46,8 @@ def clustermap_with_annotations(adata, obsm_key, obs_keys, cmap='viridis', figsi
         figsize=figsize
     )
 
-    # Save the figure if save_path is provided
     if save_path:
-        plt.savefig(save_path, dpi=300)
+        plt.savefig(save_path, dpi=dpi)
 
-    # Show the plot
     plt.show()
-
-
 

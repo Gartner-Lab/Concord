@@ -9,7 +9,7 @@ from .loss import ContrastiveLoss, importance_penalty_loss
 
 class Trainer:
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
-                 use_classifier=True, use_decoder=False, use_dab=False, use_clr=False,
+                 use_classifier=True, use_decoder=False, use_clr=False,
                  importance_penalty_weight=0.1, importance_penalty_type='L1',
                  use_wandb=False):
         self.model = model
@@ -18,7 +18,6 @@ class Trainer:
         self.logger = logger
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
-        self.use_dab = use_dab
         self.use_clr = use_clr
         self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
@@ -26,7 +25,6 @@ class Trainer:
 
         self.classifier_criterion = nn.CrossEntropyLoss()
         self.mse_criterion = nn.MSELoss()
-        self.dab_criterion = nn.CrossEntropyLoss()
         self.contrastive_criterion = ContrastiveLoss() if use_clr else None
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
@@ -37,11 +35,9 @@ class Trainer:
         outputs = self.model(inputs, domain_idx)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
-        dab_pred = outputs.get('dab_pred')
 
         loss_classifier = self.classifier_criterion(class_pred, class_labels) if class_pred is not None else torch.tensor(0.0)
         loss_mse = self.mse_criterion(decoded, inputs) if decoded is not None else torch.tensor(0.0)
-        loss_dab = self.dab_criterion(dab_pred, domain_labels) if dab_pred is not None else torch.tensor(0.0)
         loss_clr = torch.tensor(0.0)
 
         if self.contrastive_criterion is not None:
@@ -55,13 +51,13 @@ class Trainer:
         else:
             loss_penalty = torch.tensor(0.0)
 
-        loss = loss_classifier + loss_mse + loss_dab + loss_clr + loss_penalty
+        loss = loss_classifier + loss_mse + loss_clr + loss_penalty
 
-        return loss, class_pred, loss_classifier, loss_mse, loss_dab, loss_clr, loss_penalty
+        return loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty
 
     def train_epoch(self, epoch, train_dataloader, unique_classes):
         self.model.train()
-        total_loss, total_mse, total_dab, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        total_loss, total_mse, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0
         train_preds, train_y = [], []
 
         progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch} Training", position=0, leave=True, dynamic_ncols=True)
@@ -76,7 +72,7 @@ class Trainer:
             domain_labels = data_dict.get('domain', None)
             class_labels = data_dict.get('class', None)
 
-            loss, class_pred, loss_classifier, loss_mse, loss_dab, loss_clr, loss_penalty = self.forward_pass(
+            loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty = self.forward_pass(
                 inputs, class_labels, domain_labels
             )
 
@@ -90,8 +86,6 @@ class Trainer:
                     wandb.log({"train/classifier": loss_classifier.item()})
                 if self.use_decoder:
                     wandb.log({"train/mse": loss_mse.item()})
-                if self.use_dab:
-                    wandb.log({"train/dab": loss_dab.item()})
                 if self.use_clr:
                     wandb.log({"train/clr": loss_clr.item()})
                 if self.model.use_importance_mask:
@@ -100,7 +94,6 @@ class Trainer:
             total_loss += loss.item()
             total_mse += loss_mse.item()
             total_classifier += loss_classifier.item() if self.use_classifier else 0
-            total_dab += loss_dab.item() if self.use_dab else 0
             total_clr += loss_clr.item() if self.use_clr else 0
             total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
@@ -116,14 +109,13 @@ class Trainer:
 
         avg_loss = total_loss / len(train_dataloader)
         avg_mse = total_mse / len(train_dataloader)
-        avg_dab = total_dab / len(train_dataloader)
         avg_clr = total_clr / len(train_dataloader)
         avg_classifier = total_classifier / len(train_dataloader)
         avg_importance_penalty = total_importance_penalty / len(train_dataloader)
 
         self.logger.info(
             f'epoch {epoch:3d} | Train Loss:{avg_loss:5.2f}, MSE:{avg_mse:5.2f}, CLASS:{avg_classifier:5.2f}, '
-            f'DAB:{avg_dab:5.2f}, CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}')
+            f'CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}')
 
         if self.use_classifier:
             log_classification(epoch, "train", train_preds, train_y, self.logger, unique_classes)
@@ -132,7 +124,7 @@ class Trainer:
 
     def validate_epoch(self, epoch, val_dataloader, unique_classes):
         self.model.eval()
-        total_loss, total_mse, total_dab, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        total_loss, total_mse, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0
         val_preds, val_y = [], []
 
         progress_bar = tqdm(val_dataloader, desc=f"Epoch {epoch} Validation", position=0, leave=True, dynamic_ncols=True)
@@ -146,7 +138,7 @@ class Trainer:
                 domain_labels = data_dict['domain']
                 class_labels = data_dict.get('class')
 
-                loss, class_pred, loss_classifier, loss_mse, loss_dab, loss_clr, loss_penalty = self.forward_pass(
+                loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty = self.forward_pass(
                     inputs, class_labels, domain_labels
                 )
 
@@ -156,8 +148,6 @@ class Trainer:
                         wandb.log({"val/classifier": loss_classifier.item()})
                     if self.use_decoder:
                         wandb.log({"val/mse": loss_mse.item()})
-                    if self.use_dab:
-                        wandb.log({"val/dab": loss_dab.item()})
                     if self.use_clr:
                         wandb.log({"val/clr": loss_clr.item()})
                     if self.model.use_importance_mask:
@@ -166,7 +156,6 @@ class Trainer:
                 total_loss += loss.item()
                 total_mse += loss_mse.item()
                 total_classifier += loss_classifier.item() if self.use_classifier else 0
-                total_dab += loss_dab.item() if self.use_dab else 0
                 total_clr += loss_clr.item() if self.use_clr else 0
                 total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
@@ -180,14 +169,13 @@ class Trainer:
 
         avg_loss = total_loss / len(val_dataloader)
         avg_mse = total_mse / len(val_dataloader)
-        avg_dab = total_dab / len(val_dataloader)
         avg_clr = total_clr / len(val_dataloader)
         avg_classifier = total_classifier / len(val_dataloader)
         avg_importance_penalty = total_importance_penalty / len(val_dataloader)
 
         self.logger.info(
             f'epoch {epoch:3d} | Val Loss:{avg_loss:5.2f}, MSE:{avg_mse:5.2f}, CLASS:{avg_classifier:5.2f}, '
-            f'DAB:{avg_dab:5.2f}, CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}')
+            f'CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}')
 
         if self.use_classifier:
             log_classification(epoch, "val", val_preds, val_y, self.logger, unique_classes)

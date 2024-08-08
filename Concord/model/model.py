@@ -24,7 +24,7 @@ def get_normalization_layer(norm_type, num_features, num_domains=None):
     else:
         raise ValueError(f"Unknown normalization type: {norm_type}")
 
-def build_layers(input_dim, hidden_dim, layer_dims, dropout_prob, norm_type, num_domains):
+def build_layers(input_dim, output_dim, layer_dims, dropout_prob, norm_type, num_domains, final_layer_norm=True, final_layer_dropout=True, final_activation='leaky_relu'):
     layers = [
         nn.Linear(input_dim, layer_dims[0]),
         nn.LeakyReLU(0.1),
@@ -38,12 +38,16 @@ def build_layers(input_dim, hidden_dim, layer_dims, dropout_prob, norm_type, num
             get_normalization_layer(norm_type, layer_dims[i + 1], num_domains),
             nn.Dropout(dropout_prob)
         ])
-    layers.extend([
-        nn.Linear(layer_dims[-1], hidden_dim),
-        nn.LeakyReLU(0.1),
-        get_normalization_layer(norm_type, hidden_dim, num_domains),
-        nn.Dropout(dropout_prob)
-    ])
+    
+    layers.append(nn.Linear(layer_dims[-1], output_dim))
+    if final_activation == 'relu':
+        layers.append(nn.ReLU())
+    else:
+        layers.append(nn.LeakyReLU(0.1))
+    if final_layer_norm:
+        layers.append(get_normalization_layer(norm_type, output_dim, num_domains))
+    if final_layer_dropout:
+        layers.append(nn.Dropout(dropout_prob))
     return nn.Sequential(*layers)
 
 
@@ -74,7 +78,8 @@ class ConcordModel(nn.Module):
         # Decoder
         if self.use_decoder:
             if decoder_dims:
-                self.decoder = build_layers(hidden_dim, input_dim, decoder_dims, dropout_prob, norm_type, num_domain)
+                self.decoder = build_layers(hidden_dim, input_dim, decoder_dims, dropout_prob, norm_type, num_domain, 
+                                            final_layer_norm=False, final_layer_dropout=False, final_activation='relu')
             else:
                 self.decoder = nn.Sequential(
                     nn.Linear(hidden_dim, input_dim)
