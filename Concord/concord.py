@@ -78,7 +78,9 @@ class Concord:
                      decoder_dims=[128],
                      augmentation_mask_prob=0.6,
                      use_decoder=True, # Consider fix
+                     decoder_weight=1.0,
                      use_clr=True, # Consider fix
+                     clr_temperature=0.5,
                      use_classifier=False,
                      use_importance_mask = False,
                      importance_penalty_weight=0,
@@ -121,7 +123,9 @@ class Concord:
             class_key=class_key,
             extra_keys=extra_keys,
             use_decoder=use_decoder,
+            decoder_weight=decoder_weight,
             use_clr=use_clr,
+            clr_temperature=clr_temperature,
             use_classifier=use_classifier,
             use_importance_mask=use_importance_mask,
             importance_penalty_weight=importance_penalty_weight,
@@ -192,8 +196,12 @@ class Concord:
                                logger=logger,
                                lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
-                               use_classifier=self.config.use_classifier, use_decoder=self.config.use_decoder,
-                               use_clr=self.config.use_clr, use_wandb=self.use_wandb,
+                               use_classifier=self.config.use_classifier, 
+                               use_decoder=self.config.use_decoder,
+                               decoder_weight=self.config.decoder_weight,
+                               use_clr=self.config.use_clr, 
+                               clr_temperature=self.config.clr_temperature,
+                               use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
 
@@ -312,7 +320,7 @@ class Concord:
             self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 
-    def train(self):
+    def train(self, save_model=True):
         for epoch in range(self.config.n_epochs):
             logger.info(f'Starting epoch {epoch + 1}/{self.config.n_epochs}')
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
@@ -329,8 +337,9 @@ class Concord:
 
             self.trainer.scheduler.step()
 
-        model_save_path = self.save_dir / "final_model.pth"
-        self.save_model(self.model, model_save_path)
+        if save_model:
+            model_save_path = self.save_dir / "final_model.pth"
+            self.save_model(self.model, model_save_path)
 
 
     def predict(self, loader, sort_by_indices=False, return_decoded=False):  
@@ -428,7 +437,7 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="X_concord", return_decoded=False):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="X_concord", return_decoded=False, save_model=True):
         # Initialize sampler parameters
         self.init_sampler_params(
             sampler_mode=self.config.sampler_mode, 
@@ -453,7 +462,7 @@ class Concord:
         self.init_trainer()
         
         # Train the model
-        self.train()
+        self.train(save_model=save_model)
         
         # Reinitialize the dataloader without using the sampler
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)

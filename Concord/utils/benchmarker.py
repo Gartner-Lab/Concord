@@ -13,7 +13,7 @@ def count_total_runs(param_grid):
             total_runs += len(values)
     return total_runs
 
-def run_hyperparameter_tests(adata, base_params, param_grid, save_dir):
+def run_hyperparameter_tests(adata, base_params, param_grid, return_decoded=False, save_dir="./"):
     total_runs = count_total_runs(param_grid)
     logger.info(f"Total number of runs: {total_runs}")
     for param_name, values in param_grid.items():
@@ -30,11 +30,11 @@ def run_hyperparameter_tests(adata, base_params, param_grid, save_dir):
                 ccd = Concord(adata=adata, **params_copy)
 
                 # Define the output key and file suffix including param_name and value
-                output_key = f"encoded_{param_name}_{value}"
-                file_suffix = f"{param_name}_{value}_{time.strftime('%b%d-%H%M')}"
+                output_key = f"X_concord_{param_name}_{str(value).replace(' ', '')}"
+                file_suffix = f"{param_name}_{str(value).replace(' ', '')}_{time.strftime('%b%d-%H%M')}"
 
                 # Encode adata and store the results in adata.obsm
-                ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key)
+                ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key, return_decoded=return_decoded)
 
                 # Save the parameter settings
                 config_filename = Path(save_dir) / f"config_{file_suffix}.json"

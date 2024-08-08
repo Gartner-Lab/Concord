@@ -9,8 +9,8 @@ from .loss import ContrastiveLoss, importance_penalty_loss
 
 class Trainer:
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
-                 use_classifier=True, use_decoder=False, use_clr=False,
-                 importance_penalty_weight=0.1, importance_penalty_type='L1',
+                 use_classifier=False, use_decoder=True, decoder_weight=1.0, use_clr=True, clr_temperature=0.5,
+                 importance_penalty_weight=0, importance_penalty_type='L1',
                  use_wandb=False):
         self.model = model
         self.data_structure = data_structure
@@ -18,6 +18,8 @@ class Trainer:
         self.logger = logger
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
+        self.decoder_weight = decoder_weight
+        print(f"Decoder weight: {decoder_weight}")
         self.use_clr = use_clr
         self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
@@ -25,7 +27,7 @@ class Trainer:
 
         self.classifier_criterion = nn.CrossEntropyLoss()
         self.mse_criterion = nn.MSELoss()
-        self.contrastive_criterion = ContrastiveLoss() if use_clr else None
+        self.contrastive_criterion = ContrastiveLoss(temperature=clr_temperature) if use_clr else None
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
@@ -37,7 +39,7 @@ class Trainer:
         decoded = outputs.get('decoded')
 
         loss_classifier = self.classifier_criterion(class_pred, class_labels) if class_pred is not None else torch.tensor(0.0)
-        loss_mse = self.mse_criterion(decoded, inputs) if decoded is not None else torch.tensor(0.0)
+        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
         loss_clr = torch.tensor(0.0)
 
         if self.contrastive_criterion is not None:
