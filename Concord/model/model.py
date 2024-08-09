@@ -43,8 +43,8 @@ def build_layers(input_dim, output_dim, layer_dims, dropout_prob, norm_type,fina
 
 class ConcordModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_classes, encoder_dims=[], decoder_dims=[], 
-                 augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', use_decoder=False,
-                 use_classifier=True, use_importance_mask=False):
+                 augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', use_decoder=True,
+                 use_classifier=False, use_importance_mask=False):
         super().__init__()
 
         # Encoder

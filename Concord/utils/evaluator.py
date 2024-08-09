@@ -64,15 +64,13 @@ def evaluate_scib(
     return concatenated_results
 
 
-
-
-def log_classification(epoch, phase, preds, labels, logger, target_names):
+def log_classification(epoch, phase, preds, labels, logger, unique_classes):
     # Calculate metrics
-    report = classification_report(labels, preds, target_names=target_names, output_dict=True)
+    report = classification_report(labels, preds, target_names=unique_classes, output_dict=True)
     accuracy = report['accuracy']
-    precision = {label: metrics['precision'] for label, metrics in report.items() if label in target_names}
-    recall = {label: metrics['recall'] for label, metrics in report.items() if label in target_names}
-    f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in target_names}
+    precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes}
+    recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes}
+    f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in unique_classes}
 
 
     # Create formatted strings for logging

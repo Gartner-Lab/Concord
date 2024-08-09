@@ -82,6 +82,8 @@ class Concord:
                      use_clr=True, # Consider fix
                      clr_temperature=0.5,
                      use_classifier=False,
+                     classifier_weight=1.0,
+                     unlabeled_class=None,
                      use_importance_mask = False,
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
@@ -127,6 +129,8 @@ class Concord:
             use_clr=use_clr,
             clr_temperature=clr_temperature,
             use_classifier=use_classifier,
+            classifier_weight=classifier_weight,
+            unlabeled_class=unlabeled_class,
             use_importance_mask=use_importance_mask,
             importance_penalty_weight=importance_penalty_weight,
             importance_penalty_type=importance_penalty_type,
@@ -155,7 +159,6 @@ class Concord:
             config, run = update_wandb_params(initial_params, project_name=self.proj_name, reinit=wandb_reinit)
             self.config = config
             self.run = run
-            print(config)
         else:
             self.config = Config(initial_params)
 
@@ -163,7 +166,17 @@ class Concord:
     def init_model(self):
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
-        num_classes = 0  # No classification for this run
+
+        if self.config.class_key is not None:
+            all_classes = self.adata.obs[self.config.class_key].cat.categories
+            if self.config.unlabeled_class is not None:
+                if self.config.unlabeled_class in all_classes:
+                    all_classes = all_classes.drop(self.config.unlabeled_class)
+                else:
+                    raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
+            num_classes = len(all_classes) 
+        else:
+            num_classes = 0
 
         self.model = ConcordModel(input_dim, hidden_dim, num_classes,
                                encoder_dims=self.config.encoder_dims,
@@ -190,6 +203,12 @@ class Concord:
 
 
     def init_trainer(self):
+        # Convert unlabeled_class from name to code
+        if self.config.unlabeled_class is not None and self.config.class_key is not None:
+            class_categories = self.adata.obs[self.config.class_key].cat.categories:
+            unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
+        else:
+            unlabeled_class_code = None
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
@@ -197,6 +216,8 @@ class Concord:
                                lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
                                use_classifier=self.config.use_classifier, 
+                               classifier_weight=self.config.classifier_weight,
+                               unlabeled_class=unlabeled_class_code,
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
                                use_clr=self.config.use_clr, 
@@ -331,9 +352,20 @@ class Concord:
                     print(f"Number of samples in val_dataloader: {len(val_dataloader.dataset)}")
 
                 # Run training and validation for the current epoch
-                self.trainer.train_epoch(epoch, train_dataloader, None)
+                if self.config.use_classifier:
+                    if self.config.class_key is None:
+                        raise ValueError("Class key is not provided. Please provide a valid class key for training the classifier.")
+                    if self.config.class_key not in self.adata.obs.columns:
+                        raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
+                    unique_classes = self.adata.obs[self.config.class_key].cat.categories
+                    if self.config.unlabeled_class is not None and self.config.unlabeled_class in unique_classes:
+                        unique_classes = unique_classes.drop(self.config.unlabeled_class)
+                else:
+                    unique_classes = None
+
+                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes)
                 if val_dataloader is not None:
-                    self.trainer.validate_epoch(epoch, val_dataloader, None)
+                    self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
 
             self.trainer.scheduler.step()
 

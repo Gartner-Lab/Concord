@@ -9,7 +9,9 @@ from .loss import ContrastiveLoss, importance_penalty_loss
 
 class Trainer:
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
-                 use_classifier=False, use_decoder=True, decoder_weight=1.0, use_clr=True, clr_temperature=0.5,
+                 use_classifier=False, classifier_weight=1.0, unlabeled_class=None,
+                 use_decoder=True, decoder_weight=1.0, 
+                 use_clr=True, clr_temperature=0.5,
                  importance_penalty_weight=0, importance_penalty_type='L1',
                  use_wandb=False):
         self.model = model
@@ -17,9 +19,10 @@ class Trainer:
         self.device = device
         self.logger = logger
         self.use_classifier = use_classifier
+        self.classifier_weight = classifier_weight
+        self.unlabeled_class = unlabeled_class
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
-        print(f"Decoder weight: {decoder_weight}")
         self.use_clr = use_clr
         self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
@@ -38,7 +41,18 @@ class Trainer:
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
 
-        loss_classifier = self.classifier_criterion(class_pred, class_labels) if class_pred is not None else torch.tensor(0.0)
+        loss_classifier = torch.tensor(0.0, device=self.device)
+        if class_pred is not None and class_labels is not None:
+            labeled_mask = (class_labels != self.unlabeled_class).to(self.device) if self.unlabeled_class is not None else torch.ones_like(class_labels, dtype=torch.bool, device=self.device)
+            if labeled_mask.sum() > 0:
+                class_labels = class_labels[labeled_mask]
+                class_pred = class_pred[labeled_mask] 
+                loss_classifier = self.classifier_criterion(class_pred, class_labels) * self.classifier_weight
+            else:
+                class_labels = None
+                class_pred = None
+
+        
         loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
         loss_clr = torch.tensor(0.0)
 
@@ -55,7 +69,7 @@ class Trainer:
 
         loss = loss_classifier + loss_mse + loss_clr + loss_penalty
 
-        return loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty
+        return loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred
 
     def train_epoch(self, epoch, train_dataloader, unique_classes):
         self.model.train()
@@ -74,7 +88,7 @@ class Trainer:
             domain_labels = data_dict.get('domain', None)
             class_labels = data_dict.get('class', None)
 
-            loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty = self.forward_pass(
+            loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred = self.forward_pass(
                 inputs, class_labels, domain_labels
             )
 
@@ -99,10 +113,9 @@ class Trainer:
             total_clr += loss_clr.item() if self.use_clr else 0
             total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
-            if class_pred is not None:
+            if class_pred is not None and class_labels is not None:
                 train_preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
-                if class_labels is not None:
-                    train_y.extend(class_labels.cpu().numpy())
+                train_y.extend(class_labels.cpu().numpy())
 
             progress_bar.set_postfix({"loss": loss.item()})
             progress_bar.update(1)
@@ -140,7 +153,7 @@ class Trainer:
                 domain_labels = data_dict['domain']
                 class_labels = data_dict.get('class')
 
-                loss, class_pred, loss_classifier, loss_mse, loss_clr, loss_penalty = self.forward_pass(
+                loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred = self.forward_pass(
                     inputs, class_labels, domain_labels
                 )
 
@@ -161,10 +174,9 @@ class Trainer:
                 total_clr += loss_clr.item() if self.use_clr else 0
                 total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
-                if class_pred is not None:
+                if class_pred is not None and class_labels is not None:
                     val_preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
-                    if class_labels is not None:
-                        val_y.extend(class_labels.cpu().numpy())
+                    val_y.extend(class_labels.cpu().numpy())
 
                 progress_bar.set_postfix({"loss": loss.item()})
                 progress_bar.update(1)
@@ -184,6 +196,7 @@ class Trainer:
 
         return avg_loss
 
+    # This is not used currently
     def main_training_loop(self, train_dataloader, val_dataloader, num_epochs, unique_classes):
         best_model = None
         best_loss = float("inf")
