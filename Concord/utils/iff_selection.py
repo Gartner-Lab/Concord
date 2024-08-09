@@ -2,9 +2,9 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
-from ..plotting.pl_enrichment import plot_go_enrichment
 from .knn import initialize_faiss_index, get_knn_indices
 from .timer import Timer
+import scanpy as sc
 from .. import logger
 
 # from https://stackoverflow.com/questions/48999542/more-efficient-weighted-gini-coefficient-in-python
@@ -18,11 +18,10 @@ def gini_coefficient(x):
 
 
 def iff_select(adata,
-               cluster=None,
+               grouping='cluster',
                cluster_min_cell_num=100,
                min_cluster_expr_fraction=0.1,
-               use_knn=False,
-               knn_emb_key = 'X_pca',
+               emb_key = 'X_pca',
                k=512,
                knn_samples = 100,
                use_faiss=True,
@@ -32,16 +31,26 @@ def iff_select(adata,
                gini_cut_qt=0.75,
                figsize=(10, 3),
                save_path=None):
-    if not use_knn and (cluster is None or adata.shape[0] != len(cluster)):
-        raise ValueError("Cell number does not match cluster length or cluster is None.")
-
-    if use_knn:
-        if knn_emb_key == 'X':
-            emb = adata.X
+    if isinstance(grouping, str):
+        if grouping not in ['cluster', 'knn']:
+            raise ValueError("grouping must be either 'cluster' or 'knn', or a list indicating grouping for each cells.")
         else:
-            if knn_emb_key not in adata.obsm:
-                raise ValueError(f"{knn_emb_key} does not exist in adata.obsm.")
-            emb = adata.obsm[knn_emb_key]
+            if emb_key == "X_pca" and "X_pca" not in adata.obsm:
+                logger.warning("X_pca does not exist in adata.obsm. Computing PCA.")
+                sc.pp.highly_variable_genes(adata, n_top_genes=3000, flavor="seurat_v3")
+                sc.tl.pca(adata, n_comps=50, use_highly_variable=True)
+            elif emb_key is None or emb_key not in adata.obsm:
+                raise ValueError(f"{emb_key} does not exist in adata.obsm.")
+            else:
+                logger.info(f"Using {emb_key} for computing {grouping}.")
+    elif isinstance(grouping, list):
+        if len(grouping) != adata.shape[0]:
+            raise ValueError("Length of grouping must match number of cells.")
+    else:
+        raise ValueError("grouping must be either 'cluster' or 'knn', or a list indicating grouping for each cells.")
+
+    if grouping == 'knn':
+        emb = adata.obsm[emb_key]
         with Timer() as timer:
             index, nbrs, use_faiss_flag = initialize_faiss_index(emb, k, use_faiss=use_faiss, use_ivf=use_ivf)
             core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
@@ -52,7 +61,16 @@ def iff_select(adata,
             }, index=adata.var_names)
         logger.info(f"Took {timer.interval:.2f} seconds to compute neighborhood.")
     else:
-        cluster_series = pd.Series(cluster)
+        if grouping == 'cluster':
+            emb = adata.obsm[emb_key]
+            with Timer() as timer:
+                sc.pp.neighbors(adata, use_rep=emb_key)
+                sc.tl.leiden(adata)
+                cluster_series = pd.Series(adata.obs['leiden'])
+            logger.info(f"Took {timer.interval:.2f} seconds to compute leiden cluster.")
+        else:
+            cluster_series = pd.Series(grouping)
+        
         use_clus = cluster_series.value_counts()[cluster_series.value_counts() >= cluster_min_cell_num].index.tolist()
         expr_clus_frac = pd.DataFrame({
             cluster: (adata[cluster_series == cluster, :].X > 0).mean(axis=0).A1
@@ -60,6 +78,9 @@ def iff_select(adata,
         }, index=adata.var_names)
 
     use_g = expr_clus_frac.index[expr_clus_frac.ge(min_cluster_expr_fraction).sum(axis=1) > 0]
+    if (len(use_g) < n_top_genes):
+        logger.warning(f"Number of features robustly detected is less than number of wanted top features: {n_top_genes}.")
+        n_top_genes = len(use_g)
     logger.info(f"Selecting informative features from {len(use_g)} robustly detected features.")
 
     expr_clus_frac = expr_clus_frac.loc[use_g]

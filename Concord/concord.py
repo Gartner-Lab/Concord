@@ -262,8 +262,10 @@ class Concord:
             if sampler_emb not in self.adata.obsm:
                 if sampler_emb == "X_pca":
                     logger.warning("PCA embeddings are not found in adata.obsm. Computing PCA...")
-                    self.preprocessor(adata=self.adata)
-                    sc.tl.pca(self.adata, n_comps=50)
+                    adata_copy = self.adata.copy() # Prevent filtering features of original adata, for large datasets consider do a subsample in future
+                    self.preprocessor(adata=adata_copy)
+                    sc.tl.pca(adata_copy, n_comps=50)
+                    self.adata.obsm["X_pca"] = adata_copy.obsm["X_pca"]
                 else:
                     raise ValueError(f"Embedding {sampler_emb} is not found in adata.obsm. Please provide a valid embedding key.")
             logger.info(f"Calculating each domain's coverage of the global manifold with knn (k={coverage_knn}) constructed on {sampler_emb}.")
@@ -486,16 +488,12 @@ class Concord:
         
         # Initialize the model
         self.init_model()
-        
         # Initialize the dataloader
         self.init_dataloader(input_layer_key=input_layer_key)
-        
         # Initialize the trainer
         self.init_trainer()
-        
         # Train the model
         self.train(save_model=save_model)
-        
         # Reinitialize the dataloader without using the sampler
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
         

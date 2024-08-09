@@ -4,6 +4,7 @@ from typing import List, Optional, Union
 from pathlib import Path
 import scanpy as sc
 import logging
+from . import iff_select
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +13,8 @@ def select_features(
     n_top_genes: int = 2000,
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
-    cluster: Optional[np.ndarray] = None,
-    use_knn: bool = True,
-    knn_emb_key: str = 'X_pca',
+    grouping='cluster',
+    emb_key: str = 'X_pca',
     k: int = 512,
     knn_samples: int = 100,
     gini_cut_qt: float = 0.75,
@@ -45,6 +45,10 @@ def select_features(
     logger.info("Log1p transforming for feature selection ...")
     sc.pp.log1p(sampled_data)
 
+    if n_top_genes is None or n_top_genes > sampled_data.n_vars:
+        logger.warning(f"n_top_genes is set to {n_top_genes}, which is larger than the number of genes in the data.")
+        n_top_genes = sampled_data.n_vars
+    
     # Determine features based on the flavor
     if flavor != "iff":
         logger.info(f"Selecting highly variable genes with flavor {flavor}...")
@@ -52,17 +56,10 @@ def select_features(
         feature_list = sampled_data.var[sampled_data.var['highly_variable']].index.tolist()
     else:
         logger.info("Selecting informative features using IFF...")
-        if n_top_genes is not None:
-            logger.warning("It is recommended to set n_top_genes to None and use gini_cut_qt for IFF selection.")
-        if knn_emb_key == "X_pca" and "X_pca" not in sampled_data.obsm:
-            logger.warning("X_pca does not exist in adata.obsm. Computing PCA.")
-            sc.pp.highly_variable_genes(sampled_data, n_top_genes=3000, flavor="seurat_v3")
-            sc.tl.pca(sampled_data, n_comps=50, use_highly_variable=True)
         feature_list = iff_select(
             adata=sampled_data,
-            cluster=cluster,
-            use_knn=use_knn,
-            knn_emb_key=knn_emb_key,
+            grouping=grouping,
+            emb_key=emb_key,
             k=k,
             knn_samples=knn_samples,
             n_top_genes=n_top_genes,
