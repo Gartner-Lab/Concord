@@ -205,7 +205,7 @@ class Concord:
     def init_trainer(self):
         # Convert unlabeled_class from name to code
         if self.config.unlabeled_class is not None and self.config.class_key is not None:
-            class_categories = self.adata.obs[self.config.class_key].cat.categories:
+            class_categories = self.adata.obs[self.config.class_key].cat.categories
             unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
         else:
             unlabeled_class_code = None
