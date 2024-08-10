@@ -34,8 +34,10 @@ def build_layers(input_dim, output_dim, layer_dims, dropout_prob, norm_type,fina
         layers.append(get_normalization_layer(norm_type, output_dim))
     if final_activation == 'relu':
         layers.append(nn.ReLU())
-    else:
+    elif final_activation == 'leaky_relu':
         layers.append(nn.LeakyReLU(0.1))
+    else:
+        raise ValueError(f"Unknown final activation function: {final_activation}")
     if final_layer_dropout:
         layers.append(nn.Dropout(dropout_prob))
     return nn.Sequential(*layers)
@@ -43,7 +45,8 @@ def build_layers(input_dim, output_dim, layer_dims, dropout_prob, norm_type,fina
 
 class ConcordModel(nn.Module):
     def __init__(self, input_dim, hidden_dim, num_classes, encoder_dims=[], decoder_dims=[], 
-                 augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', use_decoder=True,
+                 augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
+                 use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False):
         super().__init__()
 
@@ -68,7 +71,7 @@ class ConcordModel(nn.Module):
         if self.use_decoder:
             if decoder_dims:
                 self.decoder = build_layers(hidden_dim, input_dim, decoder_dims, dropout_prob, norm_type, 
-                                            final_layer_norm=False, final_layer_dropout=False, final_activation='relu')
+                                            final_layer_norm=False, final_layer_dropout=False, final_activation=decoder_final_activation)
             else:
                 self.decoder = nn.Sequential(
                     nn.Linear(hidden_dim, input_dim)

@@ -6,6 +6,7 @@ import io
 import gzip
 import re
 import pickle
+import json
 
 # Save the object to a file
 def save_object(obj, filename):
@@ -88,4 +89,27 @@ def csv_to_anndata(file_path_or_url: str) -> ad.AnnData:
 
     return adata
 
+def load_json(file_path_or_url: str) -> dict:
+    """
+    Load a JSON file from a local path or a URL.
+
+    Parameters:
+    file_path_or_url (str): The file path or URL to the JSON file.
+
+    Returns:
+    dict: Dictionary containing the JSON data.
+    """
+    if is_url(file_path_or_url):
+        # Download the file
+        response = requests.get(file_path_or_url)
+        response.raise_for_status()  # Ensure the request was successful
+
+        # Load the JSON data
+        data = response.json()
+    else:
+        # Read from local file system
+        with open(file_path_or_url, 'r') as f:
+            data = json.load(f)
+
+    return data 
 

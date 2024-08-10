@@ -34,9 +34,8 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, proj_name=None, save_dir='save/', inplace=True, use_wandb=False, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, **kwargs):
         self.adata = adata if inplace else adata.copy()
-        self.proj_name = proj_name
         self.save_dir = Path(save_dir)
         self.config = None
         self.loader = None
@@ -68,9 +67,10 @@ class Concord:
 
 
     def setup_config(self, 
+                     project_name="concord",
                      input_feature=None,
                      batch_size=64, 
-                     n_epochs=3,
+                     n_epochs=5,
                      lr=1e-3,
                      schedule_ratio=0.9, 
                      latent_dim=32, 
@@ -78,6 +78,7 @@ class Concord:
                      decoder_dims=[128],
                      augmentation_mask_prob=0.6,
                      use_decoder=True, # Consider fix
+                     decoder_final_activation='leaky_relu',
                      decoder_weight=1.0,
                      use_clr=True, # Consider fix
                      clr_temperature=0.5,
@@ -97,7 +98,7 @@ class Concord:
                      sampler_knn=256, 
                      p_intra_knn=0.1,
                      p_intra_domain=None,
-                     min_p_intra_domain=0.8,
+                     min_p_intra_domain=0.6,
                      max_p_intra_domain=1.0,
                      use_faiss=True, 
                      use_ivf=True, 
@@ -112,8 +113,8 @@ class Concord:
                      seed=0):
         initial_params = dict(
             seed=seed,
+            project_name=project_name,
             input_feature=input_feature,
-            project_name=self.proj_name,
             batch_size=batch_size,
             n_epochs=n_epochs,
             lr=lr,
@@ -125,6 +126,7 @@ class Concord:
             class_key=class_key,
             extra_keys=extra_keys,
             use_decoder=use_decoder,
+            decoder_final_activation=decoder_final_activation,
             decoder_weight=decoder_weight,
             use_clr=use_clr,
             clr_temperature=clr_temperature,
@@ -156,7 +158,7 @@ class Concord:
         )
 
         if self.use_wandb:
-            config, run = update_wandb_params(initial_params, project_name=self.proj_name, reinit=wandb_reinit)
+            config, run = update_wandb_params(initial_params, project_name=self.config.project_name, reinit=wandb_reinit)
             self.config = config
             self.run = run
         else:
@@ -181,6 +183,7 @@ class Concord:
         self.model = ConcordModel(input_dim, hidden_dim, num_classes,
                                encoder_dims=self.config.encoder_dims,
                                decoder_dims=self.config.decoder_dims,
+                               decoder_final_activation=self.config.decoder_final_activation,
                                augmentation_mask_prob=self.config.augmentation_mask_prob,
                                dropout_prob=self.config.dropout_prob,
                                norm_type=self.config.norm_type,
