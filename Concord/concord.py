@@ -88,6 +88,8 @@ class Concord:
                      use_importance_mask = False,
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
+                     use_dab=False,
+                     dab_lambd=1.0,
                      dropout_prob=0.1,
                      norm_type="layer_norm", # Consider fix
                      domain_key=None,
@@ -122,6 +124,7 @@ class Concord:
             latent_dim=latent_dim,
             encoder_dims=encoder_dims,
             decoder_dims=decoder_dims,
+            augmentation_mask_prob=augmentation_mask_prob,
             domain_key=domain_key,
             class_key=class_key,
             extra_keys=extra_keys,
@@ -136,7 +139,8 @@ class Concord:
             use_importance_mask=use_importance_mask,
             importance_penalty_weight=importance_penalty_weight,
             importance_penalty_type=importance_penalty_type,
-            augmentation_mask_prob=augmentation_mask_prob,
+            use_dab=use_dab, # Does improve based on testing, should be False, not deleted for future improvements
+            dab_lambd=dab_lambd,
             dropout_prob=dropout_prob,
             norm_type=norm_type,
             sampler_mode=sampler_mode,
@@ -169,6 +173,8 @@ class Concord:
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
+        num_domains = len(self.adata.obs[self.config.domain_key].cat.categories) if self.config.domain_key is not None else 0
+
         if self.config.class_key is not None:
             all_classes = self.adata.obs[self.config.class_key].cat.categories
             if self.config.unlabeled_class is not None:
@@ -180,16 +186,20 @@ class Concord:
         else:
             num_classes = 0
 
-        self.model = ConcordModel(input_dim, hidden_dim, num_classes,
-                               encoder_dims=self.config.encoder_dims,
-                               decoder_dims=self.config.decoder_dims,
-                               decoder_final_activation=self.config.decoder_final_activation,
-                               augmentation_mask_prob=self.config.augmentation_mask_prob,
-                               dropout_prob=self.config.dropout_prob,
-                               norm_type=self.config.norm_type,
-                               use_decoder=self.config.use_decoder,
-                               use_classifier=self.config.use_classifier,
-                               use_importance_mask=self.config.use_importance_mask).to(self.config.device)
+        self.model = ConcordModel(input_dim, hidden_dim, 
+                                  num_domains=num_domains,
+                                  num_classes=num_classes,
+                                  encoder_dims=self.config.encoder_dims,
+                                  decoder_dims=self.config.decoder_dims,
+                                  decoder_final_activation=self.config.decoder_final_activation,
+                                  augmentation_mask_prob=self.config.augmentation_mask_prob,
+                                  dropout_prob=self.config.dropout_prob,
+                                  norm_type=self.config.norm_type,
+                                  use_decoder=self.config.use_decoder,
+                                  use_classifier=self.config.use_classifier,
+                                  use_importance_mask=self.config.use_importance_mask,
+                                  use_dab=self.config.use_dab,
+                                  dab_lambd = self.config.dab_lambd).to(self.config.device)
 
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
@@ -227,7 +237,8 @@ class Concord:
                                clr_temperature=self.config.clr_temperature,
                                use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
-                               importance_penalty_type=self.config.importance_penalty_type)
+                               importance_penalty_type=self.config.importance_penalty_type,
+                               use_dab=self.config.use_dab)
 
 
     def init_sampler_params(self, sampler_mode, 
@@ -437,8 +448,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    domain_idx = domain_labels[0].item() if domain_labels is not None else None
-                    outputs = self.model(inputs, domain_idx)
+                    outputs = self.model(inputs)
                     if 'class_pred' in outputs:
                         class_preds.extend(torch.argmax(outputs['class_pred'], dim=1).cpu().numpy())
                     if 'encoded' in outputs:

@@ -1,62 +1,24 @@
 import torch
 import torch.nn as nn
-
-
-def get_normalization_layer(norm_type, num_features):
-    if norm_type == 'batch_norm':
-        return nn.BatchNorm1d(num_features)
-    elif norm_type == 'layer_norm':
-        return nn.LayerNorm(num_features)
-    elif norm_type == 'none':
-        return nn.Identity()
-    else:
-        raise ValueError(f"Unknown normalization type: {norm_type}")
-
-def build_layers(input_dim, output_dim, layer_dims, dropout_prob, norm_type,final_layer_norm=True, final_layer_dropout=True, final_activation='leaky_relu'):
-    layers = [
-        nn.Linear(input_dim, layer_dims[0]),
-
-        get_normalization_layer(norm_type, layer_dims[0]),
-        nn.LeakyReLU(0.1),
-        nn.Dropout(dropout_prob)
-    ]
-    for i in range(len(layer_dims) - 1):
-        layers.extend([
-            nn.Linear(layer_dims[i], layer_dims[i + 1]),
-
-            get_normalization_layer(norm_type, layer_dims[i + 1]),
-            nn.LeakyReLU(0.1),
-            nn.Dropout(dropout_prob)
-        ])
-    
-    layers.append(nn.Linear(layer_dims[-1], output_dim))
-    if final_layer_norm:
-        layers.append(get_normalization_layer(norm_type, output_dim))
-    if final_activation == 'relu':
-        layers.append(nn.ReLU())
-    elif final_activation == 'leaky_relu':
-        layers.append(nn.LeakyReLU(0.1))
-    else:
-        raise ValueError(f"Unknown final activation function: {final_activation}")
-    if final_layer_dropout:
-        layers.append(nn.Dropout(dropout_prob))
-    return nn.Sequential(*layers)
+from .dab import AdversarialDiscriminator
+from .build_layer import get_normalization_layer, build_layers
 
 
 class ConcordModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_classes, encoder_dims=[], decoder_dims=[], 
+    def __init__(self, input_dim, hidden_dim, num_domains, num_classes, encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
                  use_decoder=True, decoder_final_activation='leaky_relu',
-                 use_classifier=False, use_importance_mask=False):
+                 use_classifier=False, use_importance_mask=False,
+                 use_dab=False, dab_lambd=1.0):
         super().__init__()
 
         # Encoder
         self.input_dim = input_dim
         self.augmentation_mask = nn.Dropout(augmentation_mask_prob)
-        self.norm_type = norm_type
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
+        self.use_dab = use_dab
 
         if encoder_dims:
             self.encoder = build_layers(input_dim, hidden_dim, encoder_dims, dropout_prob, norm_type)
@@ -76,6 +38,10 @@ class ConcordModel(nn.Module):
                 self.decoder = nn.Sequential(
                     nn.Linear(hidden_dim, input_dim)
                 )
+            
+        if self.use_dab:
+            self.dab_decoder = AdversarialDiscriminator(hidden_dim, num_domains, reverse_grad=True, 
+                                                        norm_type=norm_type, lambd = dab_lambd)
 
         # Classifier head
         if self.use_classifier:
@@ -92,7 +58,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x, domain_idx=None):
+    def forward(self, x):
         out = {}
 
         if self.use_importance_mask:
@@ -113,6 +79,9 @@ class ConcordModel(nn.Module):
                 out['decoded'] = x * importance_weights
             else:
                 out['decoded'] = x
+
+        if self.use_dab:
+            out['dab_pred'] = self.dab_decoder(out['encoded'])
 
         if self.use_classifier:
             out['class_pred'] = self.classifier(out['encoded'])
