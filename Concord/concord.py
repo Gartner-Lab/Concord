@@ -13,6 +13,7 @@ from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
 from . import logger
+from . import set_verbose_mode
 
 class Config:
     def __init__(self, config_dict):
@@ -34,7 +35,8 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=True, **kwargs):
+        set_verbose_mode(verbose)
         self.adata = adata if inplace else adata.copy()
         self.save_dir = Path(save_dir)
         self.config = None
@@ -363,9 +365,9 @@ class Concord:
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
                 logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {epoch + 1}')
                 if train_dataloader is not None:
-                    print(f"Number of samples in train_dataloader: {len(train_dataloader.dataset)}")
+                    logger.info(f"Number of samples in train_dataloader: {len(train_dataloader.dataset)}")
                 if val_dataloader is not None:
-                    print(f"Number of samples in val_dataloader: {len(val_dataloader.dataset)}")
+                    logger.info(f"Number of samples in val_dataloader: {len(val_dataloader.dataset)}")
 
                 # Run training and validation for the current epoch
                 if self.config.use_classifier:

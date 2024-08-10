@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import scanpy as sc
-
+from .. import logger
 
 def list_adata_files(folder_path, substring=None, extension='*'):
     """
@@ -114,14 +114,14 @@ def ensure_categorical(adata: ad.AnnData, obs_key: Optional[str] = None, drop_un
     if obs_key in adata.obs:
         if not isinstance(adata.obs[obs_key].dtype, pd.CategoricalDtype):
             adata.obs[obs_key] = adata.obs[obs_key].astype('category')
-            print(f"Column '{obs_key}' is now of type: {adata.obs[obs_key].dtype}")
+            logger.info(f"Column '{obs_key}' is now of type: {adata.obs[obs_key].dtype}")
         else:
-            print(f"Column '{obs_key}' is already of type: {adata.obs[obs_key].dtype}")
+            logger.info(f"Column '{obs_key}' is already of type: {adata.obs[obs_key].dtype}")
             if drop_unused:
                 adata.obs[obs_key] = adata.obs[obs_key].cat.remove_unused_categories()
-                print(f"Unused levels dropped for column '{obs_key}'.")
+                logger.info(f"Unused levels dropped for column '{obs_key}'.")
     else:
-        print(f"Column '{obs_key}' does not exist in the AnnData object.")
+        logger.warning(f"Column '{obs_key}' does not exist in the AnnData object.")
 
 
 
