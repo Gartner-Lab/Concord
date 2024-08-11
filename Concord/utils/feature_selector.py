@@ -13,6 +13,8 @@ def select_features(
     n_top_genes: int = 2000,
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
+    normalize: bool = True,
+    log1p: bool = True,
     grouping='cluster',
     emb_key: str = 'X_pca',
     k: int = 512,
@@ -40,10 +42,12 @@ def select_features(
         )
 
     # Normalize and log1p transform
-    logger.info("Normalizing total counts for feature selection ...")
-    sc.pp.normalize_total(sampled_data, target_sum=1e4)
-    logger.info("Log1p transforming for feature selection ...")
-    sc.pp.log1p(sampled_data)
+    if normalize:
+        logger.info("Normalizing total counts ...")
+        sc.pp.normalize_total(sampled_data, target_sum=1e4)
+    if log1p:
+        logger.info("Log1p transforming for feature selection ...")
+        sc.pp.log1p(sampled_data)
 
     if n_top_genes is None or n_top_genes > sampled_data.n_vars:
         logger.warning(f"n_top_genes is set to {n_top_genes}, which is larger than the number of genes in the data.")
