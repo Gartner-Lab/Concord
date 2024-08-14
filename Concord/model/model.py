@@ -9,7 +9,7 @@ class ConcordModel(nn.Module):
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False,
-                 use_dab=False, dab_lambd=1.0):
+                 use_dab=False, use_domain_encoding=True):
         super().__init__()
 
         # Encoder
@@ -19,12 +19,17 @@ class ConcordModel(nn.Module):
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
         self.use_dab = use_dab
+        self.use_domain_encoding = use_domain_encoding
+        self.domain_dim = num_domains if use_domain_encoding else 0
+
+        encoder_input_dim = input_dim + self.domain_dim
+        decoder_input_dim = hidden_dim + self.domain_dim
 
         if encoder_dims:
-            self.encoder = build_layers(input_dim, hidden_dim, encoder_dims, dropout_prob, norm_type)
+            self.encoder = build_layers(encoder_input_dim, hidden_dim, encoder_dims, dropout_prob, norm_type)
         else:
             self.encoder = nn.Sequential(
-                nn.Linear(input_dim, hidden_dim),
+                nn.Linear(encoder_input_dim, hidden_dim),
                 get_normalization_layer(norm_type, hidden_dim),
                 nn.LeakyReLU(0.1)
             )
@@ -32,16 +37,16 @@ class ConcordModel(nn.Module):
         # Decoder
         if self.use_decoder:
             if decoder_dims:
-                self.decoder = build_layers(hidden_dim, input_dim, decoder_dims, dropout_prob, norm_type, 
+                self.decoder = build_layers(decoder_input_dim, input_dim, decoder_dims, dropout_prob, norm_type, 
                                             final_layer_norm=False, final_layer_dropout=False, final_activation=decoder_final_activation)
             else:
                 self.decoder = nn.Sequential(
-                    nn.Linear(hidden_dim, input_dim)
+                    nn.Linear(decoder_input_dim, input_dim)
                 )
             
         if self.use_dab:
             self.dab_decoder = AdversarialDiscriminator(hidden_dim, num_domains, reverse_grad=True, 
-                                                        norm_type=norm_type, lambd = dab_lambd)
+                                                        norm_type=norm_type)
 
         # Classifier head
         if self.use_classifier:
@@ -58,7 +63,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x):
+    def forward(self, x, domain_labels=None, alpha=None):
         out = {}
 
         if self.use_importance_mask:
@@ -67,12 +72,19 @@ class ConcordModel(nn.Module):
 
         x = self.augmentation_mask(x)
 
+        if self.use_domain_encoding and domain_labels is not None:
+            x = torch.cat((x, domain_labels), dim=1)
+
         for layer in self.encoder:
             x = layer(x)
         out['encoded'] = x
 
         if self.use_decoder:
             x = out['encoded']
+
+            if self.use_domain_encoding and domain_labels is not None:
+                x = torch.cat((x, domain_labels), dim=1)
+
             for layer in self.decoder:
                 x = layer(x)
             if self.use_importance_mask:
@@ -81,7 +93,7 @@ class ConcordModel(nn.Module):
                 out['decoded'] = x
 
         if self.use_dab:
-            out['dab_pred'] = self.dab_decoder(out['encoded'])
+            out['dab_pred'] = self.dab_decoder(out['encoded'], alpha=alpha)
 
         if self.use_classifier:
             out['class_pred'] = self.classifier(out['encoded'])

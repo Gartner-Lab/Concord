@@ -6,19 +6,19 @@ from torch.autograd import Function
 from .build_layer import get_normalization_layer
 
 
-class GradReverse(Function):
+class ReverseLayerF(Function):
+
     @staticmethod
-    def forward(ctx, x: torch.Tensor, lambd: float) -> torch.Tensor:
-        ctx.lambd = lambd
+    def forward(ctx, x, alpha):
+        ctx.alpha = alpha
+
         return x.view_as(x)
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:
-        return grad_output.neg() * ctx.lambd, None
+    def backward(ctx, grad_output):
+        output = grad_output.neg() * ctx.alpha
 
-
-def grad_reverse(x: torch.Tensor, lambd: float = 1.0) -> torch.Tensor:
-    return GradReverse.apply(x, lambd)
+        return output, None
 
 
 
@@ -33,7 +33,6 @@ class AdversarialDiscriminator(nn.Module):
         n_domains: int,
         reverse_grad: bool = True,
         norm_type: str = 'layer_norm',
-        lambd: float = 1.0
     ):
         super().__init__()
         # module list
@@ -46,15 +45,14 @@ class AdversarialDiscriminator(nn.Module):
             nn.Linear(d_model, n_domains)
         )
         self.reverse_grad = reverse_grad
-        self.lambd = lambd
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x, alpha):
         """
         Args:
             x: Tensor, shape [batch_size, embsize]
         """
         if self.reverse_grad:
-            x = grad_reverse(x, lambd=self.lambd)
+            x = ReverseLayerF.apply(x, alpha)
         x = self.discriminator(x)
         return x
     

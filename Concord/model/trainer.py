@@ -1,9 +1,11 @@
 
 import torch
 from torch import nn, optim
+import torch.nn.functional as F
 from tqdm import tqdm
 import wandb
 import copy
+import numpy as np
 from ..utils.evaluator import log_classification
 from .loss import ContrastiveLoss, importance_penalty_loss
 
@@ -13,7 +15,7 @@ class Trainer:
                  use_decoder=True, decoder_weight=1.0, 
                  use_clr=True, clr_temperature=0.5,
                  importance_penalty_weight=0, importance_penalty_type='L1',
-                 use_dab=False,
+                 use_dab=False, 
                  use_wandb=False):
         self.model = model
         self.data_structure = data_structure
@@ -38,8 +40,13 @@ class Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
 
-    def forward_pass(self, inputs, class_labels, domain_labels):
-        outputs = self.model(inputs)
+    def forward_pass(self, inputs, class_labels, domain_labels, alpha=None):
+        if self.model.use_domain_encoding and domain_labels is not None:
+            domain_labels_one_hot = F.one_hot(domain_labels, num_classes=self.model.domain_dim).float().to(self.device)
+        else:
+            domain_labels_one_hot = None
+    
+        outputs = self.model(inputs, domain_labels_one_hot, alpha)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
         dab_pred = outputs.get('dab_pred')
@@ -60,7 +67,7 @@ class Trainer:
         loss_dab = self.dab_criterion(dab_pred, domain_labels) if dab_pred is not None else torch.tensor(0.0)
 
         if self.contrastive_criterion is not None:
-            outputs_aug = self.model(inputs)
+            outputs_aug = self.model(inputs, domain_labels_one_hot, alpha)
             loss_clr = self.contrastive_criterion(outputs['encoded'], outputs_aug['encoded'])
 
         # Importance penalty loss
@@ -74,15 +81,18 @@ class Trainer:
 
         return loss, loss_classifier, loss_mse, loss_clr, loss_dab, loss_penalty, class_labels, class_pred
 
-    def train_epoch(self, epoch, train_dataloader, unique_classes):
+    def train_epoch(self, epoch, train_dataloader, unique_classes, n_epoch):
         self.model.train()
         total_loss, total_mse, total_clr, total_classifier, total_dab, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         train_preds, train_y = [], []
+        len_dataloader = len(train_dataloader)
+        data_iter = iter(train_dataloader)
+        progress_bar = tqdm(range(len_dataloader), desc=f"Epoch {epoch} Training", position=0, leave=True, dynamic_ncols=True)
 
-        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch} Training", position=0, leave=True, dynamic_ncols=True)
-
-        for data in progress_bar:
+        for i in progress_bar:
             self.optimizer.zero_grad()
+
+            data = next(data_iter)
 
             # Unpack data based on the provided structure
             data_dict = {key: value.to(self.device) for key, value in zip(self.data_structure, data)}
@@ -91,8 +101,15 @@ class Trainer:
             domain_labels = data_dict.get('domain', None)
             class_labels = data_dict.get('class', None)
 
+            # For DAB
+            if self.use_dab:
+                p = float(i + epoch * len_dataloader) / (n_epoch * len_dataloader)
+                alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            else:
+                alpha = None
+
             loss, loss_classifier, loss_mse, loss_clr, loss_dab, loss_penalty, class_labels, class_pred = self.forward_pass(
-                inputs, class_labels, domain_labels
+                inputs, class_labels, domain_labels, alpha
             )
 
             # Backward pass and optimization

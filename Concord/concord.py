@@ -1,6 +1,7 @@
 import wandb
 from pathlib import Path
 import torch
+import torch.nn.functional as F
 from .model.model import ConcordModel
 from .utils.preprocessor import Preprocessor
 from .utils.anndata_utils import ensure_categorical
@@ -91,7 +92,7 @@ class Concord:
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
                      use_dab=False,
-                     dab_lambd=1.0,
+                     use_domain_encoding=True, # Consider fix
                      dropout_prob=0.1,
                      norm_type="layer_norm", # Consider fix
                      domain_key=None,
@@ -142,7 +143,7 @@ class Concord:
             importance_penalty_weight=importance_penalty_weight,
             importance_penalty_type=importance_penalty_type,
             use_dab=use_dab, # Does improve based on testing, should be False, not deleted for future improvements
-            dab_lambd=dab_lambd,
+            use_domain_encoding=use_domain_encoding,
             dropout_prob=dropout_prob,
             norm_type=norm_type,
             sampler_mode=sampler_mode,
@@ -201,7 +202,7 @@ class Concord:
                                   use_classifier=self.config.use_classifier,
                                   use_importance_mask=self.config.use_importance_mask,
                                   use_dab=self.config.use_dab,
-                                  dab_lambd = self.config.dab_lambd).to(self.config.device)
+                                  use_domain_encoding=self.config.use_domain_encoding).to(self.config.device)
 
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
@@ -381,7 +382,7 @@ class Concord:
                 else:
                     unique_classes = None
 
-                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes)
+                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes, n_epoch=self.config.n_epochs)
                 if val_dataloader is not None:
                     self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
 
@@ -450,7 +451,12 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs)
+                    if self.model.use_domain_encoding and domain_labels is not None:
+                        domain_labels_one_hot = F.one_hot(domain_labels, num_classes=self.model.domain_dim).float().to(self.config.device)
+                    else:
+                        domain_labels_one_hot = None
+
+                    outputs = self.model(inputs, domain_labels_one_hot)
                     if 'class_pred' in outputs:
                         class_preds.extend(torch.argmax(outputs['class_pred'], dim=1).cpu().numpy())
                     if 'encoded' in outputs:
