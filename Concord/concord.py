@@ -93,6 +93,7 @@ class Concord:
                      importance_penalty_type='L1',
                      use_dab=False,
                      use_domain_encoding=True, # Consider fix
+                     domain_embedding_dim=8,
                      dropout_prob=0.1,
                      norm_type="layer_norm", # Consider fix
                      domain_key=None,
@@ -144,6 +145,7 @@ class Concord:
             importance_penalty_type=importance_penalty_type,
             use_dab=use_dab, # Does improve based on testing, should be False, not deleted for future improvements
             use_domain_encoding=use_domain_encoding,
+            domain_embedding_dim=domain_embedding_dim,
             dropout_prob=dropout_prob,
             norm_type=norm_type,
             sampler_mode=sampler_mode,
@@ -202,7 +204,8 @@ class Concord:
                                   use_classifier=self.config.use_classifier,
                                   use_importance_mask=self.config.use_importance_mask,
                                   use_dab=self.config.use_dab,
-                                  use_domain_encoding=self.config.use_domain_encoding).to(self.config.device)
+                                  use_domain_encoding=self.config.use_domain_encoding,
+                                  domain_embedding_dim=self.config.domain_embedding_dim).to(self.config.device)
 
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
@@ -266,14 +269,16 @@ class Concord:
         validate_probability(p_intra_class, "p_intra_class")
 
         # Additional checks
-        if p_intra_knn is not None and p_intra_knn > 0.5:
-            raise ValueError("p_intra_knn should not exceed 0.5 as it can lead to deteriorating performance.")
-        if p_intra_class is not None and p_intra_class > 0.5:
-            raise ValueError("p_intra_class should not exceed 0.5 as it can lead to deteriorating performance.")
+        p_intra_knn_max = 0.9
+        if p_intra_knn is not None and p_intra_knn > p_intra_knn_max:
+            raise ValueError(f"p_intra_knn should not exceed {p_intra_knn_max} as it can lead to deteriorating performance.")
+        if p_intra_class is not None and p_intra_class > p_intra_knn_max:
+            raise ValueError(f"p_intra_class should not exceed {p_intra_knn_max} as it can lead to deteriorating performance.")
         
-        if (isinstance(p_intra_domain, dict) and check_dict_condition(p_intra_domain, lambda x: x < 0.1)) or \
-           (p_intra_domain is not None and not isinstance(p_intra_domain, dict) and p_intra_domain < 0.1):
-            logger.warning("It is recommended to set p_intra_domain values above 0.1 for good batch-correction performance.")
+        p_intra_domain_min = 0.1
+        if (isinstance(p_intra_domain, dict) and check_dict_condition(p_intra_domain, lambda x: x < p_intra_domain_min)) or \
+           (p_intra_domain is not None and not isinstance(p_intra_domain, dict) and p_intra_domain < p_intra_domain_min):
+            logger.warning(f"It is recommended to set p_intra_domain values above {p_intra_domain_min} for good batch-correction performance.")
 
         if p_intra_domain is None:
             if sampler_emb not in self.adata.obsm:
@@ -451,12 +456,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    if self.model.use_domain_encoding and domain_labels is not None:
-                        domain_labels_one_hot = F.one_hot(domain_labels, num_classes=self.model.domain_dim).float().to(self.config.device)
-                    else:
-                        domain_labels_one_hot = None
-
-                    outputs = self.model(inputs, domain_labels_one_hot)
+                    outputs = self.model(inputs, domain_labels)
                     if 'class_pred' in outputs:
                         class_preds.extend(torch.argmax(outputs['class_pred'], dim=1).cpu().numpy())
                     if 'encoded' in outputs:

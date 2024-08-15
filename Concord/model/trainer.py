@@ -41,12 +41,7 @@ class Trainer:
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
 
     def forward_pass(self, inputs, class_labels, domain_labels, alpha=None):
-        if self.model.use_domain_encoding and domain_labels is not None:
-            domain_labels_one_hot = F.one_hot(domain_labels, num_classes=self.model.domain_dim).float().to(self.device)
-        else:
-            domain_labels_one_hot = None
-    
-        outputs = self.model(inputs, domain_labels_one_hot, alpha)
+        outputs = self.model(inputs, domain_labels, alpha)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
         dab_pred = outputs.get('dab_pred')
@@ -67,7 +62,7 @@ class Trainer:
         loss_dab = self.dab_criterion(dab_pred, domain_labels) if dab_pred is not None else torch.tensor(0.0)
 
         if self.contrastive_criterion is not None:
-            outputs_aug = self.model(inputs, domain_labels_one_hot, alpha)
+            outputs_aug = self.model(inputs, domain_labels, alpha)
             loss_clr = self.contrastive_criterion(outputs['encoded'], outputs_aug['encoded'])
 
         # Importance penalty loss

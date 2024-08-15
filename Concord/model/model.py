@@ -9,7 +9,7 @@ class ConcordModel(nn.Module):
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False,
-                 use_dab=False, use_domain_encoding=True):
+                 use_dab=False, use_domain_encoding=True, domain_embedding_dim=8):
         super().__init__()
 
         # Encoder
@@ -20,11 +20,16 @@ class ConcordModel(nn.Module):
         self.use_importance_mask = use_importance_mask
         self.use_dab = use_dab
         self.use_domain_encoding = use_domain_encoding
-        self.domain_dim = num_domains if use_domain_encoding else 0
+        self.domain_embedding_dim = domain_embedding_dim if use_domain_encoding else 0
 
-        encoder_input_dim = input_dim + self.domain_dim
-        decoder_input_dim = hidden_dim + self.domain_dim
+        encoder_input_dim = input_dim + self.domain_embedding_dim
+        decoder_input_dim = hidden_dim + self.domain_embedding_dim
 
+        # Domain embedding
+        if self.use_domain_encoding:
+            self.domain_embedding = nn.Embedding(num_embeddings=num_domains, embedding_dim=self.domain_embedding_dim)
+        
+        # Encoder
         if encoder_dims:
             self.encoder = build_layers(encoder_input_dim, hidden_dim, encoder_dims, dropout_prob, norm_type)
         else:
@@ -73,7 +78,8 @@ class ConcordModel(nn.Module):
         x = self.augmentation_mask(x)
 
         if self.use_domain_encoding and domain_labels is not None:
-            x = torch.cat((x, domain_labels), dim=1)
+            domain_embeddings = self.domain_embedding(domain_labels)
+            x = torch.cat((x, domain_embeddings), dim=1)
 
         for layer in self.encoder:
             x = layer(x)
@@ -83,7 +89,7 @@ class ConcordModel(nn.Module):
             x = out['encoded']
 
             if self.use_domain_encoding and domain_labels is not None:
-                x = torch.cat((x, domain_labels), dim=1)
+                x = torch.cat((x, domain_embeddings), dim=1)
 
             for layer in self.decoder:
                 x = layer(x)
