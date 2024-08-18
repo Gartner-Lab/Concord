@@ -40,8 +40,8 @@ class Trainer:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
 
-    def forward_pass(self, inputs, class_labels, domain_labels, alpha=None):
-        outputs = self.model(inputs, domain_labels, alpha)
+    def forward_pass(self, inputs, class_labels, domain_labels, covariate_tensors=None, alpha=None):
+        outputs = self.model(inputs, domain_labels, covariate_tensors, alpha)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
         dab_pred = outputs.get('dab_pred')
@@ -62,7 +62,7 @@ class Trainer:
         loss_dab = self.dab_criterion(dab_pred, domain_labels) if dab_pred is not None else torch.tensor(0.0)
 
         if self.contrastive_criterion is not None:
-            outputs_aug = self.model(inputs, domain_labels, alpha)
+            outputs_aug = self.model(inputs, domain_labels, covariate_tensors, alpha)
             loss_clr = self.contrastive_criterion(outputs['encoded'], outputs_aug['encoded'])
 
         # Importance penalty loss
@@ -95,6 +95,8 @@ class Trainer:
             inputs = data_dict['input']
             domain_labels = data_dict.get('domain', None)
             class_labels = data_dict.get('class', None)
+            covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'indices']]
+            covariate_tensors = {key: data_dict[key] for key in covariate_keys}
 
             # For DAB
             if self.use_dab:
@@ -104,7 +106,7 @@ class Trainer:
                 alpha = None
 
             loss, loss_classifier, loss_mse, loss_clr, loss_dab, loss_penalty, class_labels, class_pred = self.forward_pass(
-                inputs, class_labels, domain_labels, alpha
+                inputs, class_labels, domain_labels, covariate_tensors, alpha
             )
 
             # Backward pass and optimization

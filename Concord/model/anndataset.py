@@ -8,12 +8,12 @@ logger = logging.getLogger(__name__)
 
 
 class AnnDataset(Dataset):
-    def __init__(self, adata, input_layer_key='X', domain_key='domain', class_key=None, extra_keys=None, device=None):
+    def __init__(self, adata, input_layer_key='X', domain_key='domain', class_key=None, covariate_keys=None, device=None):
         self.adata = adata
         self.input_layer_key = input_layer_key
         self.domain_key = domain_key
         self.class_key = class_key
-        self.extra_keys = extra_keys if extra_keys is not None else []
+        self.covariate_keys = covariate_keys if covariate_keys is not None else []
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.data = self._get_data_matrix()
@@ -27,9 +27,9 @@ class AnnDataset(Dataset):
         else:
             self.class_labels = None
 
-        self.extra_tensors = {
-            key: torch.tensor(self.adata.obs[key].values, dtype=torch.float32).to(self.device)
-            for key in self.extra_keys
+        self.covariate_tensors = {
+            key: torch.tensor(self.adata.obs[key].cat.codes.values, dtype=torch.long).to(self.device)
+            for key in self.covariate_keys
         }
 
         self.data_structure = self._init_data_structure()
@@ -64,7 +64,7 @@ class AnnDataset(Dataset):
             structure.append('domain')
         if self.class_key is not None:
             structure.append('class')
-        structure.extend(self.extra_keys)
+        structure.extend(self.covariate_keys)
         structure.append('indices')
         return structure
 
@@ -86,8 +86,8 @@ class AnnDataset(Dataset):
                 items.append(self.domain_labels[actual_idx])
             elif key == 'class' and self.class_labels is not None:
                 items.append(self.class_labels[actual_idx])
-            elif key in self.extra_keys:
-                items.append(self.extra_tensors[key][actual_idx])
+            elif key in self.covariate_keys:
+                items.append(self.covariate_tensors[key][actual_idx])
             elif key == 'indices':
                 items.append(actual_idx)
 

@@ -3,7 +3,7 @@ from .dataloader import anndata_to_dataloader
 import numpy as np
 
 class ChunkLoader:
-    def __init__(self, adata, input_layer_key, domain_key, class_key=None, extra_keys=None,
+    def __init__(self, adata, input_layer_key, domain_key, class_key=None, covariate_keys=None,
                  chunk_size=10000, batch_size=32, train_frac=0.9,
                  sampler_mode="domain",
                  emb_key=None,
@@ -15,7 +15,7 @@ class ChunkLoader:
         self.input_layer_key = input_layer_key
         self.domain_key = domain_key
         self.class_key = class_key
-        self.extra_keys = extra_keys
+        self.covariate_keys = covariate_keys
         self.chunk_size = chunk_size
         self.batch_size = batch_size
         self.train_frac = train_frac
@@ -51,7 +51,7 @@ class ChunkLoader:
 
         train_dataloader, val_dataloader, data_structure = anndata_to_dataloader(
             chunk_adata, input_layer_key=self.input_layer_key, domain_key=self.domain_key, class_key=self.class_key,
-            extra_keys=self.extra_keys, train_frac=self.train_frac, batch_size=self.batch_size,
+            covariate_keys=self.covariate_keys, train_frac=self.train_frac, batch_size=self.batch_size,
             sampler_mode=self.sampler_mode,
             emb_key=self.emb_key,
             manifold_knn=self.manifold_knn, p_intra_knn=self.p_intra_knn, p_intra_domain=self.p_intra_domain,

@@ -5,7 +5,10 @@ import time
 from .knn import initialize_faiss_index, get_knn_indices
 from .timer import Timer
 import scanpy as sc
+import pandas as pd
+from typing import List, Optional, Union
 from .. import logger
+
 
 # from https://stackoverflow.com/questions/48999542/more-efficient-weighted-gini-coefficient-in-python
 def gini_coefficient(x):
@@ -18,7 +21,7 @@ def gini_coefficient(x):
 
 
 def iff_select(adata,
-               grouping='cluster',
+               grouping: Union[str, pd.Series, List[str]] = 'cluster',
                cluster_min_cell_num=100,
                min_cluster_expr_fraction=0.1,
                emb_key = 'X_pca',
@@ -43,13 +46,12 @@ def iff_select(adata,
                 raise ValueError(f"{emb_key} does not exist in adata.obsm.")
             else:
                 logger.info(f"Using {emb_key} for computing {grouping}.")
-    elif isinstance(grouping, list):
-        if len(grouping) != adata.shape[0]:
-            raise ValueError("Length of grouping must match number of cells.")
     else:
-        raise ValueError("grouping must be either 'cluster' or 'knn', or a list indicating grouping for each cells.")
+        if len(grouping) != adata.shape[0]:
+            raise ValueError("Length of grouping must match the number of cells.")
+        cluster_series = pd.Series(grouping)
 
-    if grouping == 'knn':
+    if isinstance(grouping, str) and grouping == 'knn':
         emb = adata.obsm[emb_key]
         with Timer() as timer:
             index, nbrs, use_faiss_flag = initialize_faiss_index(emb, k, use_faiss=use_faiss, use_ivf=use_ivf)
@@ -61,7 +63,7 @@ def iff_select(adata,
             }, index=adata.var_names)
         logger.info(f"Took {timer.interval:.2f} seconds to compute neighborhood.")
     else:
-        if grouping == 'cluster':
+        if isinstance(grouping, str) and grouping == 'cluster':
             emb = adata.obsm[emb_key]
             with Timer() as timer:
                 sc.pp.neighbors(adata, use_rep=emb_key)
@@ -89,16 +91,14 @@ def iff_select(adata,
         gene_clus_gini = expr_clus_frac.apply(gini_coefficient, axis=1)
     logger.info(f"Took {timer.interval:.2f} seconds to compute gini coefficient.")
 
-    if n_top_genes is not None:
-        include_g = gene_clus_gini.nlargest(n_top_genes).index.tolist()
-        logger.info(f"Selected top {n_top_genes} genes based on gini coefficient.")
-    else:
+    if gini_cut_qt is not None or gini_cut is not None:
+        logger.info("Selecting informative features based on gini coefficient ...")
         if gini_cut is None:
             gini_cut = gene_clus_gini.quantile(gini_cut_qt)
             logger.info(f"Cut at gini quantile {gini_cut_qt} with value {gini_cut:.3f}")
         else:
             logger.info(f"Cut at gini value {gini_cut}")
-
+        
         plt.figure(figsize=figsize)
         gene_clus_gini.hist(bins=100)
         plt.axvline(gini_cut, color='red', linestyle='dashed', linewidth=3)
@@ -110,6 +110,11 @@ def iff_select(adata,
         plt.close()
 
         include_g = gene_clus_gini[gene_clus_gini >= gini_cut].index.tolist()
+    elif n_top_genes is not None:
+        include_g = gene_clus_gini.nlargest(n_top_genes).index.tolist()
+        logger.info(f"Selected top {n_top_genes} genes based on gini coefficient.")
+    else:
+        raise ValueError("Either gini_cut_qt, gini_cut, or n_top_genes must be specified.")
 
     logger.info(f"Returning {len(include_g)} informative features.")
 

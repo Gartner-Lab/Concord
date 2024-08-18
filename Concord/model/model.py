@@ -2,14 +2,18 @@ import torch
 import torch.nn as nn
 from .dab import AdversarialDiscriminator
 from .build_layer import get_normalization_layer, build_layers
-
+from .. import logger
 
 class ConcordModel(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_domains, num_classes, encoder_dims=[], decoder_dims=[], 
+    def __init__(self, input_dim, hidden_dim, num_domains, num_classes,  
+                 domain_embedding_dim=0, 
+                 covariate_embedding_dims={},
+                 covariate_num_categories={},
+                 encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False,
-                 use_dab=False, use_domain_encoding=True, domain_embedding_dim=8):
+                 use_dab=False):
         super().__init__()
 
         # Encoder
@@ -19,16 +23,25 @@ class ConcordModel(nn.Module):
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
         self.use_dab = use_dab
-        self.use_domain_encoding = use_domain_encoding
-        self.domain_embedding_dim = domain_embedding_dim if use_domain_encoding else 0
+        self.domain_embedding_dim = domain_embedding_dim 
 
-        encoder_input_dim = input_dim + self.domain_embedding_dim
-        decoder_input_dim = hidden_dim + self.domain_embedding_dim
+        total_embedding_dim = 0
+        if domain_embedding_dim > 0:
+            self.domain_embedding = nn.Embedding(num_embeddings=num_domains, embedding_dim=domain_embedding_dim)
+            total_embedding_dim += domain_embedding_dim
 
-        # Domain embedding
-        if self.use_domain_encoding:
-            self.domain_embedding = nn.Embedding(num_embeddings=num_domains, embedding_dim=self.domain_embedding_dim)
-        
+        self.covariate_embeddings = nn.ModuleDict()
+        for key, dim in covariate_embedding_dims.items():
+            if dim > 0:
+                self.covariate_embeddings[key] = nn.Embedding(num_embeddings=covariate_num_categories[key], embedding_dim=dim)
+                total_embedding_dim += dim
+
+        encoder_input_dim = input_dim
+        decoder_input_dim = hidden_dim + total_embedding_dim
+
+        logger.info(f"Encoder input dim: {encoder_input_dim}")
+        logger.info(f"Decoder input dim: {decoder_input_dim}")
+
         # Encoder
         if encoder_dims:
             self.encoder = build_layers(encoder_input_dim, hidden_dim, encoder_dims, dropout_prob, norm_type)
@@ -68,7 +81,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x, domain_labels=None, alpha=None):
+    def forward(self, x, domain_labels=None, covariate_tensors=None, alpha=None):
         out = {}
 
         if self.use_importance_mask:
@@ -77,10 +90,6 @@ class ConcordModel(nn.Module):
 
         x = self.augmentation_mask(x)
 
-        if self.use_domain_encoding and domain_labels is not None:
-            domain_embeddings = self.domain_embedding(domain_labels)
-            x = torch.cat((x, domain_embeddings), dim=1)
-
         for layer in self.encoder:
             x = layer(x)
         out['encoded'] = x
@@ -88,9 +97,19 @@ class ConcordModel(nn.Module):
         if self.use_decoder:
             x = out['encoded']
 
-            if self.use_domain_encoding and domain_labels is not None:
-                x = torch.cat((x, domain_embeddings), dim=1)
+            embeddings = []
+            if self.domain_embedding_dim > 0 and domain_labels is not None:
+                domain_embeddings = self.domain_embedding(domain_labels)
+                embeddings.append(domain_embeddings)
 
+            # Use covariate embeddings if available
+            if covariate_tensors is not None:
+                for key, tensor in covariate_tensors.items():
+                    if key in self.covariate_embeddings:
+                        embeddings.append(self.covariate_embeddings[key](tensor))
+
+            if embeddings:
+                x = torch.cat([x] + embeddings, dim=1)
             for layer in self.decoder:
                 x = layer(x)
             if self.use_importance_mask:

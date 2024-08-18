@@ -92,13 +92,12 @@ class Concord:
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
                      use_dab=False,
-                     use_domain_encoding=True, # Consider fix
-                     domain_embedding_dim=8,
                      dropout_prob=0.1,
                      norm_type="layer_norm", # Consider fix
                      domain_key=None,
                      class_key=None,
-                     extra_keys=None,
+                     domain_embedding_dim=8,
+                     covariate_embedding_dims={},
                      sampler_mode="neighborhood",
                      sampler_emb="X_pca",
                      sampler_knn=256, 
@@ -131,7 +130,8 @@ class Concord:
             augmentation_mask_prob=augmentation_mask_prob,
             domain_key=domain_key,
             class_key=class_key,
-            extra_keys=extra_keys,
+            domain_embedding_dim=domain_embedding_dim,
+            covariate_embedding_dims=covariate_embedding_dims,
             use_decoder=use_decoder,
             decoder_final_activation=decoder_final_activation,
             decoder_weight=decoder_weight,
@@ -144,8 +144,6 @@ class Concord:
             importance_penalty_weight=importance_penalty_weight,
             importance_penalty_type=importance_penalty_type,
             use_dab=use_dab, # Does improve based on testing, should be False, not deleted for future improvements
-            use_domain_encoding=use_domain_encoding,
-            domain_embedding_dim=domain_embedding_dim,
             dropout_prob=dropout_prob,
             norm_type=norm_type,
             sampler_mode=sampler_mode,
@@ -178,9 +176,14 @@ class Concord:
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
-        num_domains = len(self.adata.obs[self.config.domain_key].cat.categories) if self.config.domain_key is not None else 0
+        if self.config.domain_key is not None:
+            ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
+            num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
+        else:
+            num_domains = 0
 
         if self.config.class_key is not None:
+            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
             all_classes = self.adata.obs[self.config.class_key].cat.categories
             if self.config.unlabeled_class is not None:
                 if self.config.unlabeled_class in all_classes:
@@ -191,9 +194,19 @@ class Concord:
         else:
             num_classes = 0
 
+        # Compute the number of categories for each covariate
+        covariate_num_categories = {}
+        for covariate_key in self.config.covariate_embedding_dims.keys():
+            if covariate_key in self.adata.obs:
+                ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
+                covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
+
         self.model = ConcordModel(input_dim, hidden_dim, 
                                   num_domains=num_domains,
                                   num_classes=num_classes,
+                                  domain_embedding_dim=self.config.domain_embedding_dim,
+                                  covariate_embedding_dims=self.config.covariate_embedding_dims,
+                                  covariate_num_categories=covariate_num_categories,
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
                                   decoder_final_activation=self.config.decoder_final_activation,
@@ -203,9 +216,7 @@ class Concord:
                                   use_decoder=self.config.use_decoder,
                                   use_classifier=self.config.use_classifier,
                                   use_importance_mask=self.config.use_importance_mask,
-                                  use_dab=self.config.use_dab,
-                                  use_domain_encoding=self.config.use_domain_encoding,
-                                  domain_embedding_dim=self.config.domain_embedding_dim).to(self.config.device)
+                                  use_dab=self.config.use_dab).to(self.config.device)
 
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
@@ -257,10 +268,8 @@ class Concord:
                             coverage_knn=256, 
                             min_p_intra_domain=0.5, max_p_intra_domain=1.0, scale_to_min_max=True,
                             use_faiss=True, use_ivf=True, ivf_nprobe=10):
-        if sampler_mode and self.config.domain_key is not None:
-            ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
+
         if class_weights and self.config.class_key is not None:
-            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
             weights_show = {k: f"{v:.2e}" for k, v in class_weights.items()}
             logger.info(f"Creating weighted samplers with specified weights: {weights_show}")
         
@@ -338,13 +347,14 @@ class Concord:
         else:
             sampler_kwargs={}
         
+        covariate_keys = self.config.covariate_embedding_dims.keys() if self.config.covariate_embedding_dims else None
         kwargs = {
             'adata': self.adata,
             'batch_size': self.config.batch_size,
             'input_layer_key': input_layer_key,
             'domain_key': self.config.domain_key,
             'class_key': self.config.class_key,
-            'extra_keys': self.config.extra_keys,
+            'covariate_keys': covariate_keys,
             'train_frac': train_frac,
             'drop_last': False,
             'preprocess': self.preprocessor,
@@ -449,6 +459,8 @@ class Concord:
                     domain_labels = data_dict.get('domain', None)
                     class_labels = data_dict.get('class', None)
                     original_indices = data_dict.get('indices')
+                    covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'indices']]
+                    covariate_tensors = {key: data_dict[key] for key in covariate_keys}
 
                     if class_labels is not None:
                         class_true.extend(class_labels.cpu().numpy())
@@ -456,7 +468,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs, domain_labels)
+                    outputs = self.model(inputs, domain_labels, covariate_tensors)
                     if 'class_pred' in outputs:
                         class_preds.extend(torch.argmax(outputs['class_pred'], dim=1).cpu().numpy())
                     if 'encoded' in outputs:
@@ -493,6 +505,9 @@ class Concord:
 
 
     def encode_adata(self, input_layer_key="X_log1p", output_key="X_concord", return_decoded=False, save_model=True):
+        # Initialize the model
+        self.init_model()
+
         # Initialize sampler parameters
         self.init_sampler_params(
             sampler_mode=self.config.sampler_mode, 
@@ -507,8 +522,6 @@ class Concord:
             ivf_nprobe=self.config.ivf_nprobe
         )
         
-        # Initialize the model
-        self.init_model()
         # Initialize the dataloader
         self.init_dataloader(input_layer_key=input_layer_key)
         # Initialize the trainer

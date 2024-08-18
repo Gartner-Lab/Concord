@@ -3,6 +3,7 @@ import numpy as np
 from typing import List, Optional, Union
 from pathlib import Path
 import scanpy as sc
+import pandas as pd
 import logging
 from . import iff_select
 
@@ -15,18 +16,18 @@ def select_features(
     filter_gene_by_counts: Union[int, bool] = False,
     normalize: bool = True,
     log1p: bool = True,
-    grouping='cluster',
+    grouping: Union[str, pd.Series, List[str]] = 'cluster',
     emb_key: str = 'X_pca',
     k: int = 512,
     knn_samples: int = 100,
     gini_cut_qt: float = 0.75,
     save_path: Optional[Union[str, Path]] = None,
     figsize: tuple = (10, 3),
-    subsample_frac: float = 0.1,
+    subsample_frac: float = 1.0,
     random_state: int = 0
 ) -> List[str]:
     # Subsample the data if too large
-    if subsample_frac < 1.0:
+    if 0 < subsample_frac < 1.0:
         np.random.seed(random_state)
         sampled_indices = np.random.choice(adata.n_obs, int(subsample_frac * adata.n_obs), replace=False)
         sampled_data = adata[sampled_indices].copy()

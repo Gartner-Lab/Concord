@@ -35,7 +35,7 @@ def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True,
 
 def anndata_to_dataloader(adata, input_layer_key, domain_key,
                           class_key=None,
-                          extra_keys=None,
+                          covariate_keys=None,
                           train_frac=0.9,
                           train_indices=None, val_indices=None,
                           batch_size=32,
@@ -58,7 +58,7 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
         preprocess(adata)
 
     dataset = AnnDataset(adata, input_layer_key=input_layer_key, domain_key=domain_key,
-                             class_key=class_key, extra_keys=extra_keys, device=device)
+                             class_key=class_key, covariate_keys=covariate_keys, device=device)
     data_structure = dataset.get_data_structure()
 
     dataloader_kwargs = {
