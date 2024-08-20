@@ -89,8 +89,9 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         norm_exprs_sparse_r = convert_to_sparse_r_matrix(tmp_adata.X.T)
     
     # Convert phenoData and featureData to R
+    fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
     annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
-    annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.var))
+    annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))
 
     # Create the ExpressionSet object in R
     eset = methods.new(
@@ -134,8 +135,8 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
             study_name: "{project_name}"
             study_description: ""
             organism: "{organism}"
-            feature_name_column: "{adata.var.columns[0]}"
-            feature_id_column: "{adata.var.columns[0]}"
+            feature_name_column: "{fmeta.columns[0]}"
+            feature_id_column: "{fmeta.columns[0]}"
         """
     
     config_file = os.path.join(output_dir, "config.yml")

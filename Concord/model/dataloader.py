@@ -2,7 +2,8 @@ import torch
 from .classSampler import ClassSampler
 from .neighborhoodSampler import NeighborhoodSampler
 from .anndataset import AnnDataset
-from torch.utils.data import DataLoader, random_split, Subset
+from torch.utils.data import DataLoader
+import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
@@ -83,15 +84,16 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
         return full_dataloader, None, data_structure
     else:
         if train_indices is None or val_indices is None:
-            # Split the dataset into train and validation sets
             train_size = int(train_frac * len(dataset))
             val_size = len(dataset) - train_size
-            train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-        else:
-            train_dataset = Subset(dataset, train_indices)
-            val_dataset = Subset(dataset, val_indices)
+            indices = np.arange(len(dataset))
+            np.random.shuffle(indices)
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
 
-        # Create dataloaders with optional sorted domain samplers
+        train_dataset = dataset.subset(train_indices)
+        val_dataset = dataset.subset(val_indices)
+
         train_dataloader = create_dataloader(train_dataset, **dataloader_kwargs)
         val_dataloader = create_dataloader(val_dataset, **dataloader_kwargs)
 

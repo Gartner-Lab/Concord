@@ -96,5 +96,8 @@ class AnnDataset(Dataset):
     def shuffle_indices(self):
         np.random.shuffle(self.indices)
 
-
+    def subset(self, indices):
+        # Create a new AnnDataset with only the selected indices
+        subset_adata = self.adata[indices].copy()
+        return AnnDataset(subset_adata, self.input_layer_key, self.domain_key, self.class_key, self.covariate_keys, self.device)
 
