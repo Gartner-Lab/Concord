@@ -14,6 +14,7 @@ from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
 import pandas as pd
+import copy
 from . import logger
 from . import set_verbose_mode
 
@@ -37,7 +38,7 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=True, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=False, use_wandb=False, verbose=True, **kwargs):
         set_verbose_mode(verbose)
         self.adata = adata if inplace else adata.copy()
         self.save_dir = Path(save_dir)
@@ -90,7 +91,7 @@ class Concord:
                      use_classifier=False,
                      classifier_weight=1.0,
                      unlabeled_class=None,
-                     use_importance_mask = False,
+                     use_importance_mask = True,
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
                      use_dab=False,
@@ -103,7 +104,7 @@ class Concord:
                      sampler_mode="neighborhood",
                      sampler_emb="X_pca",
                      sampler_knn=256, 
-                     p_intra_knn=0.1,
+                     p_intra_knn=0.3,
                      p_intra_domain=None,
                      min_p_intra_domain=0.6,
                      max_p_intra_domain=1.0,
@@ -378,7 +379,11 @@ class Concord:
             self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 
-    def train(self, save_model=True):
+    def train(self, save_model=True, patience=2):
+        best_val_loss = float('inf')
+        best_model_state = None
+        epochs_without_improvement = 0
+
         for epoch in range(self.config.n_epochs):
             logger.info(f'Starting epoch {epoch + 1}/{self.config.n_epochs}')
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
@@ -401,14 +406,39 @@ class Concord:
                     unique_classes = None
 
                 self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes, n_epoch=self.config.n_epochs)
+                
                 if val_dataloader is not None:
-                    self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
+                    val_loss = self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
+                
+                    # Check if the current validation loss is the best we've seen so far
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        best_model_state = copy.deepcopy(self.model.state_dict())
+                        logger.info(f"New best model found at epoch {epoch + 1} with validation loss: {best_val_loss:.4f}")
+                        epochs_without_improvement = 0  # Reset counter when improvement is found
+                    else:
+                        epochs_without_improvement += 1
+                        logger.info(f"No improvement in validation loss for {epochs_without_improvement} epoch(s).")
+
+                    # Early stopping condition
+                    if epochs_without_improvement >= patience:
+                        logger.info(f"Stopping early at epoch {epoch + 1} due to no improvement in validation loss.")
+                        break
 
             self.trainer.scheduler.step()
+
+            # Early stopping break condition
+            if epochs_without_improvement > patience:
+                break
+
+        if best_model_state is not None:
+            self.model.load_state_dict(best_model_state)
+            logger.info("Best model state loaded into the model before final save.")
 
         if save_model:
             model_save_path = self.save_dir / "final_model.pth"
             self.save_model(self.model, model_save_path)
+            logger.info(f"Final model saved at: {model_save_path}")
 
 
     def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class_prob=False):  
@@ -523,7 +553,7 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="X_concord", return_decoded=False, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class_prob=False, save_model=True):
         # Initialize the model
         self.init_model()
 
@@ -551,8 +581,18 @@ class Concord:
         self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
         
         # Predict and store the results
-        encoded, decoded, _, _, _ = self.predict(self.loader, return_decoded=return_decoded)
+        encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class_prob=return_class_prob)
         self.adata.obsm[output_key] = encoded
+        if return_decoded:
+            self.adata.layers[output_key+'_decoded'] = decoded
+        if class_true is not None:
+            self.adata.obs[output_key+'_class_true'] = class_true
+        if class_preds is not None:
+            self.adata.obs[output_key+'_class_pred'] = class_preds
+        if class_probs is not None:
+            class_probs.index = self.adata.obs.index
+            for col in class_probs.columns:
+                self.adata.obs[f'class_prob_{col}'] = class_probs[col]
         if decoded is not None:
             self.adata.layers[output_key+'_decoded'] = decoded # Store decoded values in adata.layers
 
