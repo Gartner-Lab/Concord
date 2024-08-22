@@ -293,6 +293,8 @@ class Concord:
            (p_intra_domain is not None and not isinstance(p_intra_domain, dict) and p_intra_domain < p_intra_domain_min):
             logger.warning(f"It is recommended to set p_intra_domain values above {p_intra_domain_min} for good batch-correction performance.")
 
+        # TODO: Add a check if p_intra_domain is 1.0, then just do domain-specific training without computing PCA
+        # TODO: How to compute PCA for large datasets? Maybe just use faiss with X_log1p?
         if p_intra_domain is None:
             if sampler_emb not in self.adata.obsm:
                 if sampler_emb == "X_pca":
