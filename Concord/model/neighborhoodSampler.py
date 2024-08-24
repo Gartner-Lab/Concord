@@ -9,9 +9,11 @@ logger = logging.getLogger(__name__)
 
 
 class NeighborhoodSampler(Sampler):
-    def __init__(self, dataset, batch_size, emb_key="encoded",
+    def __init__(self, dataset, batch_size, 
+                 emb_key="X_pca",
                  local_sampling_method=None,
-                 sampler_knn=300, p_intra_knn=0.3,
+                 sampler_knn=300, 
+                 p_intra_knn=0.3,
                  p_intra_domain=1.0,
                  use_faiss=True, use_ivf=False, ivf_nprobe=8,
                  device=None):
@@ -27,19 +29,20 @@ class NeighborhoodSampler(Sampler):
 
         # Get domain labels from data source
         if isinstance(dataset, torch.utils.data.Subset):
-            self.emb = dataset.dataset.data[dataset.indices] if emb_key == "data" else dataset.dataset.get_embedding(emb_key, dataset.indices)
+            self.emb = dataset.dataset.data[dataset.indices] if emb_key == "X" else dataset.dataset.get_embedding(emb_key, dataset.indices)
             self.domain_labels = dataset.dataset.get_domain_labels(dataset.indices)
         else:
-            self.emb = dataset.data if emb_key == "data" else dataset.adata.obsm[emb_key]
+            self.emb = dataset.data if emb_key == "X" else dataset.adata.obsm[emb_key]
             self.domain_labels = dataset.domain_labels
 
+        self.emb = self.emb.astype(np.float32)
+        
         if self.domain_labels is None:
             logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
             self.domain_labels = torch.zeros(len(self.emb), dtype=torch.long, device=self.device)
 
         self.unique_domains, self.domain_counts = torch.unique(self.domain_labels, return_counts=True)
         logger.info(f"Number of unique_domains: {len(self.unique_domains)}")
-
 
         if isinstance(p_intra_domain, dict):
             self.p_intra_domain_dict = p_intra_domain

@@ -8,10 +8,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def create_dataloader(dataset, batch_size, sampler_mode, device, drop_last=True, emb_key='encoded',
+def create_dataloader(dataset, batch_size, sampler_mode, device, 
+                      drop_last=True, emb_key='encoded',
                       sampler_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
                       class_weights=None, p_intra_class=0.3,
-                      use_faiss=True, use_ivf=False, ivf_nprobe=8, ):
+                      use_faiss=True, use_ivf=False, ivf_nprobe=8):
 
     if sampler_mode == "domain":
         sampler = ClassSampler(dataset, batch_size=batch_size, class_weights=None, p_intra=None, drop_last=drop_last, device=device)
@@ -98,3 +99,4 @@ def anndata_to_dataloader(adata, input_layer_key, domain_key,
         val_dataloader = create_dataloader(val_dataset, **dataloader_kwargs)
 
         return train_dataloader, val_dataloader, data_structure
+

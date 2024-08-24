@@ -40,7 +40,14 @@ class Config:
 class Concord:
     def __init__(self, adata, save_dir='save/', inplace=False, use_wandb=False, verbose=True, **kwargs):
         set_verbose_mode(verbose)
-        self.adata = adata if inplace else adata.copy()
+        if adata.isbacked:
+            logger.warning("Input AnnData object is backed. With same amount of epochs, Concord will perform better when adata is loaded into memory.")
+            if inplace:
+                raise ValueError("Inplace mode is not supported for backed AnnData object. Set inplace to False.")
+            self.adata = adata
+        else:
+            self.adata = adata if inplace else adata.copy()
+
         self.save_dir = Path(save_dir)
         self.config = None
         self.loader = None
@@ -299,11 +306,16 @@ class Concord:
                     if self.adata.n_obs > 150000:
                         raise ValueError("You specified embedding as X_pca but the dataset is too large. For large dataset, it is recommended to directly \
                          set p_intra_domain value to e.g., 0.9, or pre-compute PCA.")
+                    if self.adata.isbacked:
+                        raise ValueError("PCA embeddings are not found in adata.obsm. Please provide a valid embedding key.")
+                    
                     logger.warning("PCA embeddings are not found in adata.obsm. Computing PCA...")
                     adata_copy = self.adata.copy() # Prevent filtering features of original adata, for large datasets consider do a subsample in future
                     self.preprocessor(adata=adata_copy)
                     sc.tl.pca(adata_copy, n_comps=50)
                     self.adata.obsm["X_pca"] = adata_copy.obsm["X_pca"]
+                elif sampler_emb == "X":
+                    raise ValueError("You specified embedding as X but you did not provide a p_intra_domain. Please also set p_intra_domain to e.g., 0.9.")
                 else:
                     raise ValueError(f"Embedding {sampler_emb} is not found in adata.obsm. Please provide a valid embedding key.")
             logger.info(f"Calculating each domain's coverage of the global manifold with knn (k={coverage_knn}) constructed on {sampler_emb}.")
@@ -374,6 +386,7 @@ class Concord:
                 chunk_size=self.config.chunk_size,
                 **kwargs
             )
+            print("self.loader.data_structure", self.loader.data_structure)
             self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
             train_dataloader, val_dataloader, self.data_structure = anndata_to_dataloader(
@@ -455,8 +468,8 @@ class Concord:
 
         # Get the original class categories
         class_categories = self.adata.obs[self.config.class_key].cat.categories if self.config.class_key is not None else None
-
-        if isinstance(loader, list) and all(isinstance(item, tuple) for item in loader):
+        
+        if isinstance(loader, list) or type(loader).__name__ == 'ChunkLoader':
             all_embeddings = []
             all_decoded = []
             all_class_preds = []

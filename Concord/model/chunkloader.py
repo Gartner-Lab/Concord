@@ -3,11 +3,12 @@ from .dataloader import anndata_to_dataloader
 import numpy as np
 
 class ChunkLoader:
-    def __init__(self, adata, input_layer_key, domain_key, class_key=None, covariate_keys=None,
+    def __init__(self, adata, input_layer_key, domain_key, 
+                 class_key=None, covariate_keys=None,
                  chunk_size=10000, batch_size=32, train_frac=0.9,
                  sampler_mode="domain",
                  emb_key=None,
-                 manifold_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
+                 sampler_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
                  use_faiss=True, use_ivf=False, ivf_nprobe=8,
                  class_weights=None, p_intra_class=0.3, drop_last=True,
                  preprocess=None, device=None):
@@ -20,7 +21,7 @@ class ChunkLoader:
         self.batch_size = batch_size
         self.train_frac = train_frac
         self.sampler_mode = sampler_mode
-        self.manifold_knn = manifold_knn
+        self.sampler_knn = sampler_knn
         self.emb_key = emb_key
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
@@ -36,6 +37,7 @@ class ChunkLoader:
         self.num_chunks = (self.total_samples + chunk_size - 1) // chunk_size
         self.indices = np.arange(self.total_samples)
         self.data_structure = None
+        _, _, _ = self._load_chunk(0) # Load first chunk to get data_structure
 
     def __len__(self):
         return self.num_chunks
@@ -54,7 +56,7 @@ class ChunkLoader:
             covariate_keys=self.covariate_keys, train_frac=self.train_frac, batch_size=self.batch_size,
             sampler_mode=self.sampler_mode,
             emb_key=self.emb_key,
-            manifold_knn=self.manifold_knn, p_intra_knn=self.p_intra_knn, p_intra_domain=self.p_intra_domain,
+            sampler_knn=self.sampler_knn, p_intra_knn=self.p_intra_knn, p_intra_domain=self.p_intra_domain,
             use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe,
             class_weights=self.class_weights, p_intra_class=self.p_intra_class,
             drop_last=self.drop_last, preprocess=self.preprocess,
@@ -62,7 +64,7 @@ class ChunkLoader:
         )
 
         if self.data_structure is None:
-            self.data_structure = data_structure  # Store data_structure on first load
+            self.data_structure = data_structure  # Update data_structure if not initialized
 
         return train_dataloader, val_dataloader, chunk_indices
 

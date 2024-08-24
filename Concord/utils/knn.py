@@ -44,6 +44,8 @@ def initialize_faiss_index(emb, k, use_faiss=True, use_ivf=False, ivf_nprobe=10)
             n = emb.shape[0]
             d = emb.shape[1]
             if use_ivf:
+                if d > 3000:
+                    logger.warning("FAISS IVF index is not recommended for data with too many features. Consider set use_ivf=False or set sampler_emb to PCA or other low dimensional embedding.")
                 logger.info(f"Building Faiss IVF index. nprobe={ivf_nprobe}")
                 nlist = int(math.sqrt(n))  # number of clusters, based on https://github.com/facebookresearch/faiss/issues/112
                 quantizer = faiss.IndexFlatL2(d)

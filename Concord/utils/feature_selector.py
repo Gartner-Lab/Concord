@@ -27,16 +27,25 @@ def select_features(
     random_state: int = 0
 ) -> List[str]:
     # Subsample the data if too large
+    sampled_indices=None
     if 0 < subsample_frac < 1.0:
         np.random.seed(random_state)
         sampled_indices = np.random.choice(adata.n_obs, int(subsample_frac * adata.n_obs), replace=False)
-        sampled_data = adata[sampled_indices].copy()
+        sampled_size = len(sampled_indices)
     else:
-        sampled_data = adata.copy()
+        sampled_size = adata.n_obs
 
-    if sampled_data.n_obs > 100000:
+    if sampled_size > 100000:
         raise ValueError(f"The number of cells for VEG selection ({sampled_data.n_obs}) exceeds the limit of 100,000. "
                         f"Please specify a lower subsample_frac value to downsample cells for VEG calling.")
+    
+    # Handle backed mode and subsampling
+    if adata.isbacked:
+        logger.info("Converting backed AnnData object to memory...")
+        sampled_data = adata[sampled_indices].to_memory() if sampled_indices is not None else adata.to_memory()
+    else:
+        sampled_data = adata[sampled_indices].copy() if sampled_indices is not None else adata.copy()
+
     # Filter genes by counts
     if filter_gene_by_counts:
         logger.info("Filtering genes by counts ...")
