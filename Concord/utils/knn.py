@@ -31,6 +31,9 @@ def initialize_faiss_index(emb, k, use_faiss=True, use_ivf=False, ivf_nprobe=10)
     index = None
     nbrs = None
 
+    if np.isnan(emb).any():
+        raise ValueError("There are NaN values in the emb array.")
+
     try:
         if hasattr(faiss, 'StandardGpuResources'):
             logger.warning(
@@ -40,20 +43,18 @@ def initialize_faiss_index(emb, k, use_faiss=True, use_ivf=False, ivf_nprobe=10)
             emb = np.ascontiguousarray(emb)
             n = emb.shape[0]
             d = emb.shape[1]
-
             if use_ivf:
+                logger.info(f"Building Faiss IVF index. nprobe={ivf_nprobe}")
                 nlist = int(math.sqrt(n))  # number of clusters, based on https://github.com/facebookresearch/faiss/issues/112
                 quantizer = faiss.IndexFlatL2(d)
                 index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
                 index.train(emb)
                 index.nprobe = ivf_nprobe
-                logger.info(f"Building Faiss IVF index. nprobe={index.nprobe}.")
             else:
                 logger.info("Building Faiss FlatL2 index.")
                 index = faiss.IndexFlatL2(d)
 
             index.add(emb)
-
     except ImportError:
         logger.warning("FAISS is not available. Falling back to sklearn's NearestNeighbors.")
         use_faiss = False

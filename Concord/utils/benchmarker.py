@@ -7,7 +7,7 @@ from .anndata_utils import save_obsm_to_hdf5
 import tracemalloc
 import pandas as pd
 from .. import logger
-import pynvml
+
 
 def count_total_runs(param_grid):
     total_runs = 0
@@ -23,8 +23,12 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
     log_df = pd.DataFrame(columns=["param_name", "value", "time_minutes", "peak_memory_MB", "peak_gpu_memory_MB"])
 
     if trace_gpu_memory:
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # Assuming a single GPU setup
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)  # Assuming a single GPU setup
+        except ImportError:
+            raise ImportError("pynvml is not available.")
 
     for param_name, values in param_grid.items():
         for value in values:

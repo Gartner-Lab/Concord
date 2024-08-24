@@ -94,6 +94,8 @@ def generate_synthetic_doublets(adata, doublet_synth_ratio, seed, batch_key, dro
             adata.obs[droplet_type_key] = 'singlet'
 
         adata_combined = ad.concat([adata, adata_synthetic_doublets], axis=0, join='outer')
+        # Remove existing obsm if any
+        adata_combined.obsm.clear()
         return adata_combined
 
     return adata_synthetic_doublets

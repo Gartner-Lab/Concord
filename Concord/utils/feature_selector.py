@@ -34,6 +34,9 @@ def select_features(
     else:
         sampled_data = adata.copy()
 
+    if sampled_data.n_obs > 100000:
+        raise ValueError(f"The number of cells for VEG selection ({sampled_data.n_obs}) exceeds the limit of 100,000. "
+                        f"Please specify a lower subsample_frac value to downsample cells for VEG calling.")
     # Filter genes by counts
     if filter_gene_by_counts:
         logger.info("Filtering genes by counts ...")

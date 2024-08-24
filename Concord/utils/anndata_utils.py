@@ -6,22 +6,25 @@ import h5py
 import numpy as np
 import pandas as pd
 import scanpy as sc
+import gc
 from .. import logger
 
-def list_adata_files(folder_path, substring=None, extension='*'):
+def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
     """
-    List all .h5ad files in a folder recursively that contain a specific substring in their names.
+    List all files in a folder recursively that contain a specific substring in their names
+    and match a specific file extension.
 
     Args:
         folder_path (str): The path to the folder to search.
         substring (str): The substring to filter filenames.
+        extension (str): The file extension to filter by (default is '*.h5ad').
 
     Returns:
-        list: A list of file paths that contain the substring.
+        list: A list of file paths that contain the substring and match the extension.
     """
-    # Use glob to find all .h5ad files recursively
+    # Use glob to find all files with the specified extension recursively
     all_files = glob.glob(os.path.join(folder_path, '**', extension), recursive=True)
-
+    
     # Filter files that contain the substring in their names
     if substring is not None:
         filtered_files = [f for f in all_files if substring in os.path.basename(f)]
@@ -33,7 +36,7 @@ def list_adata_files(folder_path, substring=None, extension='*'):
 
 
 # Backed mode does not work now, this function (https://anndata.readthedocs.io/en/latest/generated/anndata.experimental.concat_on_disk.html) also has limitation
-def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=False, output_file=None, use_backed=False):
+def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=False, output_file=None):
     """
     Read all .h5ad files and concatenate them into a single AnnData object.
 
@@ -51,64 +54,31 @@ def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=F
     Returns:
         AnnData: The concatenated AnnData object.
     """
-    if use_backed:
-        if output_file is None:
-            raise ValueError("Output file must be provided when using backed mode.")
+    # Standard concatenation in memory for smaller datasets
+    adata_combined = None
 
-        # Start by writing the first file to the output
-        first_file = adata_files[0]
-        adata_combined = sc.read_h5ad(first_file)
+    for file in adata_files:
+        logger.info(f"Loading file: {file}")
+        adata = sc.read_h5ad(file)  # Load the AnnData object in memory
         
         if add_dataset_column:
-            dataset_name = os.path.splitext(os.path.basename(first_file))[0]
-            adata_combined.obs['dataset'] = dataset_name
+            dataset_name = os.path.splitext(os.path.basename(file))[0]
+            adata.obs['dataset'] = dataset_name
         
-        adata_combined.write(output_file)  # Save the initial file as the starting point
-        adata_combined = sc.read_h5ad(output_file, backed='r+')  # Open it in backed mode for appending
-
-        # Process the remaining files
-        for file in adata_files[1:]:
-            logger.info("Reading and concatenating file: " + file)
-            adata = sc.read_h5ad(file)  # Load the next file in memory
-            if add_dataset_column:
-                dataset_name = os.path.splitext(os.path.basename(file))[0]
-                adata.obs['dataset'] = dataset_name
-            
-            # Append the new data to the combined AnnData object
+        if adata_combined is None:
+            adata_combined = adata
+        else:
             adata_combined = ad.concat([adata_combined, adata], axis=0, join='outer', merge=merge)
-            
-            # Write the updated combined AnnData object back to disk
-            adata_combined.write(output_file)
-            adata_combined = sc.read_h5ad(output_file, backed='r+')  # Reopen in backed mode for the next iteration
+        
+        logger.info(f"Combined shape: {adata_combined.shape}")
+        # Immediately delete the loaded adata to free up memory
+        del adata
+        gc.collect()
 
-            # Free up memory
-            del adata
+    if output_file is not None:
+        adata_combined.write(output_file)  # Save the final concatenated object to disk
 
-        return sc.read_h5ad(output_file, backed='r')
-    
-    else:
-        # Standard concatenation in memory for smaller datasets
-        adata_combined = None
-
-        for file in adata_files:
-            adata = sc.read_h5ad(file)  # Load the AnnData object in memory
-            
-            if add_dataset_column:
-                dataset_name = os.path.splitext(os.path.basename(file))[0]
-                adata.obs['dataset'] = dataset_name
-            
-            if adata_combined is None:
-                adata_combined = adata
-            else:
-                adata_combined = ad.concat([adata_combined, adata], axis=0, join='outer', merge=merge)
-            
-            # Immediately delete the loaded adata to free up memory
-            del adata
-
-        if output_file is not None:
-            adata_combined.write(output_file)  # Save the final concatenated object to disk
-
-        return adata_combined
+    return adata_combined
 
 
 

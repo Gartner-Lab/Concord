@@ -1,6 +1,5 @@
 import umap
 from .. import logger
-from cuml.manifold import UMAP as cumlUMAP
 from sklearn.decomposition import PCA
 
 def run_umap(adata,
@@ -11,7 +10,9 @@ def run_umap(adata,
              random_state=0, use_cuml=False):
 
     if use_cuml:
+
         try:
+            from cuml.manifold import UMAP as cumlUMAP
             umap_model = cumlUMAP(n_components=n_components, n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
                                   spread=spread, n_epochs=n_epochs, random_state=random_state)
         except ImportError:

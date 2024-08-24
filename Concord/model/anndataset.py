@@ -44,9 +44,12 @@ class AnnDataset(Dataset):
             self.adata.layers[self.input_layer_key]
 
     def get_embedding(self, embedding_key, indices):
-        if embedding_key is not None and embedding_key in self.adata.obsm.key():
+        if embedding_key == 'X':
+            return self.adata.X.A[indices]
+        elif embedding_key in self.adata.obsm.key():
             return self.adata.obsm[embedding_key][indices]
-        return None
+        else:
+            raise ValueError(f"Embedding key '{embedding_key}' not found in adata")
 
     def get_domain_labels(self, indices):
         if self.domain_labels is not None:
