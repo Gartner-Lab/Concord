@@ -457,7 +457,7 @@ class Concord:
             logger.info(f"Final model saved at: {model_save_path}")
 
 
-    def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class_prob=False):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class_prob=True):  
         self.model.eval()
         class_preds = []
         class_true = []
@@ -569,7 +569,7 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class_prob=False, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class_prob=True, save_model=True):
         # Initialize the model
         self.init_model()
 

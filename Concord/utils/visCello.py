@@ -75,8 +75,11 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         )
     ''')
     
-    # Convert the expression matrix (adata.X) to a sparse matrix in R
-    exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
+    # Convert the expression matrix to a sparse matrix in R
+    if 'counts' in adata.layers:
+        exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['counts'].T)
+    else:
+        exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
     
     # Convert the normalized expression matrix (adata.layers['X_log1p']) to a sparse matrix in R
     if 'X_log1p' in adata.layers:

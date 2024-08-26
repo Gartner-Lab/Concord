@@ -45,6 +45,7 @@ class ChunkLoader:
     def _shuffle_indices(self):
         np.random.shuffle(self.indices)
 
+    # Future todo: Allow random sampling of indices for each chunk, and allow sampling based on global distance
     def _load_chunk(self, chunk_idx):
         start_idx = chunk_idx * self.chunk_size
         end_idx = min(start_idx + self.chunk_size, self.total_samples)

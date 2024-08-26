@@ -27,11 +27,17 @@ class NeighborhoodSampler(Sampler):
         self.ivf_nprobe = ivf_nprobe
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # Get domain labels from data source
+        # Get emb and domain labels from data source
         if isinstance(dataset, torch.utils.data.Subset):
+            if len(dataset.indices) > 50000 and emb_key == "X":
+                raise ValueError("The number of samples is too large to use adata.X for neighborhood computing. "
+                                 "Please provide a sampler_emb such as X_pca, or set chunked to True and use a chunk size <= 5e4.")
             self.emb = dataset.dataset.data[dataset.indices] if emb_key == "X" else dataset.dataset.get_embedding(emb_key, dataset.indices)
             self.domain_labels = dataset.dataset.get_domain_labels(dataset.indices)
         else:
+            if dataset.data.shape[0] > 50000 and emb_key == "X":
+                raise ValueError("The number of samples is too large to use adata.X for neighborhood computing. "
+                                 "Please provide a sampler_emb such as X_pca, or set chunked to True and use a chunk size <= 5e4.")
             self.emb = dataset.data if emb_key == "X" else dataset.adata.obsm[emb_key]
             self.domain_labels = dataset.domain_labels
 

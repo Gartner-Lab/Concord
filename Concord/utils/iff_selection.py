@@ -24,19 +24,24 @@ def iff_select(adata,
                grouping: Union[str, pd.Series, List[str]] = 'cluster',
                cluster_min_cell_num=100,
                min_cluster_expr_fraction=0.1,
-               emb_key = 'X_pca',
+               emb_key='X_pca',
                k=512,
-               knn_samples = 100,
+               knn_samples=100,
                use_faiss=True,
                use_ivf=True,
                n_top_genes=None,
                gini_cut=None,
-               gini_cut_qt=0.75,
+               gini_cut_qt=None,
                figsize=(10, 3),
                save_path=None):
-    if isinstance(grouping, str):
+
+    # Check if grouping is a column in adata.obs
+    if isinstance(grouping, str) and grouping in adata.obs:
+        logger.info(f"Using {grouping} from adata.obs for clustering.")
+        cluster_series = adata.obs[grouping]
+    elif isinstance(grouping, str):
         if grouping not in ['cluster', 'knn']:
-            raise ValueError("grouping must be either 'cluster' or 'knn', or a list indicating grouping for each cells.")
+            raise ValueError("grouping must be either a column in adata.obs, 'cluster', 'knn', or a list of cluster labels.")
         else:
             if emb_key == "X_pca" and "X_pca" not in adata.obsm:
                 logger.warning("X_pca does not exist in adata.obsm. Computing PCA.")
@@ -46,11 +51,21 @@ def iff_select(adata,
                 raise ValueError(f"{emb_key} does not exist in adata.obsm.")
             else:
                 logger.info(f"Using {emb_key} for computing {grouping}.")
+            
+            if grouping == 'cluster':
+                emb = adata.obsm[emb_key]
+                with Timer() as timer:
+                    sc.pp.neighbors(adata, use_rep=emb_key)
+                    sc.tl.leiden(adata)
+                    cluster_series = pd.Series(adata.obs['leiden'])
+                logger.info(f"Took {timer.interval:.2f} seconds to compute leiden cluster.")
     else:
         if len(grouping) != adata.shape[0]:
             raise ValueError("Length of grouping must match the number of cells.")
         cluster_series = pd.Series(grouping)
 
+    # Compute KNN or clustering if not using an existing grouping from adata.obs
+    expr_clus_frac = None
     if isinstance(grouping, str) and grouping == 'knn':
         emb = adata.obsm[emb_key]
         with Timer() as timer:
@@ -63,16 +78,6 @@ def iff_select(adata,
             }, index=adata.var_names)
         logger.info(f"Took {timer.interval:.2f} seconds to compute neighborhood.")
     else:
-        if isinstance(grouping, str) and grouping == 'cluster':
-            emb = adata.obsm[emb_key]
-            with Timer() as timer:
-                sc.pp.neighbors(adata, use_rep=emb_key)
-                sc.tl.leiden(adata)
-                cluster_series = pd.Series(adata.obs['leiden'])
-            logger.info(f"Took {timer.interval:.2f} seconds to compute leiden cluster.")
-        else:
-            cluster_series = pd.Series(grouping)
-        
         use_clus = cluster_series.value_counts()[cluster_series.value_counts() >= cluster_min_cell_num].index.tolist()
         expr_clus_frac = pd.DataFrame({
             cluster: (adata[cluster_series == cluster, :].X > 0).mean(axis=0).A1
@@ -119,5 +124,4 @@ def iff_select(adata,
     logger.info(f"Returning {len(include_g)} informative features.")
 
     return include_g
-
 

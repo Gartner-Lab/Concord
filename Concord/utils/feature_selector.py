@@ -20,7 +20,7 @@ def select_features(
     emb_key: str = 'X_pca',
     k: int = 512,
     knn_samples: int = 100,
-    gini_cut_qt: float = 0.75,
+    gini_cut_qt: float = None,
     save_path: Optional[Union[str, Path]] = None,
     figsize: tuple = (10, 3),
     subsample_frac: float = 1.0,
