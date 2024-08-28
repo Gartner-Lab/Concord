@@ -41,7 +41,7 @@ class NeighborhoodSampler(Sampler):
             domain_indices = torch.where(self.domain_ids == domain)[0]
             out_domain_indices = torch.where(self.domain_ids != domain)[0]
 
-            num_core_samples = max(1,(self.domain_counts[domain] // self.batch_size).item())
+            num_core_samples = max(1,(self.domain_counts[domain] // self.batch_size).item()) # number of neighborhoods per domain be proportional to domain cell counts
 
             core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_core_samples]]
 
@@ -88,7 +88,6 @@ class NeighborhoodSampler(Sampler):
 
         # Shuffle all batches to ensure random order of domains
         all_batches = [all_batches[i] for i in torch.randperm(len(all_batches)).tolist()]
-        # TODO: Check batch size and see if drop_last is necessary
         return all_batches
 
     def __iter__(self):

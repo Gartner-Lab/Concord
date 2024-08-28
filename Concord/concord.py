@@ -120,7 +120,6 @@ class Concord:
                      doublet_synth_ratio=0.4,
                      chunked=False,
                      chunk_size=10000,
-                     wandb_reinit=True,
                      device='cpu',
                      seed=0):
         initial_params = dict(
@@ -172,7 +171,7 @@ class Concord:
         )
 
         if self.use_wandb:
-            config, run = update_wandb_params(initial_params, project_name=self.config.project_name, reinit=wandb_reinit)
+            config, run = update_wandb_params(initial_params, project_name=self.config.project_name, reinit=True)
             self.config = config
             self.run = run
         else:
@@ -267,7 +266,7 @@ class Concord:
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True):
+    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True, enhancing=False):
         data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
@@ -283,6 +282,7 @@ class Concord:
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
             preprocess=self.preprocessor, 
+            enhancing=enhancing,
             device=self.config.device
         )
 
@@ -472,11 +472,20 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class_prob=True, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", enhancing=False, return_decoded=False, return_class_prob=True, save_model=True):
+        if enhancing:
+            # Override user specified class_key and enable classifier
+            self.config.class_key = "knn_placeholder"
+            self.adata.obs[self.config.class_key] = -1 # Set all cells to unlabeled class
+            self.config.use_classifier = True
+            self.config.unlabeled_class = -1
+            self.config.train_frac = 1.0 # Validation needs to be turned off because knn are generated on the fly
+            logger.info("Enhancing mode is on. Ignoring user-specified class_key and using KNN-based classifier.")
+
         # Initialize the model
         self.init_model()
         # Initialize the dataloader
-        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True)
+        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True, enhancing=enhancing)
         # Initialize the trainer
         self.init_trainer()
         # Train the model

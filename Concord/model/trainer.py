@@ -22,7 +22,7 @@ class Trainer:
         self.logger = logger
         self.use_classifier = use_classifier
         self.classifier_weight = classifier_weight
-        self.unlabeled_class = unlabeled_class
+        self.unlabeled_class = unlabeled_class # TODO, check if need to be converted to code
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
         self.use_clr = use_clr
@@ -48,6 +48,8 @@ class Trainer:
             if labeled_mask.sum() > 0:
                 class_labels = class_labels[labeled_mask]
                 class_pred = class_pred[labeled_mask] 
+                print("class_labels", class_labels)
+                print("class_pred", class_pred)
                 loss_classifier = self.classifier_criterion(class_pred, class_labels) * self.classifier_weight
             else:
                 class_labels = None
