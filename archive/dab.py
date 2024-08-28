@@ -3,7 +3,7 @@
 import torch
 from torch import nn, Tensor
 from torch.autograd import Function
-from .build_layer import get_normalization_layer
+from ..Concord.model.build_layer import get_normalization_layer
 
 
 class ReverseLayerF(Function):

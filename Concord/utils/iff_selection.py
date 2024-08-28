@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import time
-from .knn import initialize_faiss_index, get_knn_indices
+from ..model.knn import Neighborhood
 from .timer import Timer
 import scanpy as sc
 import pandas as pd
@@ -69,9 +69,9 @@ def iff_select(adata,
     if isinstance(grouping, str) and grouping == 'knn':
         emb = adata.obsm[emb_key]
         with Timer() as timer:
-            index, nbrs, use_faiss_flag = initialize_faiss_index(emb, k, use_faiss=use_faiss, use_ivf=use_ivf)
+            neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf)
             core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
-            knn_indices = get_knn_indices(emb, core_samples, k=k, use_faiss=use_faiss_flag, index=index, nbrs=nbrs)
+            knn_indices = neighborhood.get_knn_indices(core_samples)
             expr_clus_frac = pd.DataFrame({
                 f'knn_{i}': (adata[knn, :].X > 0).mean(axis=0).A1
                 for i, knn in enumerate(knn_indices)

@@ -5,11 +5,9 @@ import torch.nn.functional as F
 from .model.model import ConcordModel
 from .utils.preprocessor import Preprocessor
 from .utils.anndata_utils import ensure_categorical
-from .model.dataloader import anndata_to_dataloader
+from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, update_wandb_params
-from .utils.value_check import validate_probability, validate_probability_dict_compatible, check_dict_condition
-from .utils.coverage_estimator import calculate_dataset_coverage, coverage_to_p_intra
 from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
@@ -101,20 +99,19 @@ class Concord:
                      use_importance_mask = True,
                      importance_penalty_weight=0,
                      importance_penalty_type='L1',
-                     use_dab=False,
                      dropout_prob=0.1,
                      norm_type="layer_norm", # Consider fix
                      domain_key=None,
                      class_key=None,
                      domain_embedding_dim=8,
                      covariate_embedding_dims={},
-                     sampler_mode="neighborhood",
                      sampler_emb="X_pca",
                      sampler_knn=256, 
                      p_intra_knn=0.3,
                      p_intra_domain=None,
                      min_p_intra_domain=0.6,
                      max_p_intra_domain=1.0,
+                     pca_n_comps=50,
                      use_faiss=True, 
                      use_ivf=True, 
                      ivf_nprobe=10,
@@ -154,16 +151,15 @@ class Concord:
             use_importance_mask=use_importance_mask,
             importance_penalty_weight=importance_penalty_weight,
             importance_penalty_type=importance_penalty_type,
-            use_dab=use_dab, # Does improve based on testing, should be False, not deleted for future improvements
             dropout_prob=dropout_prob,
             norm_type=norm_type,
-            sampler_mode=sampler_mode,
             sampler_emb=sampler_emb,
             sampler_knn=sampler_knn,
             p_intra_knn=p_intra_knn,
             p_intra_domain=p_intra_domain,
             min_p_intra_domain=min_p_intra_domain,
             max_p_intra_domain=max_p_intra_domain,
+            pca_n_comps=pca_n_comps,
             use_faiss=use_faiss,
             use_ivf=use_ivf,
             ivf_nprobe=ivf_nprobe,
@@ -188,12 +184,16 @@ class Concord:
         hidden_dim = self.config.latent_dim
 
         if self.config.domain_key is not None:
+            if(self.config.domain_key not in self.adata.obs.columns):
+                raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
             ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
             num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
         else:
             num_domains = 0
 
         if self.config.class_key is not None:
+            if(self.config.class_key not in self.adata.obs.columns):
+                raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
             all_classes = self.adata.obs[self.config.class_key].cat.categories
             if self.config.unlabeled_class is not None:
@@ -226,8 +226,7 @@ class Concord:
                                   norm_type=self.config.norm_type,
                                   use_decoder=self.config.use_decoder,
                                   use_classifier=self.config.use_classifier,
-                                  use_importance_mask=self.config.use_importance_mask,
-                                  use_dab=self.config.use_dab).to(self.config.device)
+                                  use_importance_mask=self.config.use_importance_mask).to(self.config.device)
 
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
@@ -241,7 +240,7 @@ class Concord:
                 self.model.load_model(best_model_path, self.config.device)
             else:
                 raise FileNotFoundError(f"Model file not found at {best_model_path}")
-
+            
 
     def init_trainer(self):
         # Convert unlabeled_class from name to code
@@ -265,133 +264,32 @@ class Concord:
                                clr_temperature=self.config.clr_temperature,
                                use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
-                               importance_penalty_type=self.config.importance_penalty_type,
-                               use_dab=self.config.use_dab)
+                               importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_sampler_params(self, sampler_mode, 
-                            sampler_emb, 
-                            sampler_knn=256, 
-                            p_intra_knn=0.3,  
-                            p_intra_class=None,
-                            p_intra_domain=None,
-                            class_weights=None, 
-                            coverage_knn=256, 
-                            min_p_intra_domain=0.5, max_p_intra_domain=1.0, scale_to_min_max=True,
-                            use_faiss=True, use_ivf=True, ivf_nprobe=10):
-
-        if class_weights and self.config.class_key is not None:
-            weights_show = {k: f"{v:.2e}" for k, v in class_weights.items()}
-            logger.info(f"Creating weighted samplers with specified weights: {weights_show}")
-        
-        # Validate probability values
-        validate_probability(p_intra_knn, "p_intra_knn")
-        validate_probability(p_intra_class, "p_intra_class")
-
-        # Additional checks
-        p_intra_knn_max = 0.9
-        if p_intra_knn is not None and p_intra_knn > p_intra_knn_max:
-            raise ValueError(f"p_intra_knn should not exceed {p_intra_knn_max} as it can lead to deteriorating performance.")
-        if p_intra_class is not None and p_intra_class > p_intra_knn_max:
-            raise ValueError(f"p_intra_class should not exceed {p_intra_knn_max} as it can lead to deteriorating performance.")
-        
-        p_intra_domain_min = 0.1
-        if (isinstance(p_intra_domain, dict) and check_dict_condition(p_intra_domain, lambda x: x < p_intra_domain_min)) or \
-           (p_intra_domain is not None and not isinstance(p_intra_domain, dict) and p_intra_domain < p_intra_domain_min):
-            logger.warning(f"It is recommended to set p_intra_domain values above {p_intra_domain_min} for good batch-correction performance.")
-
-        if p_intra_domain is None:
-            if sampler_emb not in self.adata.obsm:
-                if sampler_emb == "X_pca":
-                    if self.adata.n_obs > 150000:
-                        raise ValueError("You specified embedding as X_pca but the dataset is too large. For large dataset, it is recommended to directly \
-                         set p_intra_domain value to e.g., 0.9, or pre-compute PCA.")
-                    if self.adata.isbacked:
-                        raise ValueError("PCA embeddings are not found in adata.obsm. Please provide a valid embedding key.")
-                    
-                    logger.warning("PCA embeddings are not found in adata.obsm. Computing PCA...")
-                    adata_copy = self.adata.copy() # Prevent filtering features of original adata, for large datasets consider do a subsample in future
-                    self.preprocessor(adata=adata_copy)
-                    sc.tl.pca(adata_copy, n_comps=50)
-                    self.adata.obsm["X_pca"] = adata_copy.obsm["X_pca"]
-                elif sampler_emb == "X":
-                    raise ValueError("You specified embedding as X but you did not provide a p_intra_domain. Please also set p_intra_domain to e.g., 0.9.")
-                else:
-                    raise ValueError(f"Embedding {sampler_emb} is not found in adata.obsm. Please provide a valid embedding key.")
-            logger.info(f"Calculating each domain's coverage of the global manifold with knn (k={coverage_knn}) constructed on {sampler_emb}.")
-            dataset_coverage = calculate_dataset_coverage(self.adata,
-                                                            k=coverage_knn,
-                                                            emb_key=sampler_emb,
-                                                            dataset_key=self.config.domain_key,
-                                                            use_faiss=use_faiss,
-                                                            use_ivf=use_ivf,
-                                                            ivf_nprobe=ivf_nprobe)
-            logger.info(f"Converting coverage to p_intra_domain with specified min: {min_p_intra_domain:.2f}, max: {max_p_intra_domain:.2f}, rescale: {scale_to_min_max}.")
-            p_intra_domain_dict = coverage_to_p_intra(self.adata.obs[self.config.domain_key], 
-                                                    coverage=dataset_coverage, 
-                                                    min_p_intra_domain=min_p_intra_domain, 
-                                                    max_p_intra_domain=max_p_intra_domain, 
-                                                    scale_to_min_max=scale_to_min_max)
-            logger.info(f"Final p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in p_intra_domain_dict.items())}")
-        else:
-            if isinstance(p_intra_domain, dict):
-                logger.info(f"Using provided p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in p_intra_domain.items())}.")
-            else:
-                logger.info(f"Using provided p_intra_domain values: {p_intra_domain:.2f}.")
-            p_intra_domain_dict = p_intra_domain
-
-        validate_probability_dict_compatible(p_intra_domain_dict, "p_intra_domain")
-
-        self.sampler_kwargs = {
-            'sampler_mode': sampler_mode,
-            'emb_key': sampler_emb,
-            'sampler_knn': sampler_knn,
-            'p_intra_knn': p_intra_knn,
-            'p_intra_domain': p_intra_domain_dict,
-            'use_faiss': use_faiss,
-            'use_ivf': use_ivf,
-            'ivf_nprobe': ivf_nprobe,
-            'class_weights': class_weights,
-            'p_intra_class': p_intra_class
-        }
-
-
-    def init_dataloader(self, input_layer_key='X_log1p',
-                        train_frac=1.0, use_sampler=True):
-        if use_sampler:
-            if not self.sampler_kwargs:
-                raise ValueError("Sampler parameters are not initialized. Please call init_sampler_params() before initializing the dataloader.")
-            else:
-                sampler_kwargs = self.sampler_kwargs
-        else:
-            sampler_kwargs={}
-        
-        covariate_keys = self.config.covariate_embedding_dims.keys() if self.config.covariate_embedding_dims else None
-        kwargs = {
-            'adata': self.adata,
-            'batch_size': self.config.batch_size,
-            'input_layer_key': input_layer_key,
-            'domain_key': self.config.domain_key,
-            'class_key': self.config.class_key,
-            'covariate_keys': covariate_keys,
-            'train_frac': train_frac,
-            'drop_last': False,
-            'preprocess': self.preprocessor,
-            'device': self.config.device,
-            **sampler_kwargs
-        }
+    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True):
+        data_manager = DataLoaderManager(
+            input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
+            class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
+            batch_size=self.config.batch_size, train_frac=train_frac,
+            use_sampler=use_sampler,
+            sampler_emb=self.config.sampler_emb, 
+            sampler_knn=self.config.sampler_knn, p_intra_knn=self.config.p_intra_knn, 
+            p_intra_domain=self.config.p_intra_domain, use_faiss=self.config.use_faiss, 
+            use_ivf=self.config.use_ivf, ivf_nprobe=self.config.ivf_nprobe, 
+            preprocess=self.preprocessor, 
+            device=self.config.device
+        )
 
         if self.config.chunked:
             self.loader = ChunkLoader(
+                adata=self.adata,
                 chunk_size=self.config.chunk_size,
-                **kwargs
+                data_manager=data_manager
             )
-            print("self.loader.data_structure", self.loader.data_structure)
             self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
-            train_dataloader, val_dataloader, self.data_structure = anndata_to_dataloader(
-                **kwargs
-            )
+            train_dataloader, val_dataloader, self.data_structure = data_manager.anndata_to_dataloader(self.adata)
             self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 
@@ -421,7 +319,7 @@ class Concord:
                 else:
                     unique_classes = None
 
-                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes, n_epoch=self.config.n_epochs)
+                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes)
                 
                 if val_dataloader is not None:
                     val_loss = self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
@@ -509,10 +407,10 @@ class Concord:
                     data_dict = {key: value.to(self.config.device) for key, value in zip(self.data_structure, data)}
 
                     inputs = data_dict.get('input')
-                    domain_labels = data_dict.get('domain', None)
+                    domain_ids = data_dict.get('domain', None)
                     class_labels = data_dict.get('class', None)
-                    original_indices = data_dict.get('indices')
-                    covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'indices']]
+                    original_indices = data_dict.get('idx')
+                    covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'idx']]
                     covariate_tensors = {key: data_dict[key] for key in covariate_keys}
 
                     if class_labels is not None:
@@ -521,7 +419,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs, domain_labels, covariate_tensors)
+                    outputs = self.model(inputs, domain_ids, covariate_tensors)
                     if 'class_pred' in outputs:
                         class_preds_tensor = outputs['class_pred']
                         class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy())
@@ -572,29 +470,14 @@ class Concord:
     def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class_prob=True, save_model=True):
         # Initialize the model
         self.init_model()
-
-        # Initialize sampler parameters
-        self.init_sampler_params(
-            sampler_mode=self.config.sampler_mode, 
-            sampler_emb=self.config.sampler_emb, 
-            sampler_knn=self.config.sampler_knn, 
-            p_intra_knn=self.config.p_intra_knn, 
-            p_intra_domain=self.config.p_intra_domain, 
-            min_p_intra_domain=self.config.min_p_intra_domain, 
-            max_p_intra_domain=self.config.max_p_intra_domain,
-            use_faiss=self.config.use_faiss,
-            use_ivf=self.config.use_ivf,
-            ivf_nprobe=self.config.ivf_nprobe
-        )
-        
         # Initialize the dataloader
-        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac)
+        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True)
         # Initialize the trainer
         self.init_trainer()
         # Train the model
         self.train(save_model=save_model)
         # Reinitialize the dataloader without using the sampler
-        self.init_dataloader(input_layer_key=input_layer_key, use_sampler=False)
+        self.init_dataloader(input_layer_key=input_layer_key, train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
         encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class_prob=return_class_prob)
@@ -618,24 +501,6 @@ class Concord:
         logger.info(f"Model saved to {save_path}")
 
 
-    @staticmethod
-    def calculate_class_weights(class_labels, mode, heterogeneity_scores=None, enhancing_classes=None):
-        unique_classes, class_counts = np.unique(class_labels.cat.codes, return_counts=True)
-
-        if mode == "heterogeneity" and heterogeneity_scores:
-            weights = {cls: 1 / heterogeneity_scores.get(cls, 1) for cls in unique_classes}
-        elif mode == "count":
-            weights = {cls: 1 / count for cls, count in zip(unique_classes, class_counts)}
-        else:
-            weights = {cls: 1 for cls in unique_classes}  # Initialize weights to 1
-
-        if mode == "enhancing" and enhancing_classes:
-            enhancing_class_codes = class_labels.cat.categories.get_indexer(enhancing_classes.keys())
-            for cls, multiplier in zip(enhancing_class_codes, enhancing_classes.values()):
-                if cls in weights:
-                    weights[cls] *= multiplier
-
-        return weights
 
 
     

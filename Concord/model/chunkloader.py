@@ -1,5 +1,4 @@
 import torch
-from .dataloader import anndata_to_dataloader
 import numpy as np
 
 class ChunkLoader:
@@ -52,17 +51,18 @@ class ChunkLoader:
         chunk_indices = self.indices[start_idx:end_idx]
         chunk_adata = self.adata[chunk_indices].to_memory()
 
-        train_dataloader, val_dataloader, data_structure = anndata_to_dataloader(
-            chunk_adata, input_layer_key=self.input_layer_key, domain_key=self.domain_key, class_key=self.class_key,
-            covariate_keys=self.covariate_keys, train_frac=self.train_frac, batch_size=self.batch_size,
-            sampler_mode=self.sampler_mode,
-            emb_key=self.emb_key,
-            sampler_knn=self.sampler_knn, p_intra_knn=self.p_intra_knn, p_intra_domain=self.p_intra_domain,
-            use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe,
-            class_weights=self.class_weights, p_intra_class=self.p_intra_class,
-            drop_last=self.drop_last, preprocess=self.preprocess,
-            device=self.device
+        dataloader_manager = DataLoaderManager(
+            chunk_adata, self.input_layer_key, self.domain_key, 
+            class_key=self.class_key, covariate_keys=self.covariate_keys, 
+            batch_size=self.batch_size, train_frac=self.train_frac,
+            sampler_mode=self.sampler_mode, sampler_emb=self.sampler_emb, 
+            sampler_knn=self.sampler_knn, p_intra_knn=self.p_intra_knn, 
+            p_intra_domain=self.p_intra_domain, use_faiss=self.use_faiss, 
+            use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe, 
+            class_weights=self.class_weights, p_intra_class=self.p_intra_class, 
+            drop_last=self.drop_last, preprocess=self.preprocess, device=self.device
         )
+        train_dataloader, val_dataloader, data_structure = dataloader_manager.anndata_to_dataloader()
 
         if self.data_structure is None:
             self.data_structure = data_structure  # Update data_structure if not initialized

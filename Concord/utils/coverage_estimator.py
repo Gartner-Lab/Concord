@@ -1,58 +1,27 @@
 import numpy as np
-from .knn import initialize_faiss_index, get_knn_indices
 from .. import logger
 
-def calculate_dataset_coverage(adata, k=128, emb_key='X_pca', dataset_key=None,
-                               use_faiss=True, use_ivf=False, ivf_nprobe=10):
-    """
-    Calculate the neighborhood coverage of each dataset in a k-NN graph.
+def calculate_domain_coverage(adata, domain_key=None, neighborhood=None):
 
-    Parameters:
-    adata: AnnData
-        The AnnData object containing the PCA coordinates and dataset identifiers.
-    n_neighbors: int
-        The number of neighbors to consider in the k-NN graph.
-    emb_key: str
-        The key for accessing embedding coordinates in adata.obsm.
-    dataset_key: str
-        The key for accessing dataset identifiers in adata.obs.
-    use_faiss: bool
-        Whether to use FAISS for k-NN computation.
-    use_ivf: bool
-        Whether to use IVF FAISS index.
-    ivf_nprobe: int
-        Number of probes for IVF FAISS index.
+    domain_labels = adata.obs[domain_key]
+    unique_domains = domain_labels.unique()
 
-    Returns:
-    pd.DataFrame
-        A DataFrame containing the neighborhood coverage for each dataset.
-    """
-    emb_coords = adata.obsm[emb_key]
-    dataset_ids = adata.obs[dataset_key]
-    unique_ids = dataset_ids.unique()
+    # Calculate the indices for each domain
+    domain_coverage = {}
+    total_points = adata.n_obs
 
-    # Initialize FAISS or sklearn k-NN model
-    index, nbrs, use_faiss = initialize_faiss_index(emb_coords, k=k, use_faiss=use_faiss, use_ivf=use_ivf,
-                                                    ivf_nprobe=ivf_nprobe)
-
-
-    # Calculate the indices for each dataset
-    dataset_coverage = {}
-    total_points = emb_coords.shape[0]
-
-    for dataset in unique_ids:
-        dataset_indices = np.where(dataset_ids == dataset)[0]
-        dataset_neighbor_indices = get_knn_indices(emb_coords, dataset_indices, k=k, use_faiss=use_faiss,
-                                                   index=index, nbrs=nbrs)
+    for domain in unique_domains:
+        domain_indices = np.where(domain_labels == domain)[0]
+        domain_neighbor_indices = neighborhood.get_knn_indices(domain_indices)
 
         # Flatten and deduplicate indices
-        unique_neighbors = set(dataset_neighbor_indices.flatten())
+        unique_neighbors = set(domain_neighbor_indices.flatten())
 
         # Calculate coverage
         coverage = len(unique_neighbors) / total_points
-        dataset_coverage[dataset] = coverage
+        domain_coverage[domain] = coverage
 
-    return dataset_coverage
+    return domain_coverage
 
 
 def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, max_p_intra_domain = 1.0,

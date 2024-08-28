@@ -43,22 +43,22 @@ class AnnDataset(Dataset):
             return self.adata.layers[self.input_layer_key].A if issparse(self.adata.layers[self.input_layer_key]) else \
             self.adata.layers[self.input_layer_key]
 
-    def get_embedding(self, embedding_key, indices):
+    def get_embedding(self, embedding_key, idx):
         if embedding_key == 'X':
-            return self.adata.X.A[indices]
+            return self.adata.X.A[idx]
         elif embedding_key in self.adata.obsm.key():
-            return self.adata.obsm[embedding_key][indices]
+            return self.adata.obsm[embedding_key][idx]
         else:
             raise ValueError(f"Embedding key '{embedding_key}' not found in adata")
 
-    def get_domain_labels(self, indices):
+    def get_domain_labels(self, idx):
         if self.domain_labels is not None:
-            return self.domain_labels[indices]
+            return self.domain_labels[idx]
         return None
 
-    def get_class_labels(self, indices):
+    def get_class_labels(self, idx):
         if self.class_labels is not None:
-            return self.class_labels[indices]
+            return self.class_labels[idx]
         return None
 
     def _init_data_structure(self):
@@ -68,7 +68,7 @@ class AnnDataset(Dataset):
         if self.class_key is not None:
             structure.append('class')
         structure.extend(self.covariate_keys)
-        structure.append('indices')
+        structure.append('idx')
         return structure
 
     def get_data_structure(self):
@@ -91,7 +91,7 @@ class AnnDataset(Dataset):
                 items.append(self.class_labels[actual_idx])
             elif key in self.covariate_keys:
                 items.append(self.covariate_tensors[key][actual_idx])
-            elif key == 'indices':
+            elif key == 'idx':
                 items.append(actual_idx)
 
         return tuple(items)
@@ -99,8 +99,8 @@ class AnnDataset(Dataset):
     def shuffle_indices(self):
         np.random.shuffle(self.indices)
 
-    def subset(self, indices):
-        # Create a new AnnDataset with only the selected indices
-        subset_adata = self.adata[indices].copy()
+    def subset(self, idx):
+        # Create a new AnnDataset with only the selected idx
+        subset_adata = self.adata[idx].copy()
         return AnnDataset(subset_adata, self.input_layer_key, self.domain_key, self.class_key, self.covariate_keys, self.device)
 

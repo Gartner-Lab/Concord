@@ -1,6 +1,9 @@
 import umap
-from .. import logger
 from sklearn.decomposition import PCA
+import numpy as np
+import scanpy as sc
+from .. import logger
+from scipy.sparse import issparse
 
 def run_umap(adata,
              source_key='encoded', umap_key='encoded_UMAP',
@@ -37,3 +40,8 @@ def run_umap(adata,
 
     adata.obsm[umap_key] = umap_model.fit_transform(source_data)
     logger.info(f"UMAP embedding stored in adata.obsm['{umap_key}']")
+
+
+
+
+       

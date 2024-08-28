@@ -10,11 +10,10 @@ from .batch_analysis import *
 from .path_analysis import *
 from .value_check import *
 from .cell_cycle import *
-from .knn import *
 from .timer import *
 from .Hs_Mm_conversion import *
 from .iff_selection import *
-from .run_umap import *
+from .dim_reduction import *
 from .coverage_estimator import *
 from .feature_selector import *
 from .benchmarker import *

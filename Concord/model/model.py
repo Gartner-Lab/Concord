@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from .dab import AdversarialDiscriminator
 from .build_layer import get_normalization_layer, build_layers
 from .. import logger
 
@@ -12,8 +11,7 @@ class ConcordModel(nn.Module):
                  encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
                  use_decoder=True, decoder_final_activation='leaky_relu',
-                 use_classifier=False, use_importance_mask=False,
-                 use_dab=False):
+                 use_classifier=False, use_importance_mask=False):
         super().__init__()
 
         # Encoder
@@ -22,7 +20,6 @@ class ConcordModel(nn.Module):
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
-        self.use_dab = use_dab
         self.domain_embedding_dim = domain_embedding_dim 
 
         total_embedding_dim = 0
@@ -61,10 +58,6 @@ class ConcordModel(nn.Module):
                 self.decoder = nn.Sequential(
                     nn.Linear(decoder_input_dim, input_dim)
                 )
-            
-        if self.use_dab:
-            self.dab_decoder = AdversarialDiscriminator(hidden_dim, num_domains, reverse_grad=True, 
-                                                        norm_type=norm_type)
 
         # Classifier head
         if self.use_classifier:
@@ -81,7 +74,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x, domain_labels=None, covariate_tensors=None, alpha=None):
+    def forward(self, x, domain_labels=None, covariate_tensors=None):
         out = {}
 
         if self.use_importance_mask:
@@ -116,9 +109,6 @@ class ConcordModel(nn.Module):
                 out['decoded'] = x * importance_weights
             else:
                 out['decoded'] = x
-
-        if self.use_dab:
-            out['dab_pred'] = self.dab_decoder(out['encoded'], alpha=alpha)
 
         if self.use_classifier:
             out['class_pred'] = self.classifier(out['encoded'])
