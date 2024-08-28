@@ -275,8 +275,13 @@ class Concord:
             use_sampler=use_sampler,
             sampler_emb=self.config.sampler_emb, 
             sampler_knn=self.config.sampler_knn, p_intra_knn=self.config.p_intra_knn, 
-            p_intra_domain=self.config.p_intra_domain, use_faiss=self.config.use_faiss, 
-            use_ivf=self.config.use_ivf, ivf_nprobe=self.config.ivf_nprobe, 
+            p_intra_domain=self.config.p_intra_domain, 
+            min_p_intra_domain=self.config.min_p_intra_domain,
+            max_p_intra_domain=self.config.max_p_intra_domain,
+            pca_n_comps=self.config.pca_n_comps,
+            use_faiss=self.config.use_faiss, 
+            use_ivf=self.config.use_ivf, 
+            ivf_nprobe=self.config.ivf_nprobe, 
             preprocess=self.preprocessor, 
             device=self.config.device
         )

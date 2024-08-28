@@ -25,7 +25,7 @@ def calculate_domain_coverage(adata, domain_key=None, neighborhood=None):
 
 
 def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, max_p_intra_domain = 1.0,
-                                   scale_to_min_max=False):
+                                   scale_to_min_max=True):
         """
             Convert coverage values top_intra values, with optional scaling and capping.
 
@@ -58,7 +58,7 @@ def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, 
                 logger.warn(f"Minimum coverage value ({min_coverage:.3f}) is greater than min_p_intra_domain ({min_p_intra_domain:.3f}) when scale_to_min_max is True." 
                                  "Resetting min_p_intra_domain equal to the minimum coverage value.")
                 min_p_intra_domain = min_coverage
-            if min_coverage != max_coverage:  # Avoid division by zero
+            if min_coverage < max_coverage:  
                 scale = (max_p_intra_domain - min_p_intra_domain) / (max_coverage - min_coverage)
                 p_intra_domain_dict = {
                     domain: min_p_intra_domain + (value - min_coverage) * scale
@@ -72,10 +72,6 @@ def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, 
                 domain: max(min(value, max_p_intra_domain), min_p_intra_domain)
                 for domain, value in p_intra_domain_dict.items()
             }
-
-        # Convert the domain labels to their corresponding category codes
-        domain_codes = {domain: code for code, domain in enumerate(domain_labels.cat.categories)}
-        p_intra_domain_dict = {domain_codes[domain]: value for domain, value in p_intra_domain_dict.items()}
 
         return p_intra_domain_dict
 

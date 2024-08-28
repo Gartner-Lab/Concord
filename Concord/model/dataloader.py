@@ -20,9 +20,12 @@ class DataLoaderManager:
                     batch_size=32, train_frac=0.9,
                     use_sampler=True,
                     sampler_emb=None,
-                    sampler_knn=300, p_intra_knn=0.3, p_intra_domain=None,
+                    sampler_knn=300, 
+                    p_intra_knn=0.3, p_intra_domain=None,
                     min_p_intra_domain=0.5, max_p_intra_domain=1.0,
-                    pca_n_comps=50, use_faiss=True, use_ivf=False,
+                    pca_n_comps=50, 
+                    use_faiss=True, 
+                    use_ivf=False,
                     ivf_nprobe=8,
                     preprocess=None, 
                     device=None):
@@ -105,7 +108,8 @@ class DataLoaderManager:
                 self.p_intra_domain = coverage_to_p_intra(
                     self.domain_labels, coverage=domain_coverage, 
                     min_p_intra_domain=self.min_p_intra_domain, 
-                    max_p_intra_domain=self.max_p_intra_domain
+                    max_p_intra_domain=self.max_p_intra_domain,
+                    scale_to_min_max=True # Always true unless user runs himself
                 )
         else:
             validate_probability_dict_compatible(self.p_intra_domain, "p_intra_domain")
@@ -124,10 +128,13 @@ class DataLoaderManager:
                 logger.info(f"Using user-specified p_intra_domain values.")
             
         logger.info(f"Final p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in self.p_intra_domain.items())}")
-    
+        # Convert the domain labels to their corresponding category codes
+        domain_codes = {domain: code for code, domain in enumerate(unique_domains)}
+        p_intra_domain_dict = {domain_codes[domain]: value for domain, value in self.p_intra_domain.items()}
+
         self.sampler = NeighborhoodSampler(
             batch_size=self.batch_size, domain_ids=self.domain_ids, emb=self.emb, 
-            p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain,
+            p_intra_knn=self.p_intra_knn, p_intra_domain_dict=p_intra_domain_dict,
             neighborhood=self.neighborhood, device=self.device
         )
 
