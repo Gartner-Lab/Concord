@@ -152,7 +152,7 @@ class DataLoaderManager:
             # TODO check if chunked mode, if so send error.
             if len(unique_domains) == 1:
                 logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
-                self.p_intra_domain = {unique_domains[0].item(): 1.0}
+                self.p_intra_domain = {unique_domains[0]: 1.0}
             else:
                 logger.info(f"Calculating each domain's coverage of the global manifold using {self.sampler_emb}.")
                 domain_coverage = calculate_domain_coverage(

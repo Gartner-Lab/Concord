@@ -1,7 +1,6 @@
 
 
 import numpy as np
-import faiss
 from sklearn.neighbors import NearestNeighbors
 import logging
 import math
@@ -43,32 +42,34 @@ class Neighborhood:
         """
         Initialize the k-NN index using FAISS or sklearn.
         """
-        try:
-            if hasattr(faiss, 'StandardGpuResources'):
-                raise ImportError(
-                    "FAISS GPU version is installed. Please install FAISS CPU version by running 'pip install faiss-cpu'.")
-            else:
-                
-                n = self.emb.shape[0]
-                d = self.emb.shape[1]
-                if self.use_ivf:
-                    if d > 3000:
-                        logger.warning("FAISS IVF index is not recommended for data with too many features. Consider set use_ivf=False or set sampler_emb to PCA or other low dimensional embedding.")
-                    logger.info(f"Building Faiss IVF index. nprobe={self.ivf_nprobe}")
-                    nlist = int(math.sqrt(n))  # number of clusters, based on https://github.com/facebookresearch/faiss/issues/112
-                    quantizer = faiss.IndexFlatL2(d)
-                    self.index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
-                    self.index.train(self.emb)
-                    self.index.nprobe = self.ivf_nprobe
+
+        if self.use_faiss:
+            try:
+                import faiss
+                if hasattr(faiss, 'StandardGpuResources'):
+                    raise ImportError(
+                        "FAISS GPU version is installed. Please install FAISS CPU version by running 'pip install faiss-cpu'.")
                 else:
-                    logger.info("Building Faiss FlatL2 index.")
-                    self.index = faiss.IndexFlatL2(d)
+                    
+                    n = self.emb.shape[0]
+                    d = self.emb.shape[1]
+                    if self.use_ivf:
+                        if d > 3000:
+                            logger.warning("FAISS IVF index is not recommended for data with too many features. Consider set use_ivf=False or set sampler_emb to PCA or other low dimensional embedding.")
+                        logger.info(f"Building Faiss IVF index. nprobe={self.ivf_nprobe}")
+                        nlist = int(math.sqrt(n))  # number of clusters, based on https://github.com/facebookresearch/faiss/issues/112
+                        quantizer = faiss.IndexFlatL2(d)
+                        self.index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
+                        self.index.train(self.emb)
+                        self.index.nprobe = self.ivf_nprobe
+                    else:
+                        logger.info("Building Faiss FlatL2 index.")
+                        self.index = faiss.IndexFlatL2(d)
 
-                self.index.add(self.emb)
-        except ImportError:
-            raise ImportError("FAISS is not available. Falling back to sklearn's NearestNeighbors.")
-
-        if not self.use_faiss:
+                    self.index.add(self.emb)
+            except ImportError:
+                raise ImportError("FAISS is not available. Falling back to sklearn's NearestNeighbors.")
+        else:
             self.nbrs = NearestNeighbors(n_neighbors=self.k + 1).fit(self.emb)
 
 

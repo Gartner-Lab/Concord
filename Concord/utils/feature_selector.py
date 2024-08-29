@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 def select_features(
     adata: ad.AnnData,
-    n_top_genes: int = 2000,
+    n_top_features: int = 2000,
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
-    normalize: bool = True,
-    log1p: bool = True,
+    normalize: bool = False,
+    log1p: bool = False,
     grouping: Union[str, pd.Series, List[str]] = 'cluster',
     emb_key: str = 'X_pca',
     k: int = 512,
@@ -46,9 +46,9 @@ def select_features(
     else:
         sampled_data = adata[sampled_indices].copy() if sampled_indices is not None else adata.copy()
 
-    # Filter genes by counts
+    # Filter features by counts
     if filter_gene_by_counts:
-        logger.info("Filtering genes by counts ...")
+        logger.info("Filtering features by counts ...")
         sc.pp.filter_genes(
             sampled_data,
             min_counts=filter_gene_by_counts if isinstance(filter_gene_by_counts, int) else None,
@@ -62,14 +62,14 @@ def select_features(
         logger.info("Log1p transforming for feature selection ...")
         sc.pp.log1p(sampled_data)
 
-    if n_top_genes is None or n_top_genes > sampled_data.n_vars:
-        logger.warning(f"n_top_genes is set to {n_top_genes}, which is larger than the number of genes in the data.")
-        n_top_genes = sampled_data.n_vars
+    if n_top_features is None or n_top_features > sampled_data.n_vars:
+        logger.warning(f"n_top_features is set to {n_top_features}, which is larger than the number of features in the data.")
+        n_top_features = sampled_data.n_vars
     
     # Determine features based on the flavor
     if flavor != "iff":
-        logger.info(f"Selecting highly variable genes with flavor {flavor}...")
-        sc.pp.highly_variable_genes(sampled_data, n_top_genes=n_top_genes, flavor=flavor)
+        logger.info(f"Selecting highly variable features with flavor {flavor}...")
+        sc.pp.highly_variable_genes(sampled_data, n_top_genes=n_top_features, flavor=flavor)
         feature_list = sampled_data.var[sampled_data.var['highly_variable']].index.tolist()
     else:
         logger.info("Selecting informative features using IFF...")
@@ -79,7 +79,7 @@ def select_features(
             emb_key=emb_key,
             k=k,
             knn_samples=knn_samples,
-            n_top_genes=n_top_genes,
+            n_top_genes=n_top_features,
             gini_cut_qt=gini_cut_qt,
             save_path=save_path,
             figsize=figsize
