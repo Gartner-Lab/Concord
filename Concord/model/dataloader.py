@@ -21,42 +21,39 @@ import logging
 logger = logging.getLogger(__name__)
 
 class DynamicDataLoader(DataLoader):
-    def __init__(self, dataset, batch_sampler, neighborhood, sampler_knn, device):
+    def __init__(self, dataset, batch_sampler, neighborhood, n_cores, device):
         super().__init__(dataset, batch_sampler=batch_sampler)
         self.neighborhood = neighborhood
-        self.sampler_knn = sampler_knn
-        self.n_cores = self.neighborhood.emb.shape[0] // self.sampler_knn
+        self.n_cores = n_cores
         self.device = device
 
     def assign_knn_classes(self, batch_indices):
         # Randomly sample core points
+        unlabeled_code = self.n_cores
         core_samples = np.random.choice(np.arange(self.neighborhood.emb.shape[0]), size=self.n_cores, replace=False)
         knn_indices = self.neighborhood.get_knn_indices(core_samples)
-
         # Initialize class labels
-        knn_labels = np.full(batch_indices.size, -1)  # -1 indicates unlabeled
+        knn_labels = np.full(batch_indices.size, unlabeled_code) 
 
         for core_idx, neighbors in enumerate(knn_indices):
             for i, idx in enumerate(batch_indices):
-                if idx in neighbors and knn_labels[i] == -1:  # Only assign if unlabeled
-                    knn_labels[i] = core_idx
+                if idx in neighbors and knn_labels[i] == unlabeled_code:  # Only assign if unlabeled
+                    knn_labels[i] = core_idx # Core points are labeled from 0 to n_cores-1, unlabeled_code reserved for unlabeled
 
         # Convert to torch tensor
         knn_labels = torch.tensor(knn_labels, dtype=torch.long).to(self.device)
         return knn_labels
 
     def modify_batch_with_knn_labels(self, batch, data_structure):
-        # Get the index of the 'class' label in the data structure
-        class_idx = data_structure.index('class')
-
         # Extract the batch indices
-        batch_indices = batch[class_idx].cpu().numpy()
+        batch_indices = batch[data_structure.index('idx')].cpu().numpy()
 
         # Assign dynamic KNN-based class labels
         knn_labels = self.assign_knn_classes(batch_indices)
 
         # Replace the class labels in the batch with the dynamic KNN labels
         modified_batch = list(batch)
+        class_idx = data_structure.index('class')
         modified_batch[class_idx] = knn_labels
 
         return tuple(modified_batch)
@@ -81,6 +78,7 @@ class DataLoaderManager:
                     ivf_nprobe=8,
                     preprocess=None, 
                     enhancing=False,
+                    num_cores=None,
                     device=None):
             
         self.input_layer_key = input_layer_key
@@ -102,6 +100,7 @@ class DataLoaderManager:
         self.ivf_nprobe = ivf_nprobe
         self.preprocess = preprocess
         self.enhancing = enhancing
+        self.num_cores = num_cores
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Dynamically set based on adata
@@ -238,7 +237,7 @@ class DataLoaderManager:
                 dataset=dataset,
                 batch_sampler=self.sampler,
                 neighborhood=self.neighborhood,
-                sampler_knn=self.sampler_knn,
+                n_cores=self.num_cores, # Remove the unlabeled class
                 device=self.device
             )
             return dynamic_loader, None, self.data_structure

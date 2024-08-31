@@ -20,7 +20,8 @@ class NeighborhoodSampler(Sampler):
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
 
-        self.valid_batches = self._generate_batches()
+        #self.valid_batches,_ = self._generate_batches()
+        self.valid_batches = None
 
     # Function to permute non- -1 values and push -1 values to the end
     @staticmethod
@@ -36,6 +37,7 @@ class NeighborhoodSampler(Sampler):
 
     def _generate_batches(self):
         all_batches = []
+        all_labels = [] # labels indicating if cell is in knn neighborhood or not
 
         for domain in self.unique_domains:
             domain_indices = torch.where(self.domain_ids == domain)[0]
@@ -81,17 +83,27 @@ class NeighborhoodSampler(Sampler):
                     torch.randperm(len(out_domain_indices))[:num_core_samples * batch_global_out_domain_count]].view(
                     num_core_samples, batch_global_out_domain_count)
 
-            sample_mtx = torch.cat((batch_knn_in_domain, batch_knn_out_domain, batch_global_in_domain, batch_global_out_domain), dim=1) # (num_core_sample, batch_size)
+            batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
+            batch_global = torch.cat((batch_global_in_domain, batch_global_out_domain), dim=1)
+            sample_mtx = torch.cat((batch_knn, batch_global), dim=1)
 
-            for batch in sample_mtx:
-                all_batches.append(batch[batch>=0])
+            for i,batch in enumerate(sample_mtx):
+                valid_batch = batch[batch >= 0]
+                all_batches.append(valid_batch)
+                knn_label = torch.zeros_like(valid_batch)
+                knn_label[:(batch_knn[i] >= 0).sum(dim=0)] = 1
+                all_labels.append(knn_label)
+
 
         # Shuffle all batches to ensure random order of domains
-        all_batches = [all_batches[i] for i in torch.randperm(len(all_batches)).tolist()]
-        return all_batches
+        indices = torch.randperm(len(all_batches)).tolist()
+        all_batches = [all_batches[i] for i in indices]
+        all_labels = [all_labels[i] for i in indices]
+
+        return all_batches, all_labels
 
     def __iter__(self):
-        self.valid_batches = self._generate_batches()
+        self.valid_batches,_ = self._generate_batches()
         for batch in self.valid_batches:
             yield batch
 

@@ -34,10 +34,13 @@ class ConcordModel(nn.Module):
                 total_embedding_dim += dim
 
         encoder_input_dim = input_dim
-        decoder_input_dim = hidden_dim + total_embedding_dim
-
         logger.info(f"Encoder input dim: {encoder_input_dim}")
-        logger.info(f"Decoder input dim: {decoder_input_dim}")
+        if self.use_decoder:
+            decoder_input_dim = hidden_dim + total_embedding_dim
+            logger.info(f"Decoder input dim: {decoder_input_dim}")
+        if self.use_classifier:
+            classifier_input_dim = decoder_input_dim # TODO: Test
+            logger.info(f"Classifier input dim: {classifier_input_dim}")
 
         # Encoder
         if encoder_dims:
@@ -62,7 +65,7 @@ class ConcordModel(nn.Module):
         # Classifier head
         if self.use_classifier:
             self.classifier = nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim),
+                nn.Linear(classifier_input_dim, hidden_dim),
                 get_normalization_layer(norm_type, hidden_dim),
                 nn.LeakyReLU(0.1),
                 nn.Linear(hidden_dim, num_classes)
@@ -87,20 +90,19 @@ class ConcordModel(nn.Module):
             x = layer(x)
         out['encoded'] = x
 
+        embeddings = []
+        if self.domain_embedding_dim > 0 and domain_labels is not None:
+            domain_embeddings = self.domain_embedding(domain_labels)
+            embeddings.append(domain_embeddings)
+
+        # Use covariate embeddings if available
+        if covariate_tensors is not None:
+            for key, tensor in covariate_tensors.items():
+                if key in self.covariate_embeddings:
+                    embeddings.append(self.covariate_embeddings[key](tensor))
+
         if self.use_decoder:
             x = out['encoded']
-
-            embeddings = []
-            if self.domain_embedding_dim > 0 and domain_labels is not None:
-                domain_embeddings = self.domain_embedding(domain_labels)
-                embeddings.append(domain_embeddings)
-
-            # Use covariate embeddings if available
-            if covariate_tensors is not None:
-                for key, tensor in covariate_tensors.items():
-                    if key in self.covariate_embeddings:
-                        embeddings.append(self.covariate_embeddings[key](tensor))
-
             if embeddings:
                 x = torch.cat([x] + embeddings, dim=1)
             for layer in self.decoder:
@@ -111,7 +113,10 @@ class ConcordModel(nn.Module):
                 out['decoded'] = x
 
         if self.use_classifier:
-            out['class_pred'] = self.classifier(out['encoded'])
+            x = out['encoded']
+            if embeddings:
+                x = torch.cat([x] + embeddings, dim=1)
+            out['class_pred'] = self.classifier(x)
 
         return out
 

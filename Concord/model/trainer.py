@@ -48,8 +48,6 @@ class Trainer:
             if labeled_mask.sum() > 0:
                 class_labels = class_labels[labeled_mask]
                 class_pred = class_pred[labeled_mask] 
-                print("class_labels", class_labels)
-                print("class_pred", class_pred)
                 loss_classifier = self.classifier_criterion(class_pred, class_labels) * self.classifier_weight
             else:
                 class_labels = None
@@ -73,13 +71,13 @@ class Trainer:
 
         return loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred
 
-    def train_epoch(self, epoch, train_dataloader, unique_classes):
-        return self._run_epoch(epoch, train_dataloader, unique_classes, train=True)
+    def train_epoch(self, epoch, train_dataloader):
+        return self._run_epoch(epoch, train_dataloader, train=True)
 
-    def validate_epoch(self, epoch, val_dataloader, unique_classes):
-        return self._run_epoch(epoch, val_dataloader, unique_classes, train=False)
+    def validate_epoch(self, epoch, val_dataloader):
+        return self._run_epoch(epoch, val_dataloader, train=False)
 
-    def _run_epoch(self, epoch, dataloader, unique_classes, train=True):
+    def _run_epoch(self, epoch, dataloader, train=True):
         self.model.train() if train else self.model.eval()
         total_loss, total_mse, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0
         preds, labels = [], []
@@ -98,7 +96,6 @@ class Trainer:
             class_labels = data_dict.get('class')
             covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'idx']]
             covariate_tensors = {key: data_dict[key] for key in covariate_keys}
-
             loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred = self.forward_pass(
                 inputs, class_labels, domain_labels, covariate_tensors
             )
@@ -134,9 +131,9 @@ class Trainer:
             f'Epoch {epoch:3d} | {"Train" if train else "Val"} Loss:{avg_loss:5.2f}, MSE:{avg_mse:5.2f}, '
             f'CLASS:{avg_classifier:5.2f}, CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}'
         )
-
+        
         if self.use_classifier:
-            log_classification(epoch, "train" if train else "val", preds, labels, self.logger, unique_classes)
+            log_classification(epoch, "train" if train else "val", preds, labels, self.logger)
 
         return avg_loss
 

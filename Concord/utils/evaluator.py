@@ -64,8 +64,9 @@ def evaluate_scib(
     return concatenated_results
 
 
-def log_classification(epoch, phase, preds, labels, logger, unique_classes):
+def log_classification(epoch, phase, preds, labels, logger):
     # Calculate metrics
+    unique_classes = np.sort(np.unique(labels))
     report = classification_report(labels, preds, target_names=unique_classes, output_dict=True)
     accuracy = report['accuracy']
     precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes}

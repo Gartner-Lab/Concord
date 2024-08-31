@@ -60,6 +60,9 @@ class Concord:
         add_file_handler(logger, self.save_dir / "run.log")
         self.setup_config(**kwargs)
 
+        self.num_classes = None
+        self.num_domains = None
+
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
@@ -178,7 +181,7 @@ class Concord:
             self.config = Config(initial_params)
 
 
-    def init_model(self):
+    def init_model(self, enhancing=False):
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
@@ -186,9 +189,9 @@ class Concord:
             if(self.config.domain_key not in self.adata.obs.columns):
                 raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
             ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
-            num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
+            self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
         else:
-            num_domains = 0
+            self.num_domains = 0
 
         if self.config.class_key is not None:
             if(self.config.class_key not in self.adata.obs.columns):
@@ -200,9 +203,12 @@ class Concord:
                     all_classes = all_classes.drop(self.config.unlabeled_class)
                 else:
                     raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
-            num_classes = len(all_classes) 
+            if not enhancing:
+                self.num_classes = len(all_classes) 
+            else:
+                self.num_classes = self.adata.n_obs // self.config.sampler_knn * 5 # This should be consistent with that in dataloader
         else:
-            num_classes = 0
+            self.num_classes = 0
 
         # Compute the number of categories for each covariate
         covariate_num_categories = {}
@@ -212,8 +218,8 @@ class Concord:
                 covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
 
         self.model = ConcordModel(input_dim, hidden_dim, 
-                                  num_domains=num_domains,
-                                  num_classes=num_classes,
+                                  num_domains=self.num_domains,
+                                  num_classes=self.num_classes,
                                   domain_embedding_dim=self.config.domain_embedding_dim,
                                   covariate_embedding_dims=self.config.covariate_embedding_dims,
                                   covariate_num_categories=covariate_num_categories,
@@ -241,13 +247,17 @@ class Concord:
                 raise FileNotFoundError(f"Model file not found at {best_model_path}")
             
 
-    def init_trainer(self):
+    def init_trainer(self, enhancing=False):
         # Convert unlabeled_class from name to code
-        if self.config.unlabeled_class is not None and self.config.class_key is not None:
-            class_categories = self.adata.obs[self.config.class_key].cat.categories
-            unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
+        if not enhancing:
+            if self.config.unlabeled_class is not None and self.config.class_key is not None:
+                class_categories = self.adata.obs[self.config.class_key].cat.categories
+                unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
+            else:
+                unlabeled_class_code = None
         else:
-            unlabeled_class_code = None
+            unlabeled_class_code = self.num_classes
+
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
@@ -281,7 +291,8 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            preprocess=self.preprocessor, 
+            preprocess=self.preprocessor,
+            num_cores=self.num_classes, 
             enhancing=enhancing,
             device=self.config.device
         )
@@ -312,22 +323,10 @@ class Concord:
                 if val_dataloader is not None:
                     logger.info(f"Number of samples in val_dataloader: {len(val_dataloader.dataset)}")
 
-                # Run training and validation for the current epoch
-                if self.config.use_classifier:
-                    if self.config.class_key is None:
-                        raise ValueError("Class key is not provided. Please provide a valid class key for training the classifier.")
-                    if self.config.class_key not in self.adata.obs.columns:
-                        raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
-                    unique_classes = self.adata.obs[self.config.class_key].cat.categories
-                    if self.config.unlabeled_class is not None and self.config.unlabeled_class in unique_classes:
-                        unique_classes = unique_classes.drop(self.config.unlabeled_class)
-                else:
-                    unique_classes = None
-
-                self.trainer.train_epoch(epoch, train_dataloader, unique_classes=unique_classes)
+                self.trainer.train_epoch(epoch, train_dataloader)
                 
                 if val_dataloader is not None:
-                    val_loss = self.trainer.validate_epoch(epoch, val_dataloader, unique_classes=unique_classes)
+                    val_loss = self.trainer.validate_epoch(epoch, val_dataloader)
                 
                     # Check if the current validation loss is the best we've seen so far
                     if val_loss < best_val_loss:
@@ -360,7 +359,7 @@ class Concord:
             logger.info(f"Final model saved at: {model_save_path}")
 
 
-    def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class_prob=True):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class=True, return_class_prob=True):  
         self.model.eval()
         class_preds = []
         class_true = []
@@ -385,6 +384,7 @@ class Concord:
                 ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true = self.predict(dataloader, 
                                                                                         sort_by_indices=True, 
                                                                                         return_decoded=return_decoded, 
+                                                                                        return_class=return_class,
                                                                                         return_class_prob=return_class_prob)
                 all_embeddings.append(ck_embeddings)
                 all_decoded.append(ck_decoded) if return_decoded else None
@@ -463,7 +463,7 @@ class Concord:
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
 
-            if class_categories is not None:
+            if return_class and class_categories is not None:
                 class_preds = class_categories[class_preds] if class_preds is not None else None
                 class_true = class_categories[class_true] if class_true is not None else None
                 if return_class_prob and class_probs is not None:
@@ -472,29 +472,31 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", enhancing=False, return_decoded=False, return_class_prob=True, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", enhancing=False, return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
         if enhancing:
             # Override user specified class_key and enable classifier
             self.config.class_key = "knn_placeholder"
-            self.adata.obs[self.config.class_key] = -1 # Set all cells to unlabeled class
             self.config.use_classifier = True
-            self.config.unlabeled_class = -1
+            self.adata.obs[self.config.class_key] = "unlabeled" # Set all cells to unlabeled class
+            self.config.unlabeled_class = "unlabeled"
             self.config.train_frac = 1.0 # Validation needs to be turned off because knn are generated on the fly
+            return_class = False # Class predictions are not available in enhancing mode
+            return_class_prob = False # Class probabilities are not available in enhancing mode
             logger.info("Enhancing mode is on. Ignoring user-specified class_key and using KNN-based classifier.")
 
         # Initialize the model
-        self.init_model()
+        self.init_model(enhancing=enhancing)
         # Initialize the dataloader
         self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True, enhancing=enhancing)
         # Initialize the trainer
-        self.init_trainer()
+        self.init_trainer(enhancing=enhancing)
         # Train the model
         self.train(save_model=save_model)
         # Reinitialize the dataloader without using the sampler
         self.init_dataloader(input_layer_key=input_layer_key, train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
-        encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class_prob=return_class_prob)
+        encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class=return_class, return_class_prob=return_class_prob)
         self.adata.obsm[output_key] = encoded
         if return_decoded:
             self.adata.layers[output_key+'_decoded'] = decoded
