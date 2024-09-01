@@ -39,7 +39,7 @@ class ConcordModel(nn.Module):
             decoder_input_dim = hidden_dim + total_embedding_dim
             logger.info(f"Decoder input dim: {decoder_input_dim}")
         if self.use_classifier:
-            classifier_input_dim = decoder_input_dim # TODO: Test
+            classifier_input_dim = hidden_dim # decoder_input_dim 
             logger.info(f"Classifier input dim: {classifier_input_dim}")
 
         # Encoder
@@ -114,8 +114,8 @@ class ConcordModel(nn.Module):
 
         if self.use_classifier:
             x = out['encoded']
-            if embeddings:
-                x = torch.cat([x] + embeddings, dim=1)
+            # if embeddings:
+            #     x = torch.cat([x] + embeddings, dim=1)
             out['class_pred'] = self.classifier(x)
 
         return out
