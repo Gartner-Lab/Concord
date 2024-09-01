@@ -7,13 +7,14 @@ import wandb
 import copy
 import numpy as np
 from ..utils.evaluator import log_classification
-from .loss import ContrastiveLoss, importance_penalty_loss
+from .loss import nt_xent_loss, nt_bxent_loss, importance_penalty_loss
 
 class Trainer:
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
                  use_classifier=False, classifier_weight=1.0, unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
-                 use_clr=True, clr_temperature=0.5,
+                 use_clr_aug=True, clr_aug_temperature=0.5, clr_aug_weight=1.0,
+                 use_clr_knn=False, clr_knn_temperature=0.5, clr_knn_weight=1.0,
                  importance_penalty_weight=0, importance_penalty_type='L1',
                  use_wandb=False):
         self.model = model
@@ -25,19 +26,24 @@ class Trainer:
         self.unlabeled_class = unlabeled_class # TODO, check if need to be converted to code
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
-        self.use_clr = use_clr
+        self.use_clr_aug = use_clr_aug
+        self.clr_aug_weight = clr_aug_weight
+        self.use_clr_knn = use_clr_knn
+        self.clr_knn_weight = clr_knn_weight
         self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
 
         self.classifier_criterion = nn.CrossEntropyLoss() if use_classifier else None
         self.mse_criterion = nn.MSELoss() if use_decoder else None
-        self.contrastive_criterion = ContrastiveLoss(temperature=clr_temperature) if use_clr else None
+
+        self.clr_aug_criterion = nt_xent_loss(temperature=clr_aug_temperature) if use_clr_aug else None
+        self.clr_knn_criterion = nt_bxent_loss(temperature=clr_knn_temperature) if use_clr_knn else None
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
 
-    def forward_pass(self, inputs, class_labels, domain_labels, covariate_tensors=None):
+    def forward_pass(self, inputs, class_labels, domain_labels, covariate_tensors=None, knn_labels=None):
         outputs = self.model(inputs, domain_labels, covariate_tensors)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
@@ -54,11 +60,17 @@ class Trainer:
                 class_pred = None
 
         loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
-        loss_clr = torch.tensor(0.0)
+        loss_clr_aug = torch.tensor(0.0)
+        loss_clr_knn = torch.tensor(0.0)
 
-        if self.contrastive_criterion is not None:
+        if self.clr_aug_criterion is not None:
             outputs_aug = self.model(inputs, domain_labels, covariate_tensors)
-            loss_clr = self.contrastive_criterion(outputs['encoded'], outputs_aug['encoded'])
+            loss_clr_aug = self.clr_aug_criterion(outputs['encoded'], outputs_aug['encoded'])
+            loss_clr_aug *= self.clr_aug_weight
+
+        if self.clr_knn_criterion is not None:
+            loss_clr_knn = self.clr_knn_criterion(outputs['encoded'], knn_labels)
+            loss_clr_knn *= self.clr_knn_weight
 
         # Importance penalty loss
         if self.model.use_importance_mask:
@@ -67,9 +79,9 @@ class Trainer:
         else:
             loss_penalty = torch.tensor(0.0)
 
-        loss = loss_classifier + loss_mse + loss_clr + loss_penalty
+        loss = loss_classifier + loss_mse + loss_clr_aug + loss_clr_knn + loss_penalty
 
-        return loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred
+        return loss, loss_classifier, loss_mse, loss_clr_aug, loss_clr_knn, loss_penalty, class_labels, class_pred
 
     def train_epoch(self, epoch, train_dataloader):
         return self._run_epoch(epoch, train_dataloader, train=True)
@@ -79,7 +91,7 @@ class Trainer:
 
     def _run_epoch(self, epoch, dataloader, train=True):
         self.model.train() if train else self.model.eval()
-        total_loss, total_mse, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0
+        total_loss, total_mse, total_clr_aug, total_clr_knn, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         preds, labels = [], []
 
         progress_desc = f"Epoch {epoch} {'Training' if train else 'Validation'}"
@@ -94,10 +106,12 @@ class Trainer:
             inputs = data_dict['input']
             domain_labels = data_dict.get('domain')
             class_labels = data_dict.get('class')
-            covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'idx']]
+            knn_labels = data_dict.get('knn')
+            covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'idx', 'knn']]
+
             covariate_tensors = {key: data_dict[key] for key in covariate_keys}
-            loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred = self.forward_pass(
-                inputs, class_labels, domain_labels, covariate_tensors
+            loss, loss_classifier, loss_mse, loss_clr_aug, loss_clr_knn, loss_penalty, class_labels, class_pred = self.forward_pass(
+                inputs, class_labels, domain_labels, covariate_tensors, knn_labels
             )
 
             # Backward pass and optimization
@@ -106,12 +120,13 @@ class Trainer:
                 self.optimizer.step()
 
             # Logging
-            self._log_metrics(loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train)
+            self._log_metrics(loss, loss_classifier, loss_mse, loss_clr_aug, loss_clr_knn, loss_penalty, train)
 
             total_loss += loss.item()
             total_mse += loss_mse.item()
             total_classifier += loss_classifier.item() if self.use_classifier else 0
-            total_clr += loss_clr.item() if self.use_clr else 0
+            total_clr_aug += loss_clr_aug.item() if self.use_clr_aug else 0
+            total_clr_knn += loss_clr_knn.item() if self.use_clr_knn else 0
             total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
             if class_pred is not None and class_labels is not None:
@@ -123,13 +138,13 @@ class Trainer:
         if train:
             self.scheduler.step()
 
-        avg_loss, avg_mse, avg_clr, avg_classifier, avg_importance_penalty = self._compute_averages(
-            total_loss, total_mse, total_clr, total_classifier, total_importance_penalty, len(dataloader)
+        avg_loss, avg_mse, avg_clr_aug, avg_clr_knn, avg_classifier, avg_importance_penalty = self._compute_averages(
+            total_loss, total_mse, total_clr_aug, total_clr_knn, total_classifier, total_importance_penalty, len(dataloader)
         )
 
         self.logger.info(
             f'Epoch {epoch:3d} | {"Train" if train else "Val"} Loss:{avg_loss:5.2f}, MSE:{avg_mse:5.2f}, '
-            f'CLASS:{avg_classifier:5.2f}, CLR:{avg_clr:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}'
+            f'CLASS:{avg_classifier:5.2f}, CLR_AUG:{avg_clr_aug:5.2f}, CLR_KNN:{avg_clr_knn:5.2f}, IMPORTANCE:{avg_importance_penalty:5.2f}'
         )
         
         if self.use_classifier:
@@ -137,7 +152,7 @@ class Trainer:
 
         return avg_loss
 
-    def _log_metrics(self, loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train=True):
+    def _log_metrics(self, loss, loss_classifier, loss_mse, loss_clr_aug, loss_clr_knn, loss_penalty, train=True):
         if self.use_wandb:
             prefix = "train" if train else "val"
             wandb.log({f"{prefix}/loss": loss.item()})
@@ -145,16 +160,19 @@ class Trainer:
                 wandb.log({f"{prefix}/classifier": loss_classifier.item()})
             if self.use_decoder:
                 wandb.log({f"{prefix}/mse": loss_mse.item()})
-            if self.use_clr:
-                wandb.log({f"{prefix}/clr": loss_clr.item()})
+            if self.use_clr_aug:
+                wandb.log({f"{prefix}/clr_aug": loss_clr_aug.item()})
+            if self.use_clr_knn:
+                wandb.log({f"{prefix}/clr_knn": loss_clr_knn.item()})
             if self.model.use_importance_mask:
                 wandb.log({f"{prefix}/importance_penalty": loss_penalty.item()})
 
-    def _compute_averages(self, total_loss, total_mse, total_clr, total_classifier, total_importance_penalty, dataloader_len):
+    def _compute_averages(self, total_loss, total_mse, total_clr_aug, total_clr_knn, total_classifier, total_importance_penalty, dataloader_len):
         avg_loss = total_loss / dataloader_len
         avg_mse = total_mse / dataloader_len
-        avg_clr = total_clr / dataloader_len
+        avg_clr_aug = total_clr_aug / dataloader_len
+        avg_clr_knn = total_clr_knn / dataloader_len
         avg_classifier = total_classifier / dataloader_len
         avg_importance_penalty = total_importance_penalty / dataloader_len
-        return avg_loss, avg_mse, avg_clr, avg_classifier, avg_importance_penalty
+        return avg_loss, avg_mse, avg_clr_aug, avg_clr_knn, avg_classifier, avg_importance_penalty
     

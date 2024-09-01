@@ -94,8 +94,12 @@ class Concord:
                      use_decoder=True, # Consider fix
                      decoder_final_activation='leaky_relu',
                      decoder_weight=1.0,
-                     use_clr=True, # Consider fix
-                     clr_temperature=0.5,
+                     use_clr_aug=True, # Consider fix
+                     clr_aug_temperature=0.5,
+                     clr_aug_weight=1.0,
+                     use_clr_knn=False,
+                     clr_knn_temperature=0.5,
+                     clr_knn_weight=1.0,
                      use_classifier=False,
                      classifier_weight=1.0,
                      unlabeled_class=None,
@@ -145,8 +149,12 @@ class Concord:
             use_decoder=use_decoder,
             decoder_final_activation=decoder_final_activation,
             decoder_weight=decoder_weight,
-            use_clr=use_clr,
-            clr_temperature=clr_temperature,
+            use_clr_aug=use_clr_aug,
+            clr_aug_temperature=clr_aug_temperature,
+            clr_aug_weight=clr_aug_weight,
+            use_clr_knn=use_clr_knn,
+            clr_knn_temperature=clr_knn_temperature,
+            clr_knn_weight=clr_knn_weight,
             use_classifier=use_classifier,
             classifier_weight=classifier_weight,
             unlabeled_class=unlabeled_class,
@@ -181,7 +189,7 @@ class Concord:
             self.config = Config(initial_params)
 
 
-    def init_model(self, enhancing=False):
+    def init_model(self):
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
@@ -203,10 +211,8 @@ class Concord:
                     all_classes = all_classes.drop(self.config.unlabeled_class)
                 else:
                     raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
-            if not enhancing:
-                self.num_classes = len(all_classes) 
-            else:
-                self.num_classes = self.adata.n_obs // self.config.sampler_knn * 5 # This should be consistent with that in dataloader
+
+            self.num_classes = len(all_classes) 
         else:
             self.num_classes = 0
 
@@ -247,16 +253,13 @@ class Concord:
                 raise FileNotFoundError(f"Model file not found at {best_model_path}")
             
 
-    def init_trainer(self, enhancing=False):
+    def init_trainer(self):
         # Convert unlabeled_class from name to code
-        if not enhancing:
-            if self.config.unlabeled_class is not None and self.config.class_key is not None:
-                class_categories = self.adata.obs[self.config.class_key].cat.categories
-                unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
-            else:
-                unlabeled_class_code = None
+        if self.config.unlabeled_class is not None and self.config.class_key is not None:
+            class_categories = self.adata.obs[self.config.class_key].cat.categories
+            unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
         else:
-            unlabeled_class_code = self.num_classes
+            unlabeled_class_code = None
 
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
@@ -269,14 +272,18 @@ class Concord:
                                unlabeled_class=unlabeled_class_code,
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
-                               use_clr=self.config.use_clr, 
-                               clr_temperature=self.config.clr_temperature,
+                               use_clr_aug=self.config.use_clr_aug, 
+                               clr_aug_temperature=self.config.clr_aug_temperature,
+                               clr_aug_weight=self.config.clr_aug_weight,
+                               use_clr_knn=self.config.use_clr_knn,
+                               clr_knn_temperature=self.config.clr_knn_temperature,
+                               clr_knn_weight=self.config.clr_knn_weight,
                                use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True, enhancing=False):
+    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True):
         data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
@@ -293,7 +300,7 @@ class Concord:
             ivf_nprobe=self.config.ivf_nprobe, 
             preprocess=self.preprocessor,
             num_cores=self.num_classes, 
-            enhancing=enhancing,
+            use_clr_knn=self.config.use_clr_knn,
             device=self.config.device
         )
 
@@ -472,24 +479,13 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", enhancing=False, return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
-        if enhancing:
-            # Override user specified class_key and enable classifier
-            self.config.class_key = "knn_placeholder"
-            self.config.use_classifier = True
-            self.adata.obs[self.config.class_key] = "unlabeled" # Set all cells to unlabeled class
-            self.config.unlabeled_class = "unlabeled"
-            self.config.train_frac = 1.0 # Validation needs to be turned off because knn are generated on the fly
-            return_class = False # Class predictions are not available in enhancing mode
-            return_class_prob = False # Class probabilities are not available in enhancing mode
-            logger.info("Enhancing mode is on. Ignoring user-specified class_key and using KNN-based classifier.")
-
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
         # Initialize the model
-        self.init_model(enhancing=enhancing)
+        self.init_model()
         # Initialize the dataloader
-        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True, enhancing=enhancing)
+        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True)
         # Initialize the trainer
-        self.init_trainer(enhancing=enhancing)
+        self.init_trainer()
         # Train the model
         self.train(save_model=save_model)
         # Reinitialize the dataloader without using the sampler

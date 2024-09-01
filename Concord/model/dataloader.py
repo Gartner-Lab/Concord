@@ -20,48 +20,27 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class DynamicDataLoader(DataLoader):
-    def __init__(self, dataset, batch_sampler, neighborhood, n_cores, device):
-        super().__init__(dataset, batch_sampler=batch_sampler)
-        self.neighborhood = neighborhood
-        self.n_cores = n_cores
-        self.device = device
 
-    def assign_knn_classes(self, batch_indices):
-        # Randomly sample core points
-        unlabeled_code = self.n_cores
-        core_samples = np.random.choice(np.arange(self.neighborhood.emb.shape[0]), size=self.n_cores, replace=False)
-        knn_indices = self.neighborhood.get_knn_indices(core_samples)
-        # Initialize class labels
-        knn_labels = np.full(batch_indices.size, unlabeled_code) 
-
-        for core_idx, neighbors in enumerate(knn_indices):
-            for i, idx in enumerate(batch_indices):
-                if idx in neighbors and knn_labels[i] == unlabeled_code:  # Only assign if unlabeled
-                    knn_labels[i] = core_idx # Core points are labeled from 0 to n_cores-1, unlabeled_code reserved for unlabeled
-
-        # Convert to torch tensor
-        knn_labels = torch.tensor(knn_labels, dtype=torch.long).to(self.device)
-        return knn_labels
-
-    def modify_batch_with_knn_labels(self, batch, data_structure):
-        # Extract the batch indices
-        batch_indices = batch[data_structure.index('idx')].cpu().numpy()
-
-        # Assign dynamic KNN-based class labels
-        knn_labels = self.assign_knn_classes(batch_indices)
-
-        # Replace the class labels in the batch with the dynamic KNN labels
-        modified_batch = list(batch)
-        class_idx = data_structure.index('class')
-        modified_batch[class_idx] = knn_labels
-
-        return tuple(modified_batch)
+class ConcordDataLoader(DataLoader):
+    def __init__(self, *args, return_knn_label=False, batch_sampler=None, **kwargs):
+        self.return_knn_label = return_knn_label
+        self.use_sampler = batch_sampler is not None
+        if self.use_sampler:
+            super().__init__(*args, batch_sampler=batch_sampler, **kwargs)
+        else:
+            super().__init__(*args, **kwargs)
 
     def __iter__(self):
-        for batch in super().__iter__():
-            yield self.modify_batch_with_knn_labels(batch, self.dataset.get_data_structure())
-
+        if self.return_knn_label and self.use_sampler:
+            for batch_indices, knn_labels in self.batch_sampler:
+                batch = self.dataset[batch_indices.cpu()]
+                knn_matrix = knn_labels.unsqueeze(1) * knn_labels.unsqueeze(0)
+                knn_matrix = knn_matrix.fill_diagonal_(1).float()
+                modified_batch = batch + (knn_matrix,)
+                yield modified_batch
+        else:
+            for batch in super().__iter__():
+                yield batch
 
 class DataLoaderManager:
     def __init__(self, input_layer_key, domain_key, 
@@ -77,7 +56,7 @@ class DataLoaderManager:
                     use_ivf=False,
                     ivf_nprobe=8,
                     preprocess=None, 
-                    enhancing=False,
+                    use_clr_knn=False,
                     num_cores=None,
                     device=None):
             
@@ -99,7 +78,7 @@ class DataLoaderManager:
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
         self.preprocess = preprocess
-        self.enhancing = enhancing
+        self.return_knn_label = use_clr_knn
         self.num_cores = num_cores
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -188,7 +167,9 @@ class DataLoaderManager:
         self.sampler = NeighborhoodSampler(
             batch_size=self.batch_size, domain_ids=self.domain_ids, emb=self.emb, 
             p_intra_knn=self.p_intra_knn, p_intra_domain_dict=p_intra_domain_dict,
-            neighborhood=self.neighborhood, device=self.device
+            neighborhood=self.neighborhood, 
+            return_knn_label=self.return_knn_label,
+            device=self.device
         )
 
 
@@ -203,7 +184,10 @@ class DataLoaderManager:
         dataset = AnnDataset(self.adata, input_layer_key=self.input_layer_key, 
                 domain_key=self.domain_key, class_key=self.class_key, 
                 covariate_keys=self.covariate_keys, device=self.device)
+        
         self.data_structure = dataset.get_data_structure()
+        if self.return_knn_label:
+            self.data_structure.append('knn')
 
         if self.use_sampler:
             self.compute_embedding_and_knn()
@@ -211,36 +195,25 @@ class DataLoaderManager:
         else:
             self.sampler = None
 
-        if not self.enhancing:
-            if self.train_frac == 1.0:
-                # Create a single DataLoader without splitting
-                full_dataloader = DataLoader(dataset, batch_sampler=self.sampler)
-                return full_dataloader, None, self.data_structure
-            else:
-                if train_indices is None or val_indices is None:
-                    train_size = int(self.train_frac * len(dataset))
-                    indices = np.arange(len(dataset))
-                    np.random.shuffle(indices)
-                    train_indices = indices[:train_size]
-                    val_indices = indices[train_size:]
-
-                train_dataset = dataset.subset(train_indices)
-                val_dataset = dataset.subset(val_indices)
-
-                train_dataloader = DataLoader(train_dataset, batch_sampler=self.sampler)
-                val_dataloader = DataLoader(val_dataset, batch_sampler=self.sampler)
-
-                return train_dataloader, val_dataloader, self.data_structure
+        if self.train_frac == 1.0:
+            full_dataloader = ConcordDataLoader(dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
+            return full_dataloader, None, self.data_structure
         else:
-            logger.info("Updating batch class with dynamic KNN-based class labels.")
-            dynamic_loader = DynamicDataLoader(
-                dataset=dataset,
-                batch_sampler=self.sampler,
-                neighborhood=self.neighborhood,
-                n_cores=self.num_cores, # Remove the unlabeled class
-                device=self.device
-            )
-            return dynamic_loader, None, self.data_structure
+            if train_indices is None or val_indices is None:
+                train_size = int(self.train_frac * len(dataset))
+                indices = np.arange(len(dataset))
+                np.random.shuffle(indices)
+                train_indices = indices[:train_size]
+                val_indices = indices[train_size:]
+
+            train_dataset = dataset.subset(train_indices)
+            val_dataset = dataset.subset(val_indices)
+
+            train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
+            val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
+
+            return train_dataloader, val_dataloader, self.data_structure
+
 
 
 

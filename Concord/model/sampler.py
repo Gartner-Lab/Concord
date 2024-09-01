@@ -8,10 +8,11 @@ logger = logging.getLogger(__name__)
 
 class NeighborhoodSampler(Sampler):
     def __init__(self, batch_size, domain_ids, emb, 
-                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, device=None):
+                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, return_knn_label=False, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain_dict = p_intra_domain_dict
+        self.return_knn_label = return_knn_label
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.domain_ids = domain_ids
@@ -22,6 +23,7 @@ class NeighborhoodSampler(Sampler):
 
         #self.valid_batches,_ = self._generate_batches()
         self.valid_batches = None
+        self.knn_labels = None
 
     # Function to permute non- -1 values and push -1 values to the end
     @staticmethod
@@ -101,11 +103,20 @@ class NeighborhoodSampler(Sampler):
         all_labels = [all_labels[i] for i in indices]
 
         return all_batches, all_labels
+    
+    def modify_batch_with_knn_labels(self, batch, knn_labels):
+        # Add the KNN labels to the batch
+        modified_batch = list(batch)
+        modified_batch.append(knn_labels)
+        return tuple(modified_batch)
 
     def __iter__(self):
-        self.valid_batches,_ = self._generate_batches()
-        for batch in self.valid_batches:
-            yield batch
+        self.valid_batches, self.knn_labels = self._generate_batches()
+        for batch, knn_labels in zip(self.valid_batches, self.knn_labels):
+            if self.return_knn_label:
+                yield batch, torch.tensor(knn_labels)
+            else:
+                yield batch
 
     def __len__(self):
         return len(self.valid_batches)

@@ -77,7 +77,7 @@ class AnnDataset(Dataset):
     def __len__(self):
         return len(self.indices)
 
-    def __getitem__(self, idx, dynamic_class_labels=None):
+    def __getitem__(self, idx):
         actual_idx = self.indices[idx]
         data_tensor = torch.tensor(self.data[actual_idx], dtype=torch.float32).to(self.device)
 
@@ -88,14 +88,11 @@ class AnnDataset(Dataset):
             elif key == 'domain' and self.domain_labels is not None:
                 items.append(self.domain_labels[actual_idx])
             elif key == 'class':
-                if dynamic_class_labels is not None:
-                    items.append(dynamic_class_labels[actual_idx])
-                elif self.class_labels is not None:
-                    items.append(self.class_labels[actual_idx])
+                items.append(self.class_labels[actual_idx])
             elif key in self.covariate_keys:
                 items.append(self.covariate_tensors[key][actual_idx])
             elif key == 'idx':
-                items.append(actual_idx)
+                items.append(torch.tensor(actual_idx))
 
         return tuple(items)
 
