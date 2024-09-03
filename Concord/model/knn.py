@@ -30,6 +30,19 @@ class Neighborhood:
         self.emb = np.ascontiguousarray(emb).astype(np.float32)
         self.k = k
         self.use_faiss = use_faiss
+        if self.use_faiss:
+            try:
+                import faiss
+            except ImportError:
+                raise ImportError("FAISS is not available. Set use_faiss=False or install faiss.")
+            
+            if hasattr(faiss, 'StandardGpuResources'):
+                logger.info("Using FAISS GPU index.")
+                self.faiss_gpu = True
+            else:
+                logger.info("Using FAISS CPU index.")
+                self.faiss_gpu = False
+
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
 
@@ -42,33 +55,33 @@ class Neighborhood:
         """
         Initialize the k-NN index using FAISS or sklearn.
         """
-
         if self.use_faiss:
-            try:
-                import faiss
-                if hasattr(faiss, 'StandardGpuResources'):
-                    raise ImportError(
-                        "FAISS GPU version is installed. Please install FAISS CPU version by running 'pip install faiss-cpu'.")
-                else:
-                    
-                    n = self.emb.shape[0]
-                    d = self.emb.shape[1]
-                    if self.use_ivf:
-                        if d > 3000:
-                            logger.warning("FAISS IVF index is not recommended for data with too many features. Consider set use_ivf=False or set sampler_emb to PCA or other low dimensional embedding.")
-                        logger.info(f"Building Faiss IVF index. nprobe={self.ivf_nprobe}")
-                        nlist = int(math.sqrt(n))  # number of clusters, based on https://github.com/facebookresearch/faiss/issues/112
-                        quantizer = faiss.IndexFlatL2(d)
-                        self.index = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
-                        self.index.train(self.emb)
-                        self.index.nprobe = self.ivf_nprobe
-                    else:
-                        logger.info("Building Faiss FlatL2 index.")
-                        self.index = faiss.IndexFlatL2(d)
+            import faiss
+            n = self.emb.shape[0]
+            d = self.emb.shape[1]
+            
+            if self.use_ivf:
+                if d > 3000:
+                    logger.warning("FAISS IVF index is not recommended for data with too many features. Consider set use_ivf=False or set sampler_emb to PCA or other low dimensional embedding.")
+                logger.info(f"Building Faiss IVF index. nprobe={self.ivf_nprobe}")
+                nlist = int(math.sqrt(n))  # number of clusters
+                quantizer = faiss.IndexFlatL2(d)
+                index_cpu = faiss.IndexIVFFlat(quantizer, d, nlist, faiss.METRIC_L2)
+                index_cpu.train(self.emb)
+                index_cpu.nprobe = self.ivf_nprobe
+            else:
+                logger.info("Building Faiss FlatL2 index.")
+                index_cpu = faiss.IndexFlatL2(d)
 
-                    self.index.add(self.emb)
-            except ImportError:
-                raise ImportError("FAISS is not available. Falling back to sklearn's NearestNeighbors.")
+            # Check if GPU is available and use it if possible
+            if self.faiss_gpu:
+                res = faiss.StandardGpuResources()
+                self.index = faiss.index_cpu_to_gpu(res, 0, index_cpu)
+            else:
+                logger.info("Using FAISS CPU index.")
+                self.index = index_cpu
+
+            self.index.add(self.emb)
         else:
             self.nbrs = NearestNeighbors(n_neighbors=self.k + 1).fit(self.emb)
 
@@ -109,4 +122,4 @@ class Neighborhood:
             The new embedding matrix.
         """
         self.emb = new_emb.astype(np.float32)
-        self._initialize_knn_index()
+        self._build_knn_index()

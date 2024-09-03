@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class NeighborhoodSampler(Sampler):
-    def __init__(self, batch_size, domain_ids, emb, 
+    def __init__(self, batch_size, domain_ids, 
                  neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, return_knn_label=False, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
@@ -16,7 +16,6 @@ class NeighborhoodSampler(Sampler):
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.domain_ids = domain_ids
-        self.emb = emb
         self.neighborhood = neighborhood
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)

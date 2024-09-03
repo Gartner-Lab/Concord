@@ -1,5 +1,5 @@
 import torch
-from .sampler import NeighborhoodSampler
+from .sampler import ConcordSampler
 from .anndataset import AnnDataset
 from .knn import Neighborhood
 from ..utils.value_check import validate_probability, validate_probability_dict_compatible
@@ -71,6 +71,7 @@ class DataLoaderManager:
         self.sampler_knn = sampler_knn
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
+        self.p_intra_domain_dict = None
         self.min_p_intra_domain = min_p_intra_domain
         self.max_p_intra_domain = max_p_intra_domain
         self.pca_n_comps = pca_n_comps
@@ -109,9 +110,7 @@ class DataLoaderManager:
         self.neighborhood = Neighborhood(emb=self.emb, k=self.sampler_knn, use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe)
 
 
-    def init_sampler(self):
-        logger.info(f"Initializing sampler.")
-
+    def compute_p_intra_domain(self):
         # Validate probability values
         validate_probability(self.p_intra_knn, "p_intra_knn")
 
@@ -150,7 +149,9 @@ class DataLoaderManager:
                     logger.warning(f"You specified p_intra_domain as {p_intra_domain} but you only have one domain. "
                                 f"Resetting p_intra_domain to 1.0.")
                     p_intra_domain = 1.0
-                self.p_intra_domain = {domain.item(): p_intra_domain for domain in unique_domains}
+                else:
+                    p_intra_domain = self.p_intra_domain
+                self.p_intra_domain = {domain: p_intra_domain for domain in unique_domains}
             else:
                 if len(unique_domains) != len(self.p_intra_domain):
                     raise ValueError(f"Length of p_intra_domain ({len(self.p_intra_domain)}) does not match the number of unique domains ({len(unique_domains)}).")
@@ -162,15 +163,7 @@ class DataLoaderManager:
         logger.info(f"Final p_intra_domain values: {', '.join(f'{k}: {v:.2f}' for k, v in self.p_intra_domain.items())}")
         # Convert the domain labels to their corresponding category codes
         domain_codes = {domain: code for code, domain in enumerate(unique_domains)}
-        p_intra_domain_dict = {domain_codes[domain]: value for domain, value in self.p_intra_domain.items()}
-
-        self.sampler = NeighborhoodSampler(
-            batch_size=self.batch_size, domain_ids=self.domain_ids, emb=self.emb, 
-            p_intra_knn=self.p_intra_knn, p_intra_domain_dict=p_intra_domain_dict,
-            neighborhood=self.neighborhood, 
-            return_knn_label=self.return_knn_label,
-            device=self.device
-        )
+        self.p_intra_domain_dict = {domain_codes[domain]: value for domain, value in self.p_intra_domain.items()}
 
 
     def anndata_to_dataloader(self, adata):
@@ -191,23 +184,58 @@ class DataLoaderManager:
 
         if self.use_sampler:
             self.compute_embedding_and_knn()
-            self.init_sampler()
-        else:
-            self.sampler = None
+            self.compute_p_intra_domain()
 
         if self.train_frac == 1.0:
+            if self.use_sampler:
+                self.sampler = ConcordSampler(
+                    batch_size=self.batch_size, 
+                    indices=torch.arange(len(dataset)),
+                    domain_ids=self.domain_ids, 
+                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
+                    neighborhood=self.neighborhood, 
+                    return_knn_label=self.return_knn_label,
+                    device=self.device
+                )
+            else:
+                self.sampler = None
             full_dataloader = ConcordDataLoader(dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
             return full_dataloader, None, self.data_structure
         else:
-            if train_indices is None or val_indices is None:
-                train_size = int(self.train_frac * len(dataset))
-                indices = np.arange(len(dataset))
-                np.random.shuffle(indices)
-                train_indices = indices[:train_size]
-                val_indices = indices[train_size:]
+            train_size = int(self.train_frac * len(dataset))
+            indices = np.arange(len(dataset))
+            np.random.shuffle(indices)
+            train_indices = indices[:train_size]
+            val_indices = indices[train_size:]
 
             train_dataset = dataset.subset(train_indices)
             val_dataset = dataset.subset(val_indices)
+
+            if self.use_sampler:
+                train_sampler = ConcordSampler(
+                    batch_size=self.batch_size, 
+                    indices=train_indices,
+                    domain_ids=self.domain_ids[train_indices], 
+                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
+                    neighborhood=self.neighborhood, 
+                    return_knn_label=self.return_knn_label,
+                    device=self.device
+                )
+
+                val_sampler = ConcordSampler(
+                    batch_size=self.batch_size, 
+                    indices=val_indices,
+                    domain_ids=self.domain_ids[val_indices], 
+                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
+                    neighborhood=self.neighborhood, 
+                    return_knn_label=self.return_knn_label,
+                    device=self.device
+                )
+            else:
+                train_sampler, val_sampler = None, None
+
+                train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=train_sampler, return_knn_label=self.return_knn_label)
+                val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=val_sampler, return_knn_label=self.return_knn_label)
 
             train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
             val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)

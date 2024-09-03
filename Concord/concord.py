@@ -245,12 +245,12 @@ class Concord:
             wandb.log({"total_parameters": total_params})
 
         if self.config.pretrained_model is not None:
-            best_model_path = Path(self.config.pretrained_model)
-            if best_model_path.exists():
-                logger.info(f"Loading pre-trained model from {best_model_path}")
-                self.model.load_model(best_model_path, self.config.device)
+            pretrained_model_path = Path(self.config.pretrained_model)
+            if pretrained_model_path.exists():
+                logger.info(f"Loading pre-trained model from {pretrained_model_path}")
+                self.model.load_model(pretrained_model_path, self.config.device)
             else:
-                raise FileNotFoundError(f"Model file not found at {best_model_path}")
+                raise FileNotFoundError(f"Model file not found at {pretrained_model_path}")
             
 
     def init_trainer(self):
@@ -363,7 +363,12 @@ class Concord:
         if save_model:
             model_save_path = self.save_dir / "final_model.pth"
             self.save_model(self.model, model_save_path)
-            logger.info(f"Final model saved at: {model_save_path}")
+            # Save the configuration
+            config_save_path = self.save_dir / "config.json"
+            with open(config_save_path, 'w') as f:
+                f.write(str(self.config.to_dict()))
+            
+            logger.info(f"Final model saved at: {model_save_path}; Configuration saved at: {config_save_path}.")
 
 
     def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class=True, return_class_prob=True):  
