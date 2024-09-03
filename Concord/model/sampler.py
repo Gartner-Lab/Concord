@@ -6,23 +6,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class NeighborhoodSampler(Sampler):
-    def __init__(self, batch_size, domain_ids, 
-                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, return_knn_label=False, device=None):
+class ConcordSampler(Sampler):
+    def __init__(self, batch_size, indices, domain_ids, 
+                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, return_knn_label=False, min_batch_size=4, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain_dict = p_intra_domain_dict
         self.return_knn_label = return_knn_label
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
         self.domain_ids = domain_ids
         self.neighborhood = neighborhood
+
+        assert len(domain_ids) == self.neighborhood.emb.shape[0], "Domain ids and neighborhood emb size mismatch"
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
+
+        self.global_indices_subset = torch.tensor(indices, device=self.device)
+        self.filter_batch = len(indices) < len(domain_ids) # if subset of global indices is used
+        self.indices_mapping = {global_idx: local_idx for local_idx, global_idx in enumerate(indices)} # map global indices to local indices
 
         #self.valid_batches,_ = self._generate_batches()
         self.valid_batches = None
         self.knn_labels = None
+        self.min_batch_size = min_batch_size
 
     # Function to permute non- -1 values and push -1 values to the end
     @staticmethod
@@ -103,15 +109,17 @@ class NeighborhoodSampler(Sampler):
 
         return all_batches, all_labels
     
-    def modify_batch_with_knn_labels(self, batch, knn_labels):
-        # Add the KNN labels to the batch
-        modified_batch = list(batch)
-        modified_batch.append(knn_labels)
-        return tuple(modified_batch)
 
     def __iter__(self):
         self.valid_batches, self.knn_labels = self._generate_batches()
         for batch, knn_labels in zip(self.valid_batches, self.knn_labels):
+            if self.filter_batch:
+                # Filter batch to only include indices in the subset
+                filtered_batch = batch[torch.isin(batch, self.global_indices_subset)]
+                batch = torch.tensor([self.indices_mapping[idx.item()] for idx in filtered_batch])
+
+            if len(batch) < self.min_batch_size:
+                continue
             if self.return_knn_label:
                 yield batch, torch.tensor(knn_labels)
             else:

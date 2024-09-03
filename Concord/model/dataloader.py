@@ -215,7 +215,7 @@ class DataLoaderManager:
                 train_sampler = ConcordSampler(
                     batch_size=self.batch_size, 
                     indices=train_indices,
-                    domain_ids=self.domain_ids[train_indices], 
+                    domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
                     return_knn_label=self.return_knn_label,
@@ -225,7 +225,7 @@ class DataLoaderManager:
                 val_sampler = ConcordSampler(
                     batch_size=self.batch_size, 
                     indices=val_indices,
-                    domain_ids=self.domain_ids[val_indices], 
+                    domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
                     return_knn_label=self.return_knn_label,
@@ -234,11 +234,8 @@ class DataLoaderManager:
             else:
                 train_sampler, val_sampler = None, None
 
-                train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=train_sampler, return_knn_label=self.return_knn_label)
-                val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=val_sampler, return_knn_label=self.return_knn_label)
-
-            train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
-            val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
+            train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=train_sampler, return_knn_label=self.return_knn_label)
+            val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=val_sampler, return_knn_label=self.return_knn_label)
 
             return train_dataloader, val_dataloader, self.data_structure
 
