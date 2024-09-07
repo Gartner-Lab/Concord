@@ -1,6 +1,7 @@
 
 import matplotlib.pyplot as plt
 import scanpy as sc
+import umap
 import warnings
 import numpy as np
 import plotly.express as px
@@ -36,7 +37,7 @@ def plot_embedding(adata, show_emb, show_cols=None, highlight_indices=None,
     nrows = int(np.ceil(len(show_cols) / ncols))
 
     # Create subplots
-    fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi)
+    fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
     axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
 
     warnings.filterwarnings('ignore')
@@ -69,7 +70,7 @@ def plot_embedding(adata, show_emb, show_cols=None, highlight_indices=None,
     for ax in axs[len(show_cols):]:
         ax.axis('off')
 
-    plt.tight_layout()
+    #plt.tight_layout()
     plt.show()
 
     if save_path is not None:
@@ -190,4 +191,39 @@ def plot_top_genes_embedding(adata, ranked_lists, show_emb, top_x=4, figsize=(5,
         # Show the plot title with neuron name
         plt.suptitle(neuron_title, fontsize=font_size + 2)
         plt.show()
+
+
+
+
+def plot_custom_embeddings_umap(custom_embedding=None, figsize=(5, 5), dpi=300, 
+                                font_size=3, point_size=5,  save_path=None):
+    if custom_embedding is None:
+        raise ValueError("custom_embedding must be provided.")
+    
+    # Extract embeddings (values) and custom names (index)
+    embeddings = custom_embedding.values
+    custom_names = custom_embedding.index
+
+    umap_model = umap.UMAP(n_neighbors=5, min_dist=0.3, n_components=2, random_state=42)
+    umap_embeddings = umap_model.fit_transform(embeddings)
+    
+    # Plot the UMAP embeddings
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
+    scatter = ax.scatter(umap_embeddings[:, 0], umap_embeddings[:, 1], s=point_size, color='blue')
+
+    # Annotate each point with the corresponding custom name
+    for i, custom_name in enumerate(custom_names):
+        ax.text(umap_embeddings[i, 0], umap_embeddings[i, 1], custom_name, fontsize=font_size, ha='right')
+
+    ax.set_title('UMAP of Embedding', fontsize=font_size + 2)
+    ax.set_xlabel('UMAP Dimension 1', fontsize=font_size + 1)
+    ax.set_ylabel('UMAP Dimension 2', fontsize=font_size + 1)
+    ax.grid(True)
+
+    # Optionally save the figure
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
+
+    # Show the plot
+    plt.show()
 

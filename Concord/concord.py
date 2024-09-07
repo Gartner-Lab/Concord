@@ -13,6 +13,7 @@ import numpy as np
 import scanpy as sc
 import pandas as pd
 import copy
+import json
 from . import logger
 from . import set_verbose_mode
 
@@ -366,7 +367,7 @@ class Concord:
             # Save the configuration
             config_save_path = self.save_dir / "config.json"
             with open(config_save_path, 'w') as f:
-                f.write(str(self.config.to_dict()))
+                json.dump(self.config.to_dict(), f, indent=4)
             
             logger.info(f"Final model saved at: {model_save_path}; Configuration saved at: {config_save_path}.")
 
@@ -437,9 +438,9 @@ class Concord:
                         indices.extend(original_indices.cpu().numpy())
 
                     outputs = self.model(inputs, domain_ids, covariate_tensors)
-                    if 'class_pred' in outputs:
+                    if 'class_pred' in outputs and return_class:
                         class_preds_tensor = outputs['class_pred']
-                        class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy())
+                        class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy()) # TODO May need fix
                         if return_class_prob:
                             class_probs.extend(F.softmax(class_preds_tensor, dim=1).cpu().numpy())
                     if 'encoded' in outputs:
@@ -512,6 +513,25 @@ class Concord:
         if decoded is not None:
             self.adata.layers[output_key+'_decoded'] = decoded # Store decoded values in adata.layers
 
+    def get_domain_embeddings(self):
+        unique_domain_categories = self.adata.obs[self.config.domain_key].cat.categories.values
+        domain_labels = torch.tensor(range(len(unique_domain_categories)), dtype=torch.long).to(self.config.device)
+        domain_embeddings = self.model.domain_embedding(domain_labels)
+        domain_embeddings = domain_embeddings.cpu().detach().numpy()
+        domain_df = pd.DataFrame(domain_embeddings, index=unique_domain_categories)
+        return domain_df
+    
+    def get_covariate_embeddings(self):
+        covariate_dfs = {}
+        for covariate_key in self.config.covariate_embedding_dims.keys():
+            if covariate_key in self.model.covariate_embeddings:
+                unique_covariate_categories = self.adata.obs[covariate_key].cat.categories.values
+                covariate_labels = torch.tensor(range(len(unique_covariate_categories)), dtype=torch.long).to(self.config.device)
+                covariate_embeddings = self.model.covariate_embeddings[covariate_key](covariate_labels)
+                covariate_embeddings = covariate_embeddings.cpu().detach().numpy()
+                covariate_df = pd.DataFrame(covariate_embeddings, index=unique_covariate_categories)
+                covariate_dfs[covariate_key] = covariate_df
+        return covariate_dfs
 
     def save_model(self, model, save_path):
         torch.save(model.state_dict(), save_path)

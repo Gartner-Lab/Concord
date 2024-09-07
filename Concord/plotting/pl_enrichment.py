@@ -81,9 +81,11 @@ def plot_all_top_enriched_terms(all_gsea_results, top_n=10, ncols=1, font_size=1
     for i in range(len(all_gsea_results), len(axes)):
         fig.delaxes(axes[i])
 
+    #plt.subplots_adjust(top=0.6, bottom=0.4)
+
     if save_path:
         file_suffix = f"{time.strftime('%b%d-%H%M')}"
-        save_path = f"{save_path}_{file_suffix}.png"
+        save_path = f"{save_path}_{file_suffix}.pdf"
         plt.savefig(save_path)
     else:
         plt.show()
