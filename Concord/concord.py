@@ -276,6 +276,8 @@ class Concord:
 
 
     def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True):
+        if train_frac < 1.0 and self.config.clr_mode == 'nn':
+            raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
         data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
