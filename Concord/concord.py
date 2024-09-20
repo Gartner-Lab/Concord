@@ -98,9 +98,6 @@ class Concord:
                      use_clr_aug=True, # Consider fix
                      clr_aug_temperature=0.5,
                      clr_aug_weight=1.0,
-                     use_clr_knn=False,
-                     clr_knn_temperature=0.5,
-                     clr_knn_weight=1.0,
                      use_classifier=False,
                      classifier_weight=1.0,
                      unlabeled_class=None,
@@ -153,9 +150,6 @@ class Concord:
             use_clr_aug=use_clr_aug,
             clr_aug_temperature=clr_aug_temperature,
             clr_aug_weight=clr_aug_weight,
-            use_clr_knn=use_clr_knn,
-            clr_knn_temperature=clr_knn_temperature,
-            clr_knn_weight=clr_knn_weight,
             use_classifier=use_classifier,
             classifier_weight=classifier_weight,
             unlabeled_class=unlabeled_class,
@@ -276,9 +270,6 @@ class Concord:
                                use_clr_aug=self.config.use_clr_aug, 
                                clr_aug_temperature=self.config.clr_aug_temperature,
                                clr_aug_weight=self.config.clr_aug_weight,
-                               use_clr_knn=self.config.use_clr_knn,
-                               clr_knn_temperature=self.config.clr_knn_temperature,
-                               clr_knn_weight=self.config.clr_knn_weight,
                                use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
@@ -301,7 +292,6 @@ class Concord:
             ivf_nprobe=self.config.ivf_nprobe, 
             preprocess=self.preprocessor,
             num_cores=self.num_classes, 
-            use_clr_knn=self.config.use_clr_knn,
             device=self.config.device
         )
 

@@ -8,11 +8,10 @@ logger = logging.getLogger(__name__)
 
 class ConcordSampler(Sampler):
     def __init__(self, batch_size, indices, domain_ids, 
-                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, return_knn_label=False, min_batch_size=4, device=None):
+                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, min_batch_size=4, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain_dict = p_intra_domain_dict
-        self.return_knn_label = return_knn_label
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.domain_ids = domain_ids
         self.neighborhood = neighborhood
@@ -27,7 +26,6 @@ class ConcordSampler(Sampler):
 
         #self.valid_batches,_ = self._generate_batches()
         self.valid_batches = None
-        self.knn_labels = None
         self.min_batch_size = min_batch_size
 
     # Function to permute non- -1 values and push -1 values to the end
@@ -44,7 +42,6 @@ class ConcordSampler(Sampler):
 
     def _generate_batches(self):
         all_batches = []
-        all_labels = [] # labels indicating if cell is in knn neighborhood or not
 
         for domain in self.unique_domains:
             domain_indices = torch.where(self.domain_ids == domain)[0]
@@ -55,7 +52,7 @@ class ConcordSampler(Sampler):
             core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_core_samples]]
 
             # Sample within knn neighborhood
-            knn_around_core = self.neighborhood.get_knn_indices(core_samples) # (core_samples, k), contains knn around the core samples
+            knn_around_core = self.neighborhood.get_knn_indices(core_samples) # (core_samples, k), contains core + knn around the core samples
             knn_around_core = torch.tensor(knn_around_core).to(self.device)
             knn_domain_ids = self.domain_ids[knn_around_core] # (core_samples, k), shows domain of each knn sample
             domain_mask = knn_domain_ids == domain # mask indicate if sample is in current domain
@@ -94,25 +91,21 @@ class ConcordSampler(Sampler):
             batch_global = torch.cat((batch_global_in_domain, batch_global_out_domain), dim=1)
             sample_mtx = torch.cat((batch_knn, batch_global), dim=1)
 
-            for i,batch in enumerate(sample_mtx):
+            for _,batch in enumerate(sample_mtx):
                 valid_batch = batch[batch >= 0]
                 all_batches.append(valid_batch)
-                knn_label = torch.zeros_like(valid_batch)
-                knn_label[:(batch_knn[i] >= 0).sum(dim=0)] = 1
-                all_labels.append(knn_label)
 
 
         # Shuffle all batches to ensure random order of domains
         indices = torch.randperm(len(all_batches)).tolist()
         all_batches = [all_batches[i] for i in indices]
-        all_labels = [all_labels[i] for i in indices]
 
-        return all_batches, all_labels
+        return all_batches
     
 
     def __iter__(self):
-        self.valid_batches, self.knn_labels = self._generate_batches()
-        for batch, knn_labels in zip(self.valid_batches, self.knn_labels):
+        self.valid_batches = self._generate_batches()
+        for batch in self.valid_batches:
             if self.filter_batch:
                 # Filter batch to only include indices in the subset
                 filtered_batch = batch[torch.isin(batch, self.global_indices_subset)]
@@ -120,11 +113,39 @@ class ConcordSampler(Sampler):
 
             if len(batch) < self.min_batch_size:
                 continue
-            if self.return_knn_label:
-                yield batch, torch.tensor(knn_labels)
-            else:
-                yield batch
+
+            yield batch
 
     def __len__(self):
         return len(self.valid_batches)
+
+
+
+
+
+class ConcordMatchNNSampler(Sampler):
+    def __init__(self, batch_size, indices, domain_ids, 
+                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, 
+                 min_batch_size=4, device=None):
+        # Use half the batch size for the base sampler
+        self.base_sampler = ConcordSampler(
+            batch_size // 2, indices, domain_ids, neighborhood, 
+            p_intra_knn, p_intra_domain_dict, min_batch_size=min_batch_size, device=device)
+        self.neighborhood = neighborhood
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    def __iter__(self):
+        for batch in self.base_sampler:
+            batch = batch.to(self.device)
+            # Get the first nearest neighbor for each sample, excluding the sample itself
+            nn_indices = self.neighborhood.get_knn_indices(batch, k=1, include_self=False)
+            nn_indices = torch.tensor(nn_indices.squeeze(1), device=self.device)
+            # Concatenate batch and nn_indices to form the full batch
+            full_batch = torch.cat([batch, nn_indices], dim=0)
+            print(full_batch)
+            yield full_batch
+
+
+    def __len__(self):
+        return len(self.base_sampler)
 

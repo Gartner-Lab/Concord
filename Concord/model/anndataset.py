@@ -78,6 +78,8 @@ class AnnDataset(Dataset):
         return len(self.indices)
 
     def __getitem__(self, idx):
+        if isinstance(idx, torch.Tensor):
+            idx = idx.cpu().numpy()
         actual_idx = self.indices[idx]
         data_tensor = torch.tensor(self.data[actual_idx], dtype=torch.float32).to(self.device)
 

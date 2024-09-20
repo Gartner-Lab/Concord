@@ -21,26 +21,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class ConcordDataLoader(DataLoader):
-    def __init__(self, *args, return_knn_label=False, batch_sampler=None, **kwargs):
-        self.return_knn_label = return_knn_label
-        self.use_sampler = batch_sampler is not None
-        if self.use_sampler:
-            super().__init__(*args, batch_sampler=batch_sampler, **kwargs)
-        else:
-            super().__init__(*args, **kwargs)
-
-    def __iter__(self):
-        if self.return_knn_label and self.use_sampler:
-            for batch_indices, knn_labels in self.batch_sampler:
-                batch = self.dataset[batch_indices.cpu()]
-                knn_matrix = knn_labels.unsqueeze(1) * knn_labels.unsqueeze(0)
-                knn_matrix = knn_matrix.fill_diagonal_(1).float()
-                modified_batch = batch + (knn_matrix,)
-                yield modified_batch
-        else:
-            for batch in super().__iter__():
-                yield batch
 
 class DataLoaderManager:
     def __init__(self, input_layer_key, domain_key, 
@@ -56,7 +36,6 @@ class DataLoaderManager:
                     use_ivf=False,
                     ivf_nprobe=8,
                     preprocess=None, 
-                    use_clr_knn=False,
                     num_cores=None,
                     device=None):
             
@@ -79,7 +58,6 @@ class DataLoaderManager:
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
         self.preprocess = preprocess
-        self.return_knn_label = use_clr_knn
         self.num_cores = num_cores
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -179,8 +157,6 @@ class DataLoaderManager:
                 covariate_keys=self.covariate_keys, device=self.device)
         
         self.data_structure = dataset.get_data_structure()
-        if self.return_knn_label:
-            self.data_structure.append('knn')
 
         if self.use_sampler:
             self.compute_embedding_and_knn()
@@ -194,12 +170,11 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
-                    return_knn_label=self.return_knn_label,
                     device=self.device
                 )
             else:
                 self.sampler = None
-            full_dataloader = ConcordDataLoader(dataset, batch_sampler=self.sampler, return_knn_label=self.return_knn_label)
+            full_dataloader = DataLoader(dataset, batch_sampler=self.sampler)
             return full_dataloader, None, self.data_structure
         else:
             train_size = int(self.train_frac * len(dataset))
@@ -218,7 +193,6 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
-                    return_knn_label=self.return_knn_label,
                     device=self.device
                 )
 
@@ -228,14 +202,13 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
-                    return_knn_label=self.return_knn_label,
                     device=self.device
                 )
             else:
                 train_sampler, val_sampler = None, None
 
-            train_dataloader = ConcordDataLoader(train_dataset, batch_sampler=train_sampler, return_knn_label=self.return_knn_label)
-            val_dataloader = ConcordDataLoader(val_dataset, batch_sampler=val_sampler, return_knn_label=self.return_knn_label)
+            train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler)
+            val_dataloader = DataLoader(val_dataset, batch_sampler=val_sampler)
 
             return train_dataloader, val_dataloader, self.data_structure
 
