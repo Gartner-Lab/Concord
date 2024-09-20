@@ -1,11 +1,10 @@
 import torch
-from .sampler import ConcordSampler
+from .sampler import ConcordSampler, ConcordMatchNNSampler
 from .anndataset import AnnDataset
 from .knn import Neighborhood
 from ..utils.value_check import validate_probability, validate_probability_dict_compatible
 from ..utils.coverage_estimator import calculate_domain_coverage, coverage_to_p_intra
 from torch.utils.data import DataLoader
-from sklearn.neighbors import NearestNeighbors
 import numpy as np
 import scanpy as sc
 import pandas as pd
@@ -31,6 +30,7 @@ class DataLoaderManager:
                     sampler_knn=300, 
                     p_intra_knn=0.3, p_intra_domain=None,
                     min_p_intra_domain=0.5, max_p_intra_domain=1.0,
+                    clr_mode='aug', 
                     pca_n_comps=50, 
                     use_faiss=True, 
                     use_ivf=False,
@@ -53,6 +53,7 @@ class DataLoaderManager:
         self.p_intra_domain_dict = None
         self.min_p_intra_domain = min_p_intra_domain
         self.max_p_intra_domain = max_p_intra_domain
+        self.clr_mode = clr_mode
         self.pca_n_comps = pca_n_comps
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
@@ -161,14 +162,19 @@ class DataLoaderManager:
         if self.use_sampler:
             self.compute_embedding_and_knn()
             self.compute_p_intra_domain()
+            SamplerClass = ConcordMatchNNSampler if self.clr_mode == 'nn' else ConcordSampler
+        else:
+            SamplerClass = None
 
         if self.train_frac == 1.0:
+            indices = torch.arange(len(dataset))
             if self.use_sampler:
-                self.sampler = ConcordSampler(
+                self.sampler = SamplerClass(
                     batch_size=self.batch_size, 
-                    indices=torch.arange(len(dataset)),
+                    indices=indices,
                     domain_ids=self.domain_ids, 
-                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
+                    p_intra_knn=self.p_intra_knn, 
+                    p_intra_domain_dict=self.p_intra_domain_dict,
                     neighborhood=self.neighborhood, 
                     device=self.device
                 )
@@ -187,7 +193,7 @@ class DataLoaderManager:
             val_dataset = dataset.subset(val_indices)
 
             if self.use_sampler:
-                train_sampler = ConcordSampler(
+                train_sampler = SamplerClass(
                     batch_size=self.batch_size, 
                     indices=train_indices,
                     domain_ids=self.domain_ids, 
@@ -196,7 +202,7 @@ class DataLoaderManager:
                     device=self.device
                 )
 
-                val_sampler = ConcordSampler(
+                val_sampler = SamplerClass(
                     batch_size=self.batch_size, 
                     indices=val_indices,
                     domain_ids=self.domain_ids, 

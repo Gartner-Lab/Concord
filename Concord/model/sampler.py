@@ -142,7 +142,6 @@ class ConcordMatchNNSampler(Sampler):
             nn_indices = torch.tensor(nn_indices.squeeze(1), device=self.device)
             # Concatenate batch and nn_indices to form the full batch
             full_batch = torch.cat([batch, nn_indices], dim=0)
-            print(full_batch)
             yield full_batch
 
 
