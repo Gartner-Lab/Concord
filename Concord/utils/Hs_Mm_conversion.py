@@ -1,4 +1,3 @@
-from gseapy import Biomart
 import pandas as pd
 from .. import logger
 
@@ -8,6 +7,11 @@ def chunk_list(lst, chunk_size):
         yield lst[i:i + chunk_size]
 
 def get_mouse_genes(human_genes, return_type=None, chunk_size=500):
+    try:
+        from gseapy import Biomart
+    except ImportError:
+        raise ImportError("gseapy is required for this method. Please install it using 'pip install gseapy'.")
+
     bm = Biomart()
     results = []
 
@@ -31,6 +35,10 @@ def get_mouse_genes(human_genes, return_type=None, chunk_size=500):
         return h2m['mmusculus_homolog_associated_gene_name'].dropna().unique().tolist()
 
 def get_human_genes(mouse_genes, return_type=None, chunk_size=100):
+    try:
+        from gseapy import Biomart
+    except ImportError:
+        raise ImportError("gseapy is required for this method. Please install it using 'pip install gseapy'.")
     bm = Biomart()
     results = []
     total_processed = 0
