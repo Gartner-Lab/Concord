@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: Concord
-Version: 0.8.0
-Summary: CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery
-Home-page: https://github.com/qinzhu/Concord
-Author: Qin Zhu
-Author-email: qin.zhu@ucsf.edu
-Requires-Python: >=3.9
