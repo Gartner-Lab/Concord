@@ -5,11 +5,14 @@ import umap
 import warnings
 import numpy as np
 import plotly.express as px
+import seaborn as sns
 from .. import logger
 import time
 
 
-def plot_embedding(adata, show_emb, show_cols=None, highlight_indices=None,
+def plot_embedding(adata, show_emb, show_cols=None, 
+                   pal = 'tab20',
+                   highlight_indices=None,
                    highlight_size=20, draw_path=False, alpha=0.9,
                    figsize=(9, 3), dpi=300, ncols=1,
                     font_size=8, point_size=10, legend_loc='on data', save_path=None):
@@ -42,8 +45,12 @@ def plot_embedding(adata, show_emb, show_cols=None, highlight_indices=None,
 
     warnings.filterwarnings('ignore')
     for col, ax in zip(show_cols, axs):
+        num_categories = len(adata.obs[col].unique())
+        palette = sns.color_palette(pal, num_categories)  # tab20 supports up to 20 distinct colors, you can adjust for more categories
+
         sc.pl.embedding(adata, basis=show_emb, color=col, ax=ax, show=False,
-                        legend_loc=legend_loc, legend_fontsize=font_size, size=point_size, alpha=alpha)
+                        legend_loc=legend_loc, legend_fontsize=font_size, size=point_size, alpha=alpha,
+                        palette=palette)
 
         # Highlight selected points
         if highlight_indices is not None:

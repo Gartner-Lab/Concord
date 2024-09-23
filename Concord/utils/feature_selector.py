@@ -36,7 +36,7 @@ def select_features(
         sampled_size = adata.n_obs
 
     if sampled_size > 100000:
-        raise ValueError(f"The number of cells for VEG selection ({sampled_data.n_obs}) exceeds the limit of 100,000. "
+        raise ValueError(f"The number of cells for VEG selection ({sampled_size}) exceeds the limit of 100,000. "
                         f"Please specify a lower subsample_frac value to downsample cells for VEG calling.")
     
     # Handle backed mode and subsampling

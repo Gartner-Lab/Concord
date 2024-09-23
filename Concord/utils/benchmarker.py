@@ -1,10 +1,4 @@
-import time
-import json
-from pathlib import Path
-from copy import deepcopy
-from .timer import Timer
-from .anndata_utils import save_obsm_to_hdf5
-import tracemalloc
+
 import pandas as pd
 from .. import logger
 
@@ -17,6 +11,14 @@ def count_total_runs(param_grid):
     return total_runs
 
 def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_concord", return_decoded=False, trace_memory=False, trace_gpu_memory=False, save_dir="./"):
+    import time
+    import json
+    from pathlib import Path
+    from copy import deepcopy
+    from .timer import Timer
+    from .anndata_utils import save_obsm_to_hdf5
+    import tracemalloc
+
     total_runs = count_total_runs(param_grid)
     logger.info(f"Total number of runs: {total_runs}")
 

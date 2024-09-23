@@ -1,12 +1,5 @@
-import glob
-import os
 from typing import Optional
 import anndata as ad
-import h5py
-import numpy as np
-import pandas as pd
-import scanpy as sc
-import gc
 from .. import logger
 
 def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
@@ -22,6 +15,8 @@ def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
     Returns:
         list: A list of file paths that contain the substring and match the extension.
     """
+    import glob
+    import os
     # Use glob to find all files with the specified extension recursively
     all_files = glob.glob(os.path.join(folder_path, '**', extension), recursive=True)
     
@@ -37,23 +32,9 @@ def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
 
 # Backed mode does not work now, this function (https://anndata.readthedocs.io/en/latest/generated/anndata.experimental.concat_on_disk.html) also has limitation
 def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=False, output_file=None):
-    """
-    Read all .h5ad files and concatenate them into a single AnnData object.
-
-    Optionally append a column 'dataset' to each AnnData object containing values
-    derived from the file name (stripping away the extension), so that after concatenation
-    the column indicates the original dataset.
-
-    Args:
-        adata_files (list of str): List of file paths to .h5ad files.
-        merge (str): How to merge AnnData objects. Options are 'unique', 'same', 'first', 'override'.
-        add_dataset_column (bool): Whether to add a 'dataset' column indicating the source file.
-        output_file (str): If provided, the concatenated AnnData object will be saved to this file.
-        use_backed (bool): Whether to use backed mode for memory-efficient concatenation.
-
-    Returns:
-        AnnData: The concatenated AnnData object.
-    """
+    import os  
+    import scanpy as sc 
+    import gc
     # Standard concatenation in memory for smaller datasets
     adata_combined = None
 
@@ -131,6 +112,8 @@ def ensure_categorical(adata: ad.AnnData, obs_key: Optional[str] = None, drop_un
     drop_unused : bool, optional
         Whether to drop unused levels in the categorical column.
     """
+    import pandas as pd
+
     if obs_key in adata.obs:
         if not isinstance(adata.obs[obs_key].dtype, pd.CategoricalDtype):
             adata.obs[obs_key] = adata.obs[obs_key].astype('category')
@@ -154,6 +137,7 @@ def save_obsm_to_hdf5(adata, filename):
     adata (anndata.AnnData): The AnnData object containing the .obsm attribute.
     filename (str): The name of the HDF5 file to save the data to.
     """
+    import h5py
     with h5py.File(filename, 'w') as f:
         obsm_group = f.create_group('obsm')
         for key, matrix in adata.obsm.items():
@@ -170,6 +154,7 @@ def load_obsm_from_hdf5(filename):
     Returns:
     dict: A dictionary containing the loaded .obsm data.
     """
+    import h5py
     obsm = {}
     with h5py.File(filename, 'r') as f:
         obsm_group = f['obsm']
@@ -189,6 +174,7 @@ def subset_adata_to_obsm_indices(adata, obsm):
     Returns:
     anndata.AnnData: The subsetted AnnData object.
     """
+    import numpy as np
     # Find the common indices across all obsm arrays
     indices = np.arange(adata.n_obs)
     for key in obsm:

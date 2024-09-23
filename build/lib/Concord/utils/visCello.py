@@ -44,7 +44,7 @@ def convert_to_sparse_r_matrix(matrix):
 
 
 
-def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='hsa'):
+def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='hsa', clist_only = False):
     """
     Converts an AnnData object to a VisCello cello folder with the necessary files.
 
@@ -75,45 +75,60 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         )
     ''')
     
-    # Convert the expression matrix to a sparse matrix in R
-    if 'counts' in adata.layers:
-        exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['counts'].T)
-    else:
-        exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
-    
-    # Convert the normalized expression matrix (adata.layers['X_log1p']) to a sparse matrix in R
-    if 'X_log1p' in adata.layers:
-        norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['X_log1p'].T)
-    else:
-        # TODO use preprocessor to check if data is already normalized and log transformed.
-        logger.info("Normalized expression data (adata.layers['X_log1p']) not found. Renormalize and log transforming.")
-        tmp_adata = adata.copy()
+    if not clist_only:
+        # Convert the expression matrix to a sparse matrix in R
         if 'counts' in adata.layers:
-            tmp_adata.X = tmp_adata.layers['counts']
-        sc.pp.normalize_total(tmp_adata, target_sum=1e4)
-        sc.pp.log1p(tmp_adata)
-        norm_exprs_sparse_r = convert_to_sparse_r_matrix(tmp_adata.X.T)
-    
-    # Convert phenoData and featureData to R
-    fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
-    annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
-    annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))
+            exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['counts'].T)
+        else:
+            exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
+        
+        # Convert the normalized expression matrix (adata.layers['X_log1p']) to a sparse matrix in R
+        if 'X_log1p' in adata.layers:
+            norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['X_log1p'].T)
+        else:
+            # TODO use preprocessor to check if data is already normalized and log transformed.
+            logger.info("Normalized expression data (adata.layers['X_log1p']) not found. Renormalize and log transforming.")
+            tmp_adata = adata.copy()
+            if 'counts' in adata.layers:
+                tmp_adata.X = tmp_adata.layers['counts']
+            sc.pp.normalize_total(tmp_adata, target_sum=1e4)
+            sc.pp.log1p(tmp_adata)
+            norm_exprs_sparse_r = convert_to_sparse_r_matrix(tmp_adata.X.T)
+        
+        # Convert phenoData and featureData to R
+        fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
+        annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
+        annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))
 
-    # Create the ExpressionSet object in R
-    eset = methods.new(
-        "ExpressionSet",
-        assayData=ro.r['assayDataNew'](
-            "environment", 
-            exprs=exprs_sparse_r, 
-            norm_exprs=norm_exprs_sparse_r
-        ),
-        phenoData=annotated_pmeta,
-        featureData=annotated_fmeta
-    )
-    
-    # Save the ExpressionSet as an RDS file
-    rds_file = os.path.join(output_dir, "eset.rds")
-    ro.r['saveRDS'](eset, file=rds_file)
+        # Create the ExpressionSet object in R
+        eset = methods.new(
+            "ExpressionSet",
+            assayData=ro.r['assayDataNew'](
+                "environment", 
+                exprs=exprs_sparse_r, 
+                norm_exprs=norm_exprs_sparse_r
+            ),
+            phenoData=annotated_pmeta,
+            featureData=annotated_fmeta
+        )
+        
+        # Save the ExpressionSet as an RDS file
+        rds_file = os.path.join(output_dir, "eset.rds")
+        ro.r['saveRDS'](eset, file=rds_file)
+
+        # Prepare and save the config.yml file
+        config_content = f"""
+            default:
+                study_name: "{project_name}"
+                study_description: ""
+                organism: "{organism}"
+                feature_name_column: "{fmeta.columns[0]}"
+                feature_id_column: "{fmeta.columns[0]}"
+            """
+        
+        config_file = os.path.join(output_dir, "config.yml")
+        with open(config_file, 'w') as file:
+            file.write(config_content.strip())
     
     # Prepare and save the clist object
     proj_list = {}
@@ -133,20 +148,5 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
 
     clist_file = os.path.join(output_dir, "clist.rds")
     ro.r['saveRDS'](clist, file=clist_file)
-
-    
-    # Prepare and save the config.yml file
-    config_content = f"""
-        default:
-            study_name: "{project_name}"
-            study_description: ""
-            organism: "{organism}"
-            feature_name_column: "{fmeta.columns[0]}"
-            feature_id_column: "{fmeta.columns[0]}"
-        """
-    
-    config_file = os.path.join(output_dir, "config.yml")
-    with open(config_file, 'w') as file:
-        file.write(config_content.strip())
 
     print(f"VisCello project created at {output_dir}")

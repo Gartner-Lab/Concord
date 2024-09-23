@@ -59,6 +59,56 @@ class Concord:
             self.save_dir.mkdir(parents=True, exist_ok=True)
 
         add_file_handler(logger, self.save_dir / "run.log")
+
+        self.default_params = dict(
+            seed=0,
+            project_name="concord",
+            input_feature=None,
+            batch_size=64,
+            n_epochs=5,
+            lr=1e-3,
+            schedule_ratio=0.9,
+            train_frac=1.0,
+            latent_dim=32,
+            encoder_dims=[128],
+            decoder_dims=[128],
+            augmentation_mask_prob=0.5,  # Default mask probability
+            domain_key=None,
+            class_key=None,
+            domain_embedding_dim=8,
+            covariate_embedding_dims={},
+            use_decoder=True,  # Default use_decoder is True
+            decoder_final_activation='leaky_relu',
+            decoder_weight=1.0,
+            clr_mode="aug",
+            clr_temperature=0.5,
+            clr_weight=1.0,
+            use_classifier=False,
+            classifier_weight=1.0,
+            unlabeled_class=None,
+            use_importance_mask=True,
+            importance_penalty_weight=0,
+            importance_penalty_type='L1',
+            dropout_prob=0.1,
+            norm_type="layer_norm",  # Default normalization type
+            sampler_emb="X_pca",
+            sampler_knn=256,
+            p_intra_knn=0.3,
+            p_intra_domain=None,
+            min_p_intra_domain=0.6,
+            max_p_intra_domain=1.0,
+            pca_n_comps=50,
+            use_faiss=True,
+            use_ivf=True,
+            ivf_nprobe=10,
+            pretrained_model=None,
+            classifier_freeze_param=False,
+            doublet_synth_ratio=0.4,
+            chunked=False,
+            chunk_size=10000,
+            device='cpu'
+        )
+
         self.setup_config(**kwargs)
 
         self.num_classes = None
@@ -80,104 +130,25 @@ class Concord:
         )
 
 
-    def setup_config(self, 
-                     project_name="concord",
-                     input_feature=None,
-                     batch_size=64, 
-                     n_epochs=5,
-                     lr=1e-3,
-                     schedule_ratio=0.9, 
-                     train_frac=1.0,
-                     latent_dim=32, 
-                     encoder_dims=[128],
-                     decoder_dims=[128],
-                     augmentation_mask_prob=0.6,
-                     use_decoder=True, # Consider fix
-                     decoder_final_activation='leaky_relu',
-                     decoder_weight=1.0,
-                     clr_mode="aug", 
-                     clr_temperature=0.5,
-                     clr_weight=1.0,
-                     use_classifier=False,
-                     classifier_weight=1.0,
-                     unlabeled_class=None,
-                     use_importance_mask = True,
-                     importance_penalty_weight=0,
-                     importance_penalty_type='L1',
-                     dropout_prob=0.1,
-                     norm_type="layer_norm", # Consider fix
-                     domain_key=None,
-                     class_key=None,
-                     domain_embedding_dim=8,
-                     covariate_embedding_dims={},
-                     sampler_emb="X_pca",
-                     sampler_knn=256, 
-                     p_intra_knn=0.3,
-                     p_intra_domain=None,
-                     min_p_intra_domain=0.6,
-                     max_p_intra_domain=1.0,
-                     pca_n_comps=50,
-                     use_faiss=True, 
-                     use_ivf=True, 
-                     ivf_nprobe=10,
-                     pretrained_model=None,
-                     classifier_freeze_param=False,
-                     doublet_synth_ratio=0.4,
-                     chunked=False,
-                     chunk_size=10000,
-                     device='cpu',
-                     seed=0):
-        initial_params = dict(
-            seed=seed,
-            project_name=project_name,
-            input_feature=input_feature,
-            batch_size=batch_size,
-            n_epochs=n_epochs,
-            lr=lr,
-            schedule_ratio=schedule_ratio,
-            train_frac=train_frac,
-            latent_dim=latent_dim,
-            encoder_dims=encoder_dims,
-            decoder_dims=decoder_dims,
-            augmentation_mask_prob=augmentation_mask_prob,
-            domain_key=domain_key,
-            class_key=class_key,
-            domain_embedding_dim=domain_embedding_dim,
-            covariate_embedding_dims=covariate_embedding_dims,
-            use_decoder=use_decoder,
-            decoder_final_activation=decoder_final_activation,
-            decoder_weight=decoder_weight,
-            clr_mode=clr_mode,
-            clr_temperature=clr_temperature,
-            clr_weight=clr_weight,
-            use_classifier=use_classifier,
-            classifier_weight=classifier_weight,
-            unlabeled_class=unlabeled_class,
-            use_importance_mask=use_importance_mask,
-            importance_penalty_weight=importance_penalty_weight,
-            importance_penalty_type=importance_penalty_type,
-            dropout_prob=dropout_prob,
-            norm_type=norm_type,
-            sampler_emb=sampler_emb,
-            sampler_knn=sampler_knn,
-            p_intra_knn=p_intra_knn,
-            p_intra_domain=p_intra_domain,
-            min_p_intra_domain=min_p_intra_domain,
-            max_p_intra_domain=max_p_intra_domain,
-            pca_n_comps=pca_n_comps,
-            use_faiss=use_faiss,
-            use_ivf=use_ivf,
-            ivf_nprobe=ivf_nprobe,
-            pretrained_model=pretrained_model,
-            classifier_freeze_param=classifier_freeze_param,
-            doublet_synth_ratio=doublet_synth_ratio,
-            chunked=chunked,  # Add chunked parameter
-            chunk_size=chunk_size,
-            device=device
-        )
+    def get_default_params(self):
+        """
+        Returns the default parameters as a dictionary.
+        """
+        return self.default_params.copy()
+    
+    
+    def setup_config(self, **kwargs):
+        """
+        Setup configuration with default parameters, allowing users to override any value via kwargs.
+        """
+        # Start with the default parameters
+        initial_params = self.default_params.copy()
+
+        # Update with user-provided values (if any)
+        initial_params.update(kwargs)
 
         if self.use_wandb:
-            config, run = update_wandb_params(initial_params, project_name=self.config.project_name, reinit=True)
+            config, run = update_wandb_params(initial_params, project_name=initial_params['project_name'], reinit=True)
             self.config = config
             self.run = run
         else:
