@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from typing import Optional
-from plottable import ColumnDefinition, Table
-from plottable.cmap import normed_cmap
 import pandas as pd
 
 # This method is adapted from the `scib-metrics` package
@@ -28,6 +26,10 @@ def plot_results_table(
     save_dir
         The directory to save the plot to. If `None`, the plot is not saved.
     """
+
+    from plottable import ColumnDefinition, Table
+    from plottable.cmap import normed_cmap
+
     num_embeds = len(result_df.columns)
     cmap_fn = lambda col_data: normed_cmap(col_data, cmap=matplotlib.cm.PRGn, num_stds=2.5)
     

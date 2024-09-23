@@ -25,5 +25,25 @@ def set_verbose_mode(verbose):
         for handler in logger.handlers:
             handler.setLevel(logging.WARNING)
 
+
+def lazy_import(module_name, install_instructions=None):
+    """
+    Lazily import a module. If the module is not installed, log an error or raise an ImportError.
+
+    Parameters:
+    - module_name (str): The name of the module to import.
+    - install_instructions (str): Optional string to provide install instructions if the module is not found.
+
+    Returns:
+    - module: The imported module, if found.
+    """
+    try:
+        return __import__(module_name)
+    except ImportError:
+        message = f"'{module_name}' is required but not installed."
+        if install_instructions:
+            message += f" Please install it with: {install_instructions}"
+        raise ImportError(message)
+        
 from . import ml, pl, ul
 from .concord import Concord

@@ -1,11 +1,13 @@
 import scanpy as sc
 import numpy as np
-import seaborn as sns
 import matplotlib.pyplot as plt
-import scipy.sparse as sp
+
 
 def plot_adata_layer_heatmaps(adata, ncells=None, ngenes=None, layers=['X_concord_decoded', 'X_log1p'], 
                         seed=0, figsize=(6,6), cmap='viridis', dpi=300, save_path=None):
+    import seaborn as sns
+    import scipy.sparse as sp
+
     # If ncells is None, plot all cells
     if ncells is None:
         ncells = adata.shape[0]
