@@ -1,11 +1,9 @@
-from typing import Dict, Optional
+
 import numpy as np
-from .. import logger
-import scib
-from sklearn.metrics import classification_report, confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+from .. import logger
 
 def evaluate_scib(
     adata_pre,
@@ -28,6 +26,11 @@ def evaluate_scib(
     clisi_=False,
     organism="human"
 ):
+    try:
+        import scib
+    except ImportError:
+        logger.error("scib is not installed. Please install scib to use this function.")
+        return None
     results = []
     for embed in embedding_obsm_keys:
         eval_result = scib.metrics.metrics(
@@ -65,6 +68,7 @@ def evaluate_scib(
 
 
 def log_classification(epoch, phase, preds, labels, logger):
+    from sklearn.metrics import classification_report
     # Calculate metrics
     unique_classes = np.sort(np.unique(labels))
     report = classification_report(labels, preds, target_names=unique_classes, output_dict=True)
@@ -88,6 +92,7 @@ def log_classification(epoch, phase, preds, labels, logger):
 
 
 def evaluate_classification(class_true, class_pred, target_names=None, figsize=(5,3), dpi=300, save_path = None):
+    from sklearn.metrics import classification_report, confusion_matrix
     # Calculate metrics
     report = classification_report(class_true, class_pred, target_names=target_names, output_dict=True)
     accuracy = report['accuracy']

@@ -1,11 +1,7 @@
 
 import torch
 from torch import nn, optim
-import torch.nn.functional as F
 from tqdm import tqdm
-import wandb
-import copy
-import numpy as np
 from ..utils.evaluator import log_classification
 from .loss import nt_xent_loss, importance_penalty_loss
 
@@ -153,6 +149,7 @@ class Trainer:
 
     def _log_metrics(self, loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train=True):
         if self.use_wandb:
+            import wandb
             prefix = "train" if train else "val"
             wandb.log({f"{prefix}/loss": loss.item()})
             if self.use_classifier:

@@ -1,11 +1,7 @@
 
 def list_datasets_by_criteria(cell_type=None, tissue=None, developmental_stage=None, group_by_columns=None):
     import cellxgene_census
-    import anndata
-    import os
-    import tiledbsoma as soma
-    import cellxgene_census.experimental.ml as census_ml
-
+    
     # Initialize census
     census = cellxgene_census.open_soma()
 
@@ -55,12 +51,12 @@ def list_datasets_by_criteria(cell_type=None, tissue=None, developmental_stage=N
         census.close()
 
 
-import cellxgene_census
-import anndata
+
 
 
 def download_anndata(organism="Homo sapiens", dataset_id=None, cell_type=None, tissue=None, disease=None, developmental_stage=None,
                      output_path='output.h5ad'):
+    import cellxgene_census
     # Initialize census
     census = cellxgene_census.open_soma()
 

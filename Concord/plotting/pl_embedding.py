@@ -4,7 +4,6 @@ import scanpy as sc
 import umap
 import warnings
 import numpy as np
-import plotly.express as px
 import seaborn as sns
 from .. import logger
 import time
@@ -110,6 +109,8 @@ def plot_embedding_3d(adata, embedding_key='encoded_UMAP', color_by='batch', sav
     fig : plotly.graph_objects.Figure
         Plotly figure object.
     """
+    import plotly.express as px
+    
     if embedding_key not in adata.obsm:
         raise KeyError(f"Embedding key '{embedding_key}' not found in adata.obsm")
 

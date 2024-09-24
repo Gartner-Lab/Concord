@@ -1,5 +1,5 @@
 
-import pandas as pd
+
 import os
 from ..plotting.pl_enrichment import plot_go_enrichment
 

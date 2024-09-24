@@ -1,8 +1,6 @@
 import numpy as np
 from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra
 from sklearn.neighbors import NearestNeighbors
-from scipy.ndimage import gaussian_filter1d
 from .. import logger
 
 try:
@@ -28,6 +26,7 @@ def shortest_path_on_knn_graph(adata, emb_key='encoded', k=10, point_a=None, poi
     Returns:
     - path: List of indices representing the shortest path from point_a to point_b
     """
+    from scipy.sparse.csgraph import dijkstra
     X = adata.obsm[emb_key]
     d = X.shape[1]
 
@@ -69,6 +68,7 @@ def shortest_path_on_knn_graph(adata, emb_key='encoded', k=10, point_a=None, poi
 
 
 def smooth_matrix(matrix, sigma=2):
+    from scipy.ndimage import gaussian_filter1d
     smoothed_matrix = np.copy(matrix)
     for col in range(matrix.shape[1]):
         smoothed_matrix[:, col] = gaussian_filter1d(matrix[:, col], sigma=sigma)

@@ -6,7 +6,7 @@ from ..model.knn import Neighborhood
 from .timer import Timer
 import scanpy as sc
 import pandas as pd
-from typing import List, Optional, Union
+from typing import List, Union
 from .. import logger
 
 

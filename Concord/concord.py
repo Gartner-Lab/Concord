@@ -1,4 +1,3 @@
-import wandb
 from pathlib import Path
 import torch
 import torch.nn.functional as F
@@ -136,7 +135,7 @@ class Concord:
         """
         return self.default_params.copy()
     
-    
+
     def setup_config(self, **kwargs):
         """
         Setup configuration with default parameters, allowing users to override any value via kwargs.
@@ -148,6 +147,11 @@ class Concord:
         initial_params.update(kwargs)
 
         if self.use_wandb:
+            try:
+                import wandb
+            except ImportError:
+                logger.warning("wandb is not installed. Disabling wandb.")
+                self.use_wandb = False
             config, run = update_wandb_params(initial_params, project_name=initial_params['project_name'], reinit=True)
             self.config = config
             self.run = run
@@ -209,6 +213,7 @@ class Concord:
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
         if self.use_wandb:
+            import wandb
             wandb.log({"total_parameters": total_params})
 
         if self.config.pretrained_model is not None:

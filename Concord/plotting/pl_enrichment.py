@@ -5,7 +5,6 @@ import pandas as pd
 import time
 import math
 import os
-from PIL import Image
 
 
 def plot_go_enrichment(gp_results, top_n=10, qval_correct=1e-10, color_palette='viridis_r', font_size=12, figsize=(7,3), dpi=300, save_path=None):
@@ -107,6 +106,7 @@ def plot_all_top_gsea_results(all_gsea_results, terms_per_plot=5, ncols=4, figsi
     Returns:
     None
     """
+    from PIL import Image
     n_neurons = len(all_gsea_results)
     nrows = math.ceil(n_neurons / ncols)
 
