@@ -1,0 +1,6 @@
+gseapy>=1.1.0
+Pillow>=10.0.0
+plottable>=0.1
+Requests>=2.0
+rpy2>=3.5
+scib>=1.1
