@@ -1,5 +1,4 @@
 import scanpy as sc
-from .Hs_Mm_conversion import get_mouse_genes
 
 def score_cell_cycle(adata, organism='Hs'):
     """
@@ -11,6 +10,9 @@ def score_cell_cycle(adata, organism='Hs'):
     Returns:
     AnnData: The AnnData object with cell cycle phase scores added.
     """
+
+    from .Hs_Mm_conversion import get_mouse_genes
+    
     # Define cell cycle marker genes
     s_genes = [
         'MCM5', 'PCNA', 'TYMS', 'FEN1', 'MCM2', 'MCM4', 'RRM1', 'UNG', 'GINS2', 'MCM6', 'CDCA7',

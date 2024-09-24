@@ -1,24 +1,22 @@
 
 import anndata as ad
 import pandas as pd
-import requests
 import io
-import gzip
-import re
-import pickle
-import json
 
 # Save the object to a file
 def save_object(obj, filename):
+    import pickle
     with open(filename, 'wb') as f:
         pickle.dump(obj, f)
 
 # Load the object from a file
 def load_object(filename):
+    import pickle
     with open(filename, 'rb') as f:
         return pickle.load(f)
 
 def sanitize_filename(filename):
+    import re
     # Replace invalid characters with an underscore or any other desired character
     sanitized_filename = re.sub(r'[\/:*?"<>|]', '_', filename)
     return sanitized_filename
@@ -51,11 +49,13 @@ def read_csv(file_path_or_url: str) -> pd.DataFrame:
     """
     if is_url(file_path_or_url):
         # Download the file
+        import requests
         response = requests.get(file_path_or_url)
         response.raise_for_status()  # Ensure the request was successful
 
         # Decompress the gzip file if necessary
         if file_path_or_url.endswith('.gz'):
+            import gzip
             with gzip.open(io.BytesIO(response.content), 'rt') as f:
                 df = pd.read_csv(f, index_col=0)
         else:
@@ -63,6 +63,7 @@ def read_csv(file_path_or_url: str) -> pd.DataFrame:
     else:
         # Read from local file system
         if file_path_or_url.endswith('.gz'):
+            import gzip
             with gzip.open(file_path_or_url, 'rt') as f:
                 df = pd.read_csv(f, index_col=0)
         else:
@@ -99,8 +100,10 @@ def load_json(file_path_or_url: str) -> dict:
     Returns:
     dict: Dictionary containing the JSON data.
     """
+    import json
     if is_url(file_path_or_url):
         # Download the file
+        import requests
         response = requests.get(file_path_or_url)
         response.raise_for_status()  # Ensure the request was successful
 

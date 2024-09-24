@@ -1,7 +1,6 @@
 
 import torch
 from torch.utils.data import Sampler
-import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
@@ -118,8 +117,6 @@ class ConcordSampler(Sampler):
 
     def __len__(self):
         return len(self.valid_batches)
-
-
 
 
 

@@ -1,12 +1,5 @@
-
-
 import os
 import pandas as pd
-import anndata
-import yaml
-import rpy2.robjects as ro
-from rpy2.robjects import pandas2ri, ListVector
-from rpy2.robjects.packages import importr
 import scipy.sparse as sp
 import scanpy as sc
 from .. import logger
@@ -27,6 +20,8 @@ def convert_to_sparse_r_matrix(matrix):
     Returns:
     - A sparse dgCMatrix R object.
     """
+    import rpy2.robjects as ro
+    from rpy2.robjects.packages import importr
     # Import the required R package for sparse matrices
     Matrix = importr('Matrix')
     if sp.issparse(matrix):
@@ -55,6 +50,10 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     - organism: Organism code (e.g., 'hsa' for human).
     """
     # Import the required R packages
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri, ListVector
+    from rpy2.robjects.packages import importr
+
     pandas2ri.activate()
     base = importr('base')
     methods = importr('methods')

@@ -3,7 +3,6 @@ import random
 from pathlib import Path
 import numpy as np
 import torch
-import wandb
 import pandas as pd
 from . import io
 
@@ -39,6 +38,7 @@ def add_file_handler(logger: logging.Logger, log_file_path: Path):
 
 
 def update_wandb_params(params, project_name=None, reinit=True, start_method="thread"):
+    import wandb
     if reinit:
         run = wandb.init(
             config=params,
@@ -63,6 +63,7 @@ def wandb_log_plot(plt, plot_name, plot_path=None):
         plt (matplotlib.pyplot): The Matplotlib pyplot object with the confusion matrix plot.
         plot_path (str, optional): The file path to save the plot. If None, the plot is logged from an in-memory buffer.
     """
+    import wandb
     if plot_path is not None:
         plt.savefig(str(plot_path))
         wandb.log({plot_name: wandb.Image(str(plot_path))})

@@ -1,9 +1,5 @@
-import umap
-from sklearn.decomposition import PCA
-import numpy as np
-import scanpy as sc
+
 from .. import logger
-from scipy.sparse import issparse
 
 def run_umap(adata,
              source_key='encoded', umap_key='encoded_UMAP',
@@ -13,7 +9,6 @@ def run_umap(adata,
              random_state=0, use_cuml=False):
 
     if use_cuml:
-
         try:
             from cuml.manifold import UMAP as cumlUMAP
             umap_model = cumlUMAP(n_components=n_components, n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
@@ -23,6 +18,7 @@ def run_umap(adata,
             umap_model = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
                                    spread=spread, n_epochs=n_epochs, random_state=random_state)
     else:
+        import umap
         umap_model = umap.UMAP(n_components=n_components, n_neighbors=n_neighbors, min_dist=min_dist, metric=metric,
                                spread=spread, n_epochs=n_epochs, random_state=random_state)
 
@@ -34,6 +30,7 @@ def run_umap(adata,
         raise ValueError(f"Source key '{source_key}' not found in adata.obsm or adata.layers")
     
     if n_pc is not None:
+        from sklearn.decomposition import PCA
         pca = PCA(n_components=n_pc, random_state=random_state)
         source_data = pca.fit_transform(source_data)
         logger.info(f"PCA performed on source data with {n_pc} components")

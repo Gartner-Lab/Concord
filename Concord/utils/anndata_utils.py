@@ -1,5 +1,7 @@
 from typing import Optional
 import anndata as ad
+import os  
+import scanpy as sc 
 from .. import logger
 
 def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
@@ -32,8 +34,6 @@ def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
 
 # Backed mode does not work now, this function (https://anndata.readthedocs.io/en/latest/generated/anndata.experimental.concat_on_disk.html) also has limitation
 def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=False, output_file=None):
-    import os  
-    import scanpy as sc 
     import gc
     # Standard concatenation in memory for smaller datasets
     adata_combined = None

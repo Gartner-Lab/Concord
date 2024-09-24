@@ -2,8 +2,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+import seaborn as sns
 from ..utils.batch_analysis import get_attribute_from_dataloader
-from .. import logger, lazy_import
 
 def visualize_batch_composition(dataloader, adata, batch_indices=None, data_structure=None, attribute='class', attribute_key=None, figsize=(12, 5), save_path=None):
     """
@@ -17,7 +17,6 @@ def visualize_batch_composition(dataloader, adata, batch_indices=None, data_stru
     - save_path: Optional path to save the plot.
     - max_batches: Maximum number of batches to visualize.
     """
-    import seaborn as sns
 
     attribute_data = get_attribute_from_dataloader(dataloader, batch_indices, data_structure, attribute)
 
