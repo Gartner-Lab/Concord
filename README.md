@@ -71,10 +71,15 @@ Concord integrates with **VisCello**, a tool for interactive visualization. To e
 
 ## Quick Start
 
-Concord integrates smoothly with `Scanpy` and `AnnData`. Here’s an example of how to use it:
+Concord seamlessly works with `anndata` objects. Here’s an example run:
 
 ```python
 import Concord as ccd
+import scanpy as sc
+import torch
+
+adata = sc.datasets.pbmc3k_processed()
+adata = adata.raw.to_adata()  # Store raw counts in adata.X, by default Concord will run standard total count normalization and log transformation internally
 
 # Set device to cpu or to gpu (if your torch has been set up correctly to use GPU)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -82,8 +87,10 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)
 feature_list = ccd.ul.select_features(adata, n_top_features=5000, flavor='seurat_v3')
 
-# Initialize Concord with an AnnData object, skip input_feature default to all features, skip domain_key default to single batch
-cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key = 'batch', device=device) 
+# Initialize Concord with an AnnData object, skip input_feature default to all features
+cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device) 
+# If integrating data across batch, simply add the domain_key argument
+# cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
 cur_ccd.encode_adata(input_layer_key='X_log1p', output_key='Concord')
@@ -97,7 +104,7 @@ We recommend using UMAP to visualize Concord embeddings:
 ccd.ul.run_umap(adata, source_key='Concord', umap_key='Concord_UMAP', n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean')
 
 # Plot the UMAP embeddings
-color_by = ['batch', 'cell_type'] # Choose which variables you want to visualize
+color_by = ['n_genes', 'louvain'] # Choose which variables you want to visualize
 ccd.pl.plot_embedding(
     adata, basis='Concord_UMAP', color_by=color_by, figsize=(10, 5), dpi=600, ncols=2, font_size=6, point_size=3, legend_loc='on data',
     save_path='Concord_UMAP.png'
@@ -111,7 +118,7 @@ For complex structures, 3D UMAP may provide better insights:
 ccd.ul.run_umap(adata, source_key='Concord', umap_key='Concord_UMAP_3D', n_components=3, n_neighbors=15, min_dist=0.1, metric='euclidean')
 
 # Plot the 3D UMAP embeddings
-col = 'cell_type'
+col = 'louvain'
 ccd.pl.plot_embedding_3d(
     adata, basis='Concord_UMAP_3D', color_by=col,
     save_path='Concord_UMAP_3D.html',

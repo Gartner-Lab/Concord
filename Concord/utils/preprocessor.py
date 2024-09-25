@@ -77,6 +77,7 @@ class Preprocessor:
                 if self.result_log1p_key:
                     self._set_obs_rep(adata, self._get_obs_rep(adata, layer=key_to_process), layer=self.result_log1p_key)
 
+        # Subset features is done after normalization and log1p
         if self.feature_list:
             logger.info(f"Filtering features with provided list ({len(self.feature_list)} features)...")
             adata._inplace_subset_var(adata.var_names.isin(self.feature_list))
