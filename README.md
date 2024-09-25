@@ -13,7 +13,7 @@ CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery) is 
 ### 1. Clone the Concord repository and set up environment:
 
 ```bash
-git clone git@github.com:Gartner-Lab/Concord_benchmark.git
+git clone git@github.com:Gartner-Lab/Concord.git
 ```
 
 It is recommended to use conda (https://conda.io/projects/conda/en/latest/user-guide/install/index.html) to create and set up virtual environment for Concord.
