@@ -79,11 +79,11 @@ import Concord as ccd
 # Set device to cpu or to gpu (if your torch has been set up correctly to use GPU)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-# Select top variably expressed/accessible features for analysis (Seurat v3 method, other methods available, or you can input all features)
+# Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)
 feature_list = ccd.ul.select_features(adata, n_top_features=5000, flavor='seurat_v3')
 
-# Initialize Concord with an AnnData object
-cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key = 'batch', device=device) # Note you do not need to specify domain_key if you only have one batch, otherwise set it to your batch variable in adata.obs
+# Initialize Concord with an AnnData object, skip input_feature default to all features, skip domain_key default to single batch
+cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key = 'batch', device=device) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
 cur_ccd.encode_adata(input_layer_key='X_log1p', output_key='Concord')
