@@ -5,7 +5,7 @@ def run_umap(adata,
              source_key='encoded', umap_key='encoded_UMAP',
              n_components=2, n_pc=None,
              n_neighbors=30, min_dist=0.1,
-             metric='euclidean', spread=1.0, n_epochs=500,
+             metric='euclidean', spread=1.0, n_epochs=None,
              random_state=0, use_cuml=False):
 
     if use_cuml:

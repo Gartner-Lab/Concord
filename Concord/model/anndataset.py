@@ -18,7 +18,7 @@ class AnnDataset(Dataset):
 
         self.data = self._get_data_matrix()
         self.domain_labels = torch.tensor(self.adata.obs[self.domain_key].cat.codes.values, dtype=torch.long).to(
-            self.device) if self.domain_key is not None else None
+            self.device)
         self.indices = np.arange(len(self.adata))
 
         if self.class_key:

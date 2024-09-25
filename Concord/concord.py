@@ -36,7 +36,7 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, save_dir='save/', inplace=False, use_wandb=False, verbose=True, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=True, **kwargs):
         set_verbose_mode(verbose)
         if adata.isbacked:
             logger.warning("Input AnnData object is backed. With same amount of epochs, Concord will perform better when adata is loaded into memory.")
@@ -86,7 +86,7 @@ class Concord:
             classifier_weight=1.0,
             unlabeled_class=None,
             use_importance_mask=True,
-            importance_penalty_weight=0,
+            importance_penalty_weight=0.1,
             importance_penalty_type='L1',
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
@@ -94,7 +94,7 @@ class Concord:
             sampler_knn=256,
             p_intra_knn=0.3,
             p_intra_domain=None,
-            min_p_intra_domain=0.6,
+            min_p_intra_domain=0.9,
             max_p_intra_domain=1.0,
             pca_n_comps=50,
             use_faiss=True,
@@ -110,13 +110,43 @@ class Concord:
 
         self.setup_config(**kwargs)
 
-        self.num_classes = None
-        self.num_domains = None
-
+        # Checks to convert None values to default values
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
             self.config.input_feature = self.adata.var_names.tolist()
+
+        if self.config.domain_key is not None:
+            if(self.config.domain_key not in self.adata.obs.columns):
+                raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
+            ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
+        else:
+            logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
+            self.config.domain_key = 'tmp_domain_label'
+            self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
+
+        self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
+
+        if self.config.class_key is not None:
+            if(self.config.class_key not in self.adata.obs.columns):
+                raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
+            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
+            all_classes = self.adata.obs[self.config.class_key].cat.categories
+            if self.config.unlabeled_class is not None:
+                if self.config.unlabeled_class in all_classes:
+                    all_classes = all_classes.drop(self.config.unlabeled_class)
+                else:
+                    raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
+            self.num_classes = len(all_classes) 
+        else:
+            self.num_classes = None
+
+        # Compute the number of categories for each covariate
+        self.covariate_num_categories = {}
+        for covariate_key in self.config.covariate_embedding_dims.keys():
+            if covariate_key in self.adata.obs:
+                ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
+                self.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
         
         # to be used by chunkloader for data transformation
         self.preprocessor = Preprocessor(
@@ -163,42 +193,12 @@ class Concord:
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
-        if self.config.domain_key is not None:
-            if(self.config.domain_key not in self.adata.obs.columns):
-                raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
-            ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
-            self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
-        else:
-            self.num_domains = 0
-
-        if self.config.class_key is not None:
-            if(self.config.class_key not in self.adata.obs.columns):
-                raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
-            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
-            all_classes = self.adata.obs[self.config.class_key].cat.categories
-            if self.config.unlabeled_class is not None:
-                if self.config.unlabeled_class in all_classes:
-                    all_classes = all_classes.drop(self.config.unlabeled_class)
-                else:
-                    raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
-
-            self.num_classes = len(all_classes) 
-        else:
-            self.num_classes = 0
-
-        # Compute the number of categories for each covariate
-        covariate_num_categories = {}
-        for covariate_key in self.config.covariate_embedding_dims.keys():
-            if covariate_key in self.adata.obs:
-                ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
-                covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
-
         self.model = ConcordModel(input_dim, hidden_dim, 
                                   num_domains=self.num_domains,
                                   num_classes=self.num_classes,
                                   domain_embedding_dim=self.config.domain_embedding_dim,
                                   covariate_embedding_dims=self.config.covariate_embedding_dims,
-                                  covariate_num_categories=covariate_num_categories,
+                                  covariate_num_categories=self.covariate_num_categories,
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
                                   decoder_final_activation=self.config.decoder_final_activation,

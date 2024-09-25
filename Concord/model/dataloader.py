@@ -52,7 +52,7 @@ class DataLoaderManager:
         self.ivf_nprobe = ivf_nprobe
         self.preprocess = preprocess
         self.num_cores = num_cores
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = device
 
         # Dynamically set based on adata
         self.adata = None
@@ -84,14 +84,6 @@ class DataLoaderManager:
     def compute_p_intra_domain(self):
         # Validate probability values
         validate_probability(self.p_intra_knn, "p_intra_knn")
-
-        if self.domain_key is None:
-            logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
-            self.domain_labels = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
-        else:
-            self.domain_labels = self.adata.obs[self.domain_key]
-        
-        self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)
 
         unique_domains = self.domain_labels.cat.categories
         logger.info(f"Number of unique_domains: {len(unique_domains)}")
@@ -144,6 +136,9 @@ class DataLoaderManager:
         if self.preprocess:
             logger.info("Preprocessing adata...")
             self.preprocess(self.adata)
+
+        self.domain_labels = self.adata.obs[self.domain_key]
+        self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)
         
         dataset = AnnDataset(self.adata, input_layer_key=self.input_layer_key, 
                 domain_key=self.domain_key, class_key=self.class_key, 
