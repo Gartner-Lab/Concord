@@ -105,7 +105,7 @@ class Concord:
             doublet_synth_ratio=0.4,
             chunked=False,
             chunk_size=10000,
-            device='cpu'
+            device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         )
 
         self.setup_config(**kwargs)
