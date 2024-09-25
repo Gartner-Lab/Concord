@@ -9,7 +9,7 @@ from .. import logger
 import time
 
 
-def plot_embedding(adata, show_emb, show_cols=None, 
+def plot_embedding(adata, basis, color_by=None, 
                    pal = 'tab20',
                    highlight_indices=None,
                    highlight_size=20, draw_path=False, alpha=0.9,
@@ -20,8 +20,8 @@ def plot_embedding(adata, show_emb, show_cols=None,
 
     Parameters:
     adata (anndata.AnnData): The AnnData object.
-    show_emb (str): The embedding to plot.
-    show_cols (list of str): The columns to color the embeddings by.
+    basis (str): The embedding to plot.
+    color_by (list of str): The columns to color the embeddings by.
     figsize (tuple): The size of the figure.
     dpi (int): The resolution of the figure.
     ncols (int): The number of columns in the subplot grid.
@@ -32,34 +32,34 @@ def plot_embedding(adata, show_emb, show_cols=None,
     None
     """
 
-    if show_cols is None or len(show_cols) == 0:
-        show_cols = [None]  # Use a single plot without coloring
+    if color_by is None or len(color_by) == 0:
+        color_by = [None]  # Use a single plot without coloring
 
     # Calculate the number of rows needed
-    nrows = int(np.ceil(len(show_cols) / ncols))
+    nrows = int(np.ceil(len(color_by) / ncols))
 
     # Create subplots
     fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
     axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
 
     warnings.filterwarnings('ignore')
-    for col, ax in zip(show_cols, axs):
+    for col, ax in zip(color_by, axs):
         num_categories = len(adata.obs[col].unique())
         palette = sns.color_palette(pal, num_categories)  # tab20 supports up to 20 distinct colors, you can adjust for more categories
 
-        sc.pl.embedding(adata, basis=show_emb, color=col, ax=ax, show=False,
+        sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                         legend_loc=legend_loc, legend_fontsize=font_size, size=point_size, alpha=alpha,
                         palette=palette)
 
         # Highlight selected points
         if highlight_indices is not None:
             highlight_data = adata[highlight_indices, :]
-            sc.pl.embedding(highlight_data, basis=show_emb, color=col, ax=ax, show=False,
+            sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=None, legend_fontsize=font_size, size=highlight_size, alpha=1.0)
 
             if draw_path:
                 # Extract the embedding coordinates
-                embedding = adata.obsm[show_emb]
+                embedding = adata.obsm[basis]
                 path_coords = embedding[highlight_indices, :]
 
                 # Draw the path
@@ -73,7 +73,7 @@ def plot_embedding(adata, show_emb, show_cols=None,
             cbar.ax.tick_params(labelsize=font_size)
 
     # Turn off any unused axes
-    for ax in axs[len(show_cols):]:
+    for ax in axs[len(color_by):]:
         ax.axis('off')
 
     #plt.tight_layout()
@@ -82,7 +82,7 @@ def plot_embedding(adata, show_emb, show_cols=None,
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
 
-def plot_embedding_3d(adata, embedding_key='encoded_UMAP', color_by='batch', save_path=None, point_size=3,
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', save_path=None, point_size=3,
                            opacity=0.7, width=800, height=600):
     """
     Visualize 3D embedding and color by selected columns in adata.obs, with options for plot aesthetics and saving the plot.
@@ -90,7 +90,7 @@ def plot_embedding_3d(adata, embedding_key='encoded_UMAP', color_by='batch', sav
     Parameters:
     adata : AnnData
         AnnData object containing embeddings and metadata.
-    embedding_key : str, optional
+    basis : str, optional
         Key in adata.obsm where the embedding is stored. Default is 'encoded_UMAP'.
     color_by : str, optional
         Column in adata.obs to color the points by. Default is 'batch'.
@@ -111,16 +111,16 @@ def plot_embedding_3d(adata, embedding_key='encoded_UMAP', color_by='batch', sav
     """
     import plotly.express as px
     
-    if embedding_key not in adata.obsm:
-        raise KeyError(f"Embedding key '{embedding_key}' not found in adata.obsm")
+    if basis not in adata.obsm:
+        raise KeyError(f"Embedding key '{basis}' not found in adata.obsm")
 
     if color_by not in adata.obs:
         raise KeyError(f"Column '{color_by}' not found in adata.obs")
 
-    embedding = adata.obsm[embedding_key]
+    embedding = adata.obsm[basis]
 
     if embedding.shape[1] < 3:
-        raise ValueError(f"Embedding '{embedding_key}' must have at least 3 dimensions")
+        raise ValueError(f"Embedding '{basis}' must have at least 3 dimensions")
 
     # Use only the first 3 dimensions for plotting
     embedding = embedding[:, :3]
@@ -150,7 +150,7 @@ def plot_embedding_3d(adata, embedding_key='encoded_UMAP', color_by='batch', sav
 
 
 
-def plot_top_genes_embedding(adata, ranked_lists, show_emb, top_x=4, figsize=(5, 1.2),
+def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.2),
                              dpi=300, font_size=3, point_size=5, legend_loc='on data', save_path=None):
     """
     Plot the expression of top x genes for each neuron on the embedding in a compact way.
@@ -158,7 +158,7 @@ def plot_top_genes_embedding(adata, ranked_lists, show_emb, top_x=4, figsize=(5,
     Parameters:
     - adata (anndata.AnnData): The AnnData object.
     - ranked_lists (dict): A dictionary with neuron names as keys and ranked gene lists as values.
-    - show_emb (str): The embedding to plot.
+    - basis (str): The embedding to plot.
     - top_x (int): Number of top genes to display for each neuron.
     - figsize (tuple): The size of the figure.
     - dpi (int): The resolution of the figure.
@@ -172,7 +172,7 @@ def plot_top_genes_embedding(adata, ranked_lists, show_emb, top_x=4, figsize=(5,
     """
 
     for neuron_name, ranked_list in ranked_lists.items():
-        show_cols = list(ranked_list['Gene'][0:top_x])
+        color_by = list(ranked_list['Gene'][0:top_x])
         neuron_title = f"Top {top_x} genes for {neuron_name}"
 
         # Generate a unique file suffix if saving
@@ -185,8 +185,8 @@ def plot_top_genes_embedding(adata, ranked_lists, show_emb, top_x=4, figsize=(5,
         # Call the plot_embedding function
         plot_embedding(
             adata,
-            show_emb,
-            show_cols=show_cols,
+            basis,
+            color_by=color_by,
             figsize=figsize,
             dpi=dpi,
             ncols=top_x,
