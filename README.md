@@ -44,9 +44,10 @@ python setup.py sdist bdist_wheel
 pip install dist/Concord-0.8.0-py3-none-any.whl
 ```
 
-### 5. (Optional) Install FAISS for accelerated KNN search (recommended):
+### 5. (Optional) Install FAISS for accelerated KNN search (not recommended for Mac):
 
-For optimal performance, install FAISS for fast nearest-neighbor searches:
+Install FAISS for fast nearest-neighbor searches for large datasets. Note if you are using Mac, you should turn faiss off by specifying `cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, use_faiss=False, device=device)` when running Concord, unless you are certain faiss runs with no problem.
+
 - **FAISS with GPU**:
   ```bash
   pip install faiss_gpu
@@ -106,7 +107,7 @@ ccd.ul.run_umap(adata, source_key='Concord', umap_key='Concord_UMAP', n_componen
 # Plot the UMAP embeddings
 color_by = ['n_genes', 'louvain'] # Choose which variables you want to visualize
 ccd.pl.plot_embedding(
-    adata, basis='Concord_UMAP', color_by=color_by, figsize=(10, 5), dpi=600, ncols=2, font_size=6, point_size=3, legend_loc='on data',
+    adata, basis='Concord_UMAP', color_by=color_by, figsize=(10, 5), dpi=600, ncols=2, font_size=6, point_size=10, legend_loc='on data',
     save_path='Concord_UMAP.png'
 )
 ```
@@ -122,7 +123,7 @@ col = 'louvain'
 ccd.pl.plot_embedding_3d(
     adata, basis='Concord_UMAP_3D', color_by=col,
     save_path='Concord_UMAP_3D.html',
-    point_size=1, opacity=0.8, width=1500, height=1000
+    point_size=10, opacity=0.8, width=1500, height=1000
 )
 ```
 
@@ -132,5 +133,3 @@ ccd.pl.plot_embedding_3d(
 
 Concord is currently available on BioRxiv. Please cite the preprint here: [Insert citation link].
 
-
-This is readme.txt.
