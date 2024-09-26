@@ -33,15 +33,15 @@ class Neighborhood:
         if self.use_faiss:
             try:
                 import faiss
+                if hasattr(faiss, 'StandardGpuResources'):
+                    logger.info("Using FAISS GPU index.")
+                    self.faiss_gpu = True
+                else:
+                    logger.info("Using FAISS CPU index.")
+                    self.faiss_gpu = False
             except ImportError:
-                raise ImportError("FAISS is not available. Set use_faiss=False or install faiss.")
-            
-            if hasattr(faiss, 'StandardGpuResources'):
-                logger.info("Using FAISS GPU index.")
-                self.faiss_gpu = True
-            else:
-                logger.info("Using FAISS CPU index.")
-                self.faiss_gpu = False
+                logger.warning("FAISS not found. Using sklearn for k-NN computation.")
+                self.use_faiss = False
 
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
