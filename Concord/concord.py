@@ -6,7 +6,7 @@ from .utils.preprocessor import Preprocessor
 from .utils.anndata_utils import ensure_categorical
 from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
-from .utils.other_util import add_file_handler, update_wandb_params
+from .utils.other_util import add_file_handler, update_wandb_params, set_seed
 from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
@@ -109,6 +109,7 @@ class Concord:
         )
 
         self.setup_config(**kwargs)
+        set_seed(self.config.seed)
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:
