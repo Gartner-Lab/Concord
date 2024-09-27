@@ -143,9 +143,7 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', save_path=N
         fig.write_html(save_path)
         logger.info(f"3D plot saved to {save_path}")
 
-    fig.show(renderer="notebook") # Renderer code for plotly
-    return fig
-
+    fig.show()
 
 
 
