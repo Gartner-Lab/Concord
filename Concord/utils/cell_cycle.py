@@ -37,4 +37,3 @@ def score_cell_cycle(adata, organism='Hs'):
     # Score cell cycle genes
     sc.tl.score_genes_cell_cycle(adata, s_genes=s_genes, g2m_genes=g2m_genes)
 
-    return adata

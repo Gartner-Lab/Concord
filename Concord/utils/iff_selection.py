@@ -56,7 +56,7 @@ def iff_select(adata,
                 emb = adata.obsm[emb_key]
                 with Timer() as timer:
                     sc.pp.neighbors(adata, use_rep=emb_key)
-                    sc.tl.leiden(adata)
+                    sc.tl.leiden(adata, resolution=1.0)
                     cluster_series = pd.Series(adata.obs['leiden'])
                 logger.info(f"Took {timer.interval:.2f} seconds to compute leiden cluster.")
     else:
