@@ -36,7 +36,7 @@ class Config:
 
 
 class Concord:
-    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=True, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=False, **kwargs):
         set_verbose_mode(verbose)
         if adata.isbacked:
             logger.warning("Input AnnData object is backed. With same amount of epochs, Concord will perform better when adata is loaded into memory.")
@@ -86,12 +86,12 @@ class Concord:
             classifier_weight=1.0,
             unlabeled_class=None,
             use_importance_mask=True,
-            importance_penalty_weight=0.1,
+            importance_penalty_weight=0,
             importance_penalty_type='L1',
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
-            sampler_knn=256,
+            sampler_knn=None,
             p_intra_knn=0.3,
             p_intra_domain=None,
             min_p_intra_domain=0.9,
@@ -110,6 +110,10 @@ class Concord:
 
         self.setup_config(**kwargs)
         set_seed(self.config.seed)
+
+        if self.config.sampler_knn is None:
+            self.config.sampler_knn = self.adata.n_obs // 50 
+            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/50 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:
