@@ -146,3 +146,56 @@ class Neighborhood:
         """
         self.emb = new_emb.astype(np.float32)
         self._build_knn_index()
+
+
+    def average_knn_distance(self, core_samples, mtx, k=None, distance_metric='euclidean'):
+        """
+        Compute the average distance to the k-th nearest neighbor for each sample.
+
+        Parameters:
+        core_samples: np.ndarray
+            The indices of core samples.
+        mtx: np.ndarray
+            The matrix to compute the distance to.
+        k: int, optional
+            Number of neighbors to retrieve. If None, uses the default self.k
+        distance_metric: str, optional
+            The distance metric to use: 'euclidean' or 'set_diff'.
+
+        Returns:
+        np.ndarray
+            The average distance to the k-th nearest neighbor for each sample.
+        """
+        if k is None:
+            k = self.k
+
+        assert(self.emb.shape[0] == mtx.shape[0])
+
+        # Get the indices of k nearest neighbors for the core samples
+        indices = self.get_knn_indices(core_samples, k=k, include_self=False)
+
+        # Compute the Euclidean distance
+        if distance_metric == 'euclidean':
+            return np.mean(np.linalg.norm(mtx[core_samples][:, np.newaxis] - mtx[indices], axis=-1), axis=1)
+        # Compute the positive set difference (binary difference) using XOR
+        elif distance_metric == 'set_diff':
+            return np.mean(np.mean(np.logical_xor(mtx[core_samples][:, np.newaxis] > 0, mtx[indices] > 0), axis=-1), axis=-1)
+        elif distance_metric == 'drop_diff':
+            core_nonzero = (mtx[core_samples] > 0)  # Boolean array for non-zero genes in core cells
+            neighbor_nonzero = (mtx[indices] > 0)   # Boolean array for non-zero genes in neighbors
+
+            # Find where genes are on in core cell but off in nearest neighbor
+            turned_off = core_nonzero[:, np.newaxis] & ~neighbor_nonzero
+
+            # Count how many genes are turned off and how many were originally on in the core cells
+            num_turned_off = np.sum(turned_off, axis=-1)  # Number of genes turned off
+            num_positive_in_core = np.sum(core_nonzero, axis=-1)  # Number of non-zero genes in core cells
+
+            # Compute fraction (turned off / positive genes in core), avoiding division by zero
+            fraction_turned_off = np.divide(num_turned_off, num_positive_in_core[:, np.newaxis], where=num_positive_in_core[:, np.newaxis] != 0)
+
+            return np.mean(fraction_turned_off, axis=-1)
+        else:
+            raise ValueError(f"Unknown distance metric: {distance_metric}")
+
+

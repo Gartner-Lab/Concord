@@ -17,3 +17,4 @@ from .dim_reduction import *
 from .coverage_estimator import *
 from .feature_selector import *
 from .benchmarker import *
+from .estimate_aug_mask_prob import *
