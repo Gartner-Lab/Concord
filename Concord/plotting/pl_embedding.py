@@ -60,6 +60,8 @@ def plot_embedding(adata, basis, color_by=None,
             if draw_path:
                 # Extract the embedding coordinates
                 embedding = adata.obsm[basis]
+                if not isinstance(embedding, np.ndarray):
+                    embedding = np.array(embedding)
                 path_coords = embedding[highlight_indices, :]
 
                 # Draw the path
@@ -118,6 +120,8 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', save_path=N
         raise KeyError(f"Column '{color_by}' not found in adata.obs")
 
     embedding = adata.obsm[basis]
+    if not isinstance(embedding, np.ndarray):
+        embedding = np.array(embedding)
 
     if embedding.shape[1] < 3:
         raise ValueError(f"Embedding '{basis}' must have at least 3 dimensions")
