@@ -94,17 +94,21 @@ class DataLoaderManager:
                 logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
                 self.p_intra_domain = {unique_domains[0]: 1.0}
             else:
-                logger.info(f"Calculating each domain's coverage of the global manifold using {self.sampler_emb}.")
-                domain_coverage = calculate_domain_coverage(
-                    adata=self.adata, domain_key=self.domain_key, neighborhood=self.neighborhood
-                )
-                logger.info(f"Converting coverage to p_intra_domain...")
-                self.p_intra_domain = coverage_to_p_intra(
-                    self.domain_labels, coverage=domain_coverage, 
-                    min_p_intra_domain=self.min_p_intra_domain, 
-                    max_p_intra_domain=self.max_p_intra_domain,
-                    scale_to_min_max=True # Always true unless user runs himself
-                )
+                if self.min_p_intra_domain >= 1.0:
+                    logger.info(f"p_intra_domain is set to 1.0 as min_p_intra_domain >= 1.0.")
+                    self.p_intra_domain = {domain: 1.0 for domain in unique_domains}
+                else:
+                    logger.info(f"Calculating each domain's coverage of the global manifold using {self.sampler_emb}.")
+                    domain_coverage = calculate_domain_coverage(
+                        adata=self.adata, domain_key=self.domain_key, neighborhood=self.neighborhood
+                    )
+                    logger.info(f"Converting coverage to p_intra_domain...")
+                    self.p_intra_domain = coverage_to_p_intra(
+                        self.domain_labels, coverage=domain_coverage, 
+                        min_p_intra_domain=self.min_p_intra_domain, 
+                        max_p_intra_domain=self.max_p_intra_domain,
+                        scale_to_min_max=True # Always true unless user runs himself
+                    )
         else:
             validate_probability_dict_compatible(self.p_intra_domain, "p_intra_domain")
             if not isinstance(self.p_intra_domain, dict):
