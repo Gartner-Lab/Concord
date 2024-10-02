@@ -11,5 +11,6 @@ scikit_learn>=0.24
 scipy>=1.8
 seaborn>=0.13
 scikit-misc
+nbformat
 
 
