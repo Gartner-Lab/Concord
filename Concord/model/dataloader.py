@@ -21,7 +21,7 @@ class DataLoaderManager:
                     sampler_emb=None,
                     sampler_knn=300, 
                     p_intra_knn=0.3, p_intra_domain=None,
-                    min_p_intra_domain=0.5, max_p_intra_domain=1.0,
+                    min_p_intra_domain=1.0, max_p_intra_domain=1.0,
                     clr_mode='aug', 
                     pca_n_comps=50, 
                     use_faiss=True, 

@@ -5,76 +5,143 @@ import umap
 import warnings
 import numpy as np
 import seaborn as sns
-from .. import logger
 import time
+import pandas as pd
+import matplotlib.colors as mcolors
+from .. import logger
+
+NUMERIC_PALETTES = {
+    "BlueGreenRed": ["midnightblue", "dodgerblue", "seagreen", "#00C000", "#EEC900", "#FF7F00", "#FF0000"],
+    "RdOgYl": ["#D9D9D9", "red", "orange", "yellow"],
+    "grey&red": ["grey", "#b2182b"],
+    "blue_green_gold": ["#D9D9D9", "blue", "green", "#FFD200", "gold"],
+    "black_red_gold": ["#D9D9D9", "black", "red", "#FFD200"],
+    "black_red": ["#D9D9D9", "black", "red"],
+    "red_yellow": ["#D9D9D9", "red", "yellow"],
+    "black_yellow": ["#D9D9D9", "black", "yellow"],
+    "black_yellow_gold": ["#D9D9D9", "black", "yellow", "gold"],
+}
+
+
+def get_factor_color(labels, pal='Set1', permute=True):
+    import seaborn as sns
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+
+    unique_labels = np.unique(labels)
+    num_colors = len(unique_labels)
+
+    # Check if pal is a custom palette
+    if pal in NUMERIC_PALETTES:
+        colors = NUMERIC_PALETTES[pal]
+        if len(colors) < num_colors:
+            # Extend the palette to match the number of labels
+            colors = sns.color_palette(colors, num_colors)
+    elif pal in plt.colormaps():
+        colors = sns.color_palette(pal, num_colors)
+    else:
+        try:
+            colors = sns.color_palette(pal, num_colors)
+        except ValueError:
+            # Default to 'Set1' if palette not found
+            colors = sns.color_palette('Set1', num_colors)
+
+    if permute:
+        np.random.seed(1)
+        np.random.shuffle(colors)
+
+    # Convert colors to hex codes
+    colors_hex = [mcolors.rgb2hex(color) for color in colors]
+
+    # Convert labels to strings
+    unique_labels_str = [str(label) for label in unique_labels]
+
+    color_map = dict(zip(unique_labels_str, colors_hex))
+    return color_map
+
+
+def get_numeric_color(pal='RdYlBu'):
+    if pal in NUMERIC_PALETTES:
+        colors = NUMERIC_PALETTES[pal]
+        cmap = mcolors.LinearSegmentedColormap.from_list(pal, colors)
+    elif pal in plt.colormaps():
+        cmap = plt.get_cmap(pal)
+    else:
+        cmap = sns.color_palette(pal, as_cmap=True)
+    return cmap
 
 
 def plot_embedding(adata, basis, color_by=None, 
-                   pal = 'tab20',
+                   pal='Set1',
                    highlight_indices=None,
-                   highlight_size=20, draw_path=False, alpha=0.9,
+                   highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
                    figsize=(9, 3), dpi=300, ncols=1,
-                    font_size=8, point_size=10, legend_loc='on data', save_path=None):
-    """
-    Plot embeddings from an AnnData object with customizable parameters.
-
-    Parameters:
-    adata (anndata.AnnData): The AnnData object.
-    basis (str): The embedding to plot.
-    color_by (list of str): The columns to color the embeddings by.
-    figsize (tuple): The size of the figure.
-    dpi (int): The resolution of the figure.
-    ncols (int): The number of columns in the subplot grid.
-    font_size (int): The font size for titles and labels.
-    point_size (int): The size of the points in the plot.
-
-    Returns:
-    None
-    """
+                   font_size=8, point_size=10, legend_loc='on data', save_path=None):
+    warnings.filterwarnings('ignore')
 
     if color_by is None or len(color_by) == 0:
         color_by = [None]  # Use a single plot without coloring
 
-    # Calculate the number of rows needed
     nrows = int(np.ceil(len(color_by) / ncols))
 
-    # Create subplots
     fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
     axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
 
-    warnings.filterwarnings('ignore')
-    for col, ax in zip(color_by, axs):
-        num_categories = len(adata.obs[col].unique())
-        palette = sns.color_palette(pal, num_categories)  # tab20 supports up to 20 distinct colors, you can adjust for more categories
+    if not isinstance(pal, dict):
+        pal = {col: pal for col in color_by}
 
-        sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                        legend_loc=legend_loc, legend_fontsize=font_size, size=point_size, alpha=alpha,
-                        palette=palette)
+    for col, ax in zip(color_by, axs):
+        data_col = adata.obs[col]
+
+        current_pal = pal.get(col, 'Set1') 
+
+        if pd.api.types.is_numeric_dtype(data_col):
+            cmap = get_numeric_color(current_pal)
+            sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                            legend_loc='right margin', legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, cmap=cmap)
+        else:
+            color_map = get_factor_color(data_col, current_pal)
+            categories = data_col.astype('category').cat.categories
+            palette = [color_map[cat] for cat in categories]
+            sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, palette=palette)
+
+        if legend_loc == 'on data':
+            for text in ax.texts:
+                text.set_alpha(text_alpha)
 
         # Highlight selected points
         if highlight_indices is not None:
             highlight_data = adata[highlight_indices, :]
-            sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
-                            legend_loc=None, legend_fontsize=font_size, size=highlight_size, alpha=1.0)
+            if pd.api.types.is_numeric_dtype(data_col):
+                sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
+                                legend_loc=None, legend_fontsize=font_size,
+                                size=highlight_size, alpha=1.0, cmap=cmap)
+            else:
+                sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
+                                legend_loc=None, legend_fontsize=font_size,
+                                size=highlight_size, alpha=1.0, palette=palette)
 
             if draw_path:
-                # Extract the embedding coordinates
                 embedding = adata.obsm[basis]
                 if not isinstance(embedding, np.ndarray):
                     embedding = np.array(embedding)
                 path_coords = embedding[highlight_indices, :]
 
-                # Draw the path
                 ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=2)  # Red line for the path
 
         ax.set_title(ax.get_title(), fontsize=font_size)  # Adjust plot title font size
         ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)  # Adjust X-axis label font size
         ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)  # Adjust Y-axis label font size
-        cbar = ax.collections[-1].colorbar
-        if cbar is not None:
-            cbar.ax.tick_params(labelsize=font_size)
+        
+        if hasattr(ax, 'collections') and len(ax.collections) > 0:
+            cbar = ax.collections[-1].colorbar
+            if cbar is not None:
+                cbar.ax.tick_params(labelsize=font_size)
 
-    # Turn off any unused axes
     for ax in axs[len(color_by):]:
         ax.axis('off')
 
@@ -84,71 +151,72 @@ def plot_embedding(adata, basis, color_by=None,
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
 
-def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', save_path=None, point_size=3,
-                           opacity=0.7, width=800, height=600):
-    """
-    Visualize 3D embedding and color by selected columns in adata.obs, with options for plot aesthetics and saving the plot.
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal='Set1',  
+                      save_path=None, point_size=3,
+                      opacity=0.7, width=800, height=600):
 
-    Parameters:
-    adata : AnnData
-        AnnData object containing embeddings and metadata.
-    basis : str, optional
-        Key in adata.obsm where the embedding is stored. Default is 'encoded_UMAP'.
-    color_by : str, optional
-        Column in adata.obs to color the points by. Default is 'batch'.
-    save_path : str, optional
-        Path to save the plot. If None, the plot will not be saved.
-    point_size : int, optional
-        Size of the points in the plot. Default is 3.
-    opacity : float, optional
-        Opacity of the points in the plot. Default is 0.7.
-    width : int, optional
-        Width of the plot in pixels. Default is 800.
-    height : int, optional
-        Height of the plot in pixels. Default is 600.
-
-    Returns:
-    fig : plotly.graph_objects.Figure
-        Plotly figure object.
-    """
     import plotly.express as px
     
     if basis not in adata.obsm:
         raise KeyError(f"Embedding key '{basis}' not found in adata.obsm")
 
-    if color_by not in adata.obs:
-        raise KeyError(f"Column '{color_by}' not found in adata.obs")
-
     embedding = adata.obsm[basis]
     if not isinstance(embedding, np.ndarray):
         embedding = np.array(embedding)
-
     if embedding.shape[1] < 3:
         raise ValueError(f"Embedding '{basis}' must have at least 3 dimensions")
 
-    # Use only the first 3 dimensions for plotting
-    embedding = embedding[:, :3]
+    embedding = embedding[:, :3]  # Use only the first 3 dimensions for plotting
 
-    # Create a DataFrame for Plotly
     df = adata.obs.copy()
     df['DIM1'] = embedding[:, 0]
     df['DIM2'] = embedding[:, 1]
     df['DIM3'] = embedding[:, 2]
 
-    # Plotly 3D scatter plot
-    fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
-                        title=f'3D Embedding colored by {color_by}', labels={'color': color_by},
-                        opacity=opacity)
+    if isinstance(color_by, str):
+        color_by = [color_by]
 
-    fig.update_traces(marker=dict(size=point_size), selector=dict(mode='markers'))
-    fig.update_layout(width=width, height=height)
+    if not isinstance(pal, dict):
+        pal = {col: pal for col in color_by}
 
-    if save_path:
-        fig.write_html(save_path)
-        logger.info(f"3D plot saved to {save_path}")
+    figs = []
+    for col in color_by:
+        if col not in df:
+            raise KeyError(f"Column '{col}' not found in adata.obs")
 
-    fig.show()
+        data_col = df[col]
 
+        # Get the palette for the current column
+        current_pal = pal.get(col, 'Set1')  # Default to 'Set1' if not specified
+
+        # Check if the column is numeric or categorical
+        if pd.api.types.is_numeric_dtype(data_col):
+            cmap = get_numeric_color(current_pal)
+            colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
+            colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
+            fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
+                                title=f'3D Embedding colored by {col}',
+                                labels={'color': col}, opacity=opacity,
+                                color_continuous_scale=colorscale)
+        else:
+            # Categorical data
+            color_map = get_factor_color(data_col, current_pal)
+            fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
+                                title=f'3D Embedding colored by {col}',
+                                labels={'color': col}, opacity=opacity,
+                                color_discrete_map=color_map)
+
+        fig.update_traces(marker=dict(size=point_size))
+        fig.update_layout(width=width, height=height)
+
+        if save_path:
+            save_path_str = str(save_path)
+            col_save_path = save_path_str.replace('.html', f'_{col}.html')
+            fig.write_html(col_save_path)
+            logger.info(f"3D plot saved to {col_save_path}")
+
+        figs.append(fig)
+        fig.show()
 
 
 
@@ -201,7 +269,6 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
         # Show the plot title with neuron name
         plt.suptitle(neuron_title, fontsize=font_size + 2)
         plt.show()
-
 
 
 
