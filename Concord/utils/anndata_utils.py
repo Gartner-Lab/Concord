@@ -33,7 +33,7 @@ def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
 
 
 # Backed mode does not work now, this function (https://anndata.readthedocs.io/en/latest/generated/anndata.experimental.concat_on_disk.html) also has limitation
-def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=False, output_file=None):
+def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_col=False, dataset_col_name = 'dataset', output_file=None):
     import gc
     # Standard concatenation in memory for smaller datasets
     adata_combined = None
@@ -42,9 +42,9 @@ def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_column=F
         logger.info(f"Loading file: {file}")
         adata = sc.read_h5ad(file)  # Load the AnnData object in memory
         
-        if add_dataset_column:
+        if add_dataset_col:
             dataset_name = os.path.splitext(os.path.basename(file))[0]
-            adata.obs['dataset'] = dataset_name
+            adata.obs[dataset_col_name] = dataset_name
         
         if adata_combined is None:
             adata_combined = adata
