@@ -1,5 +1,7 @@
 # Concord: Contrastive Learning for Cross-domain Reconciliation and Discovery
 
+Qin Zhu, Gartner Lab, UCSF
+
 ## Description
 
 CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery) is a novel machine learning framework that leverages contrastive learning, masked autoencoders, and a unique batch construction strategy using data-aware sampling. CONCORD learns an encoding of cells that captures the cell state manifold, revealing both local and global structures. The resulting high-resolution atlas of cell states and trajectories is coherent across different domains, such as batches, technologies, and species. 
