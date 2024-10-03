@@ -24,25 +24,40 @@ NUMERIC_PALETTES = {
 
 
 def get_factor_color(labels, pal='Set1', permute=True):
-    import seaborn as sns
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
+    # Convert labels to strings and replace 'nan' with 'NaN'
+    labels = pd.Series(labels).astype(str)
+    labels[labels == 'nan'] = 'NaN'
 
-    unique_labels = np.unique(labels)
-    num_colors = len(unique_labels)
+    unique_labels = labels.unique()
+    has_nan = 'NaN' in unique_labels
 
-    # Check if pal is a custom palette
+    if has_nan:
+        unique_labels_non_nan = [label for label in unique_labels if label != 'NaN']
+    else:
+        unique_labels_non_nan = unique_labels
+
+    num_colors = len(unique_labels_non_nan)
+    light_grey = '#d3d3d3'  # Define light grey color
+
+    # Generate colors for non-NaN labels, excluding light grey
     if pal in NUMERIC_PALETTES:
         colors = NUMERIC_PALETTES[pal]
+        # Remove light grey if present
+        colors = [color for color in colors if color.lower() != light_grey]
         if len(colors) < num_colors:
             # Extend the palette to match the number of labels
             colors = sns.color_palette(colors, num_colors)
-    elif pal in plt.colormaps():
-        colors = sns.color_palette(pal, num_colors)
     else:
         try:
-            colors = sns.color_palette(pal, num_colors)
+            colors = sns.color_palette(pal, num_colors + 1)
+            # Convert colors to hex codes and remove light grey
+            colors_hex = [mcolors.rgb2hex(color) for color in colors]
+            colors_hex = [color for color in colors_hex if color.lower() != light_grey]
+            colors_hex = colors_hex[:num_colors]
+            colors = [mcolors.hex2color(color) for color in colors_hex]
+            if len(colors) < num_colors:
+                # If not enough colors after removing light grey, regenerate without excluding it
+                colors = sns.color_palette(pal, num_colors)
         except ValueError:
             # Default to 'Set1' if palette not found
             colors = sns.color_palette('Set1', num_colors)
@@ -54,10 +69,13 @@ def get_factor_color(labels, pal='Set1', permute=True):
     # Convert colors to hex codes
     colors_hex = [mcolors.rgb2hex(color) for color in colors]
 
-    # Convert labels to strings
-    unique_labels_str = [str(label) for label in unique_labels]
+    # Map colors to non-NaN labels
+    color_map = dict(zip(unique_labels_non_nan, colors_hex))
 
-    color_map = dict(zip(unique_labels_str, colors_hex))
+    # Assign light grey to 'NaN' label
+    if has_nan:
+        color_map['NaN'] = light_grey
+
     return color_map
 
 
@@ -102,6 +120,10 @@ def plot_embedding(adata, basis, color_by=None,
                             legend_loc='right margin', legend_fontsize=font_size,
                             size=point_size, alpha=alpha, cmap=cmap)
         else:
+            data_col = data_col.astype(str)
+            data_col[data_col == 'nan'] = 'NaN'
+            adata.obs[col] = data_col
+
             color_map = get_factor_color(data_col, current_pal)
             categories = data_col.astype('category').cat.categories
             palette = [color_map[cat] for cat in categories]
@@ -200,6 +222,10 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal='Set1',
                                 color_continuous_scale=colorscale)
         else:
             # Categorical data
+            data_col = data_col.astype(str)
+            data_col[data_col == 'nan'] = 'NaN'
+            adata.obs[col] = data_col
+
             color_map = get_factor_color(data_col, current_pal)
             fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
                                 title=f'3D Embedding colored by {col}',
