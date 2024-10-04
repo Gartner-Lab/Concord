@@ -67,6 +67,7 @@ class DataLoaderManager:
         # Get embedding for current adata
         if self.sampler_emb not in self.adata.obsm:
             if self.sampler_emb == 'X_pca':
+                self.pca_n_comps = self.pca_n_comps if self.pca_n_comps < self.adata.n_vars else self.adata.n_vars-1
                 logger.info("PCA embedding not found in adata.obsm. Running PCA...")
                 sc.tl.pca(self.adata, svd_solver='arpack', n_comps=self.pca_n_comps)
                 logger.info("PCA completed.")
@@ -169,9 +170,10 @@ class DataLoaderManager:
                     neighborhood=self.neighborhood, 
                     device=self.device
                 )
+                full_dataloader = DataLoader(dataset, batch_sampler=self.sampler)
             else:
                 self.sampler = None
-            full_dataloader = DataLoader(dataset, batch_sampler=self.sampler)
+                full_dataloader = DataLoader(dataset, batch_size=self.batch_size)
             return full_dataloader, None, self.data_structure
         else:
             train_size = int(self.train_frac * len(dataset))
@@ -201,11 +203,11 @@ class DataLoaderManager:
                     neighborhood=self.neighborhood, 
                     device=self.device
                 )
+                train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler)
+                val_dataloader = DataLoader(val_dataset, batch_sampler=val_sampler)
             else:
-                train_sampler, val_sampler = None, None
-
-            train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler)
-            val_dataloader = DataLoader(val_dataset, batch_sampler=val_sampler)
+                train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size)
+                val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size)
 
             return train_dataloader, val_dataloader, self.data_structure
 

@@ -16,7 +16,7 @@ class AnnDataset(Dataset):
         self.covariate_keys = covariate_keys if covariate_keys is not None else []
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.data = self._get_data_matrix()
+        self.data = torch.tensor(self._get_data_matrix(), dtype=torch.float32)
         self.domain_labels = torch.tensor(self.adata.obs[self.domain_key].cat.codes.values, dtype=torch.long).to(
             self.device)
         self.indices = np.arange(len(self.adata))
@@ -81,8 +81,7 @@ class AnnDataset(Dataset):
         if isinstance(idx, torch.Tensor):
             idx = idx.cpu().numpy()
         actual_idx = self.indices[idx]
-        data_tensor = torch.tensor(self.data[actual_idx], dtype=torch.float32).to(self.device)
-
+        data_tensor = self.data[actual_idx]
         items = []
         for key in self.data_structure:
             if key == 'input':

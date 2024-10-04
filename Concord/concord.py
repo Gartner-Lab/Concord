@@ -105,6 +105,7 @@ class Concord:
             doublet_synth_ratio=0.4,
             chunked=False,
             chunk_size=10000,
+            encoder_append_cov=False, # Should always be False for now
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         )
 
@@ -131,6 +132,12 @@ class Concord:
             self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
 
         self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
+
+        # User must set p_intra_domain = 1.0 or min_p_intra_domain to 1.0 to use this feature
+        if self.config.encoder_append_cov:
+            if self.config.p_intra_domain != 1.0:
+                if self.config.min_p_intra_domain != 1.0:
+                    raise ValueError("User must set p_intra_domain = 1.0 when encoder_append_cov is True, otherwise set it to False.")
 
         if self.config.use_classifier:
             if self.config.class_key is None:
@@ -216,6 +223,7 @@ class Concord:
                                   domain_embedding_dim=self.config.domain_embedding_dim,
                                   covariate_embedding_dims=self.config.covariate_embedding_dims,
                                   covariate_num_categories=self.covariate_num_categories,
+                                  encoder_append_cov=self.config.encoder_append_cov,
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
                                   decoder_final_activation=self.config.decoder_final_activation,
@@ -263,7 +271,7 @@ class Concord:
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_dataloader(self, input_layer_key='X_log1p', train_frac=1.0, use_sampler=True):
+    def init_dataloader(self, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
         if train_frac < 1.0 and self.config.clr_mode == 'nn':
             raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
         data_manager = DataLoaderManager(
@@ -282,7 +290,7 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            preprocess=self.preprocessor,
+            preprocess=self.preprocessor if preprocess else None,
             num_cores=self.num_classes, 
             device=self.config.device
         )
@@ -464,17 +472,17 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", preprocess=True, return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
         # Initialize the model
         self.init_model()
         # Initialize the dataloader
-        self.init_dataloader(input_layer_key=input_layer_key, train_frac=self.config.train_frac, use_sampler=True)
+        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=self.config.train_frac, use_sampler=True)
         # Initialize the trainer
         self.init_trainer()
         # Train the model
         self.train(save_model=save_model)
         # Reinitialize the dataloader without using the sampler
-        self.init_dataloader(input_layer_key=input_layer_key, train_frac=1.0, use_sampler=False)
+        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
         encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class=return_class, return_class_prob=return_class_prob)

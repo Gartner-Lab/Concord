@@ -10,17 +10,18 @@ class ConcordModel(nn.Module):
                  covariate_num_categories={},
                  encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
+                 encoder_append_cov=False, 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False):
         super().__init__()
 
         # Encoder
+        self.domain_embedding_dim = domain_embedding_dim 
         self.input_dim = input_dim
         self.augmentation_mask = nn.Dropout(augmentation_mask_prob)
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
-        self.domain_embedding_dim = domain_embedding_dim 
 
         total_embedding_dim = 0
         if domain_embedding_dim > 0:
@@ -33,7 +34,12 @@ class ConcordModel(nn.Module):
                 self.covariate_embeddings[key] = nn.Embedding(num_embeddings=covariate_num_categories[key], embedding_dim=dim)
                 total_embedding_dim += dim
 
-        encoder_input_dim = input_dim
+        self.encoder_append_cov = encoder_append_cov
+        if self.encoder_append_cov :
+            encoder_input_dim = input_dim + total_embedding_dim
+        else:
+            encoder_input_dim = input_dim
+
         logger.info(f"Encoder input dim: {encoder_input_dim}")
         if self.use_decoder:
             decoder_input_dim = hidden_dim + total_embedding_dim
@@ -80,16 +86,6 @@ class ConcordModel(nn.Module):
     def forward(self, x, domain_labels=None, covariate_tensors=None):
         out = {}
 
-        if self.use_importance_mask:
-            importance_weights = self.get_importance_weights()
-            x = x * importance_weights
-
-        x = self.augmentation_mask(x)
-
-        for layer in self.encoder:
-            x = layer(x)
-        out['encoded'] = x
-
         embeddings = []
         if self.domain_embedding_dim > 0 and domain_labels is not None:
             domain_embeddings = self.domain_embedding(domain_labels)
@@ -100,6 +96,18 @@ class ConcordModel(nn.Module):
             for key, tensor in covariate_tensors.items():
                 if key in self.covariate_embeddings:
                     embeddings.append(self.covariate_embeddings[key](tensor))
+
+        if self.use_importance_mask:
+            importance_weights = self.get_importance_weights()
+            x = x * importance_weights
+
+        x = self.augmentation_mask(x)
+        if self.encoder_append_cov and embeddings:
+            x = torch.cat([x] + embeddings, dim=1)
+
+        for layer in self.encoder:
+            x = layer(x)
+        out['encoded'] = x
 
         if self.use_decoder:
             x = out['encoded']

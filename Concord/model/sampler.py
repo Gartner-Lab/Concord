@@ -19,7 +19,7 @@ class ConcordSampler(Sampler):
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
 
-        self.global_indices_subset = torch.tensor(indices, device=self.device)
+        self.global_indices_subset = torch.tensor(indices.clone().detach(), device=self.device) 
         self.filter_batch = len(indices) < len(domain_ids) # if subset of global indices is used
         self.indices_mapping = {global_idx: local_idx for local_idx, global_idx in enumerate(indices)} # map global indices to local indices
 
