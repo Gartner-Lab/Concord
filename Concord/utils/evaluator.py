@@ -67,16 +67,15 @@ def evaluate_scib(
     return concatenated_results
 
 
-def log_classification(epoch, phase, preds, labels, logger):
+def log_classification(epoch, phase, preds, labels, unique_classes, logger):
     from sklearn.metrics import classification_report
-    # Calculate metrics
-    unique_classes = np.sort(np.unique(labels))
-    report = classification_report(labels, preds, target_names=unique_classes, output_dict=True)
+    
+    unique_classes_str = [str(cls) for cls in unique_classes]
+    report = classification_report(y_true=labels, y_pred=preds, labels=unique_classes, output_dict=True)
     accuracy = report['accuracy']
-    precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes}
-    recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes}
-    f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in unique_classes}
-
+    precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes_str}
+    recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes_str}
+    f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in unique_classes_str}
 
     # Create formatted strings for logging
     precision_str = ", ".join([f"{label}: {value:.2f}" for label, value in precision.items()])
