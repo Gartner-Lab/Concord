@@ -7,7 +7,9 @@ from .loss import nt_xent_loss, importance_penalty_loss
 
 class Trainer:
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
-                 use_classifier=False, classifier_weight=1.0, unlabeled_class=None,
+                 use_classifier=False, classifier_weight=1.0, 
+                 unique_classes=None,
+                 unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
                  clr_mode='aug', clr_temperature=0.5, clr_weight=1.0,
                  importance_penalty_weight=0, importance_penalty_type='L1',
@@ -18,7 +20,8 @@ class Trainer:
         self.logger = logger
         self.use_classifier = use_classifier
         self.classifier_weight = classifier_weight
-        self.unlabeled_class = unlabeled_class # TODO, check if need to be converted to code
+        self.unique_classes = unique_classes
+        self.unlabeled_class = unlabeled_class 
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
         self.clr_mode = clr_mode
@@ -143,7 +146,7 @@ class Trainer:
         )
         
         if self.use_classifier:
-            log_classification(epoch, "train" if train else "val", preds, labels, self.logger)
+            log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
 
         return avg_loss
 

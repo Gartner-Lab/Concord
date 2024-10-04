@@ -132,18 +132,30 @@ class Concord:
 
         self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
 
-        if self.config.class_key is not None:
+        if self.config.use_classifier:
+            if self.config.class_key is None:
+                raise ValueError("Cannot use classifier without providing a class key.")
             if(self.config.class_key not in self.adata.obs.columns):
                 raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
-            all_classes = self.adata.obs[self.config.class_key].cat.categories
+
+            self.unique_classes = self.adata.obs[self.config.class_key].cat.categories
+            self.unique_classes_code = [code for code, _ in enumerate(self.unique_classes)]
             if self.config.unlabeled_class is not None:
-                if self.config.unlabeled_class in all_classes:
-                    all_classes = all_classes.drop(self.config.unlabeled_class)
+                if self.config.unlabeled_class in self.unique_classes:
+                    self.unlabeled_class_code = self.unique_classes.get_loc(self.config.unlabeled_class)
+                    self.unique_classes_code = self.unique_classes_code[self.unique_classes_code != self.unlabeled_class_code]
+                    self.unique_classes = self.unique_classes[self.unique_classes != self.config.unlabeled_class]
                 else:
                     raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
-            self.num_classes = len(all_classes) 
+            else:
+                self.unlabeled_class_code = None
+
+            self.num_classes = len(self.unique_classes_code)
         else:
+            self.unique_classes = None
+            self.unique_classes_code = None
+            self.unlabeled_class_code = None
             self.num_classes = None
 
         # Compute the number of categories for each covariate
@@ -231,13 +243,6 @@ class Concord:
             
 
     def init_trainer(self):
-        # Convert unlabeled_class from name to code
-        if self.config.unlabeled_class is not None and self.config.class_key is not None:
-            class_categories = self.adata.obs[self.config.class_key].cat.categories
-            unlabeled_class_code = class_categories.get_loc(self.config.unlabeled_class)
-        else:
-            unlabeled_class_code = None
-
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
@@ -246,7 +251,8 @@ class Concord:
                                schedule_ratio=self.config.schedule_ratio,
                                use_classifier=self.config.use_classifier, 
                                classifier_weight=self.config.classifier_weight,
-                               unlabeled_class=unlabeled_class_code,
+                               unique_classes=self.unique_classes_code,
+                               unlabeled_class=self.unlabeled_class_code,
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
                                clr_mode=self.config.clr_mode, 
@@ -356,9 +362,6 @@ class Concord:
         embeddings = []
         decoded_mtx = []
         indices = []
-
-        # Get the original class categories
-        class_categories = self.adata.obs[self.config.class_key].cat.categories if self.config.class_key is not None else None
         
         if isinstance(loader, list) or type(loader).__name__ == 'ChunkLoader':
             all_embeddings = []
@@ -452,11 +455,11 @@ class Concord:
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
 
-            if return_class and class_categories is not None:
-                class_preds = class_categories[class_preds] if class_preds is not None else None
-                class_true = class_categories[class_true] if class_true is not None else None
+            if return_class and self.unique_classes is not None:
+                class_preds = self.unique_classes[class_preds] if class_preds is not None else None
+                class_true = self.unique_classes[class_true] if class_true is not None else None
                 if return_class_prob and class_probs is not None:
-                    class_probs = pd.DataFrame(class_probs, columns=class_categories)
+                    class_probs = pd.DataFrame(class_probs, columns=self.unique_classes)
 
             return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
