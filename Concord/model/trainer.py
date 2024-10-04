@@ -112,12 +112,10 @@ class Trainer:
             loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred = self.forward_pass(
                 inputs, class_labels, domain_labels, covariate_tensors
             )
-
             # Backward pass and optimization
             if train:
                 loss.backward()
                 self.optimizer.step()
-
             # Logging
             self._log_metrics(loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train)
 
