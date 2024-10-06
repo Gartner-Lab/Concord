@@ -105,7 +105,7 @@ class Concord:
             doublet_synth_ratio=0.4,
             chunked=False,
             chunk_size=10000,
-            encoder_append_cov=False, # Should always be False for now
+            #encoder_append_cov=False, # Should always be False for now
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         )
 
@@ -134,10 +134,10 @@ class Concord:
         self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
 
         # User must set p_intra_domain = 1.0 or min_p_intra_domain to 1.0 to use this feature
-        if self.config.encoder_append_cov:
-            if self.config.p_intra_domain != 1.0:
-                if self.config.min_p_intra_domain != 1.0:
-                    raise ValueError("User must set p_intra_domain = 1.0 when encoder_append_cov is True, otherwise set it to False.")
+        # if self.config.encoder_append_cov:
+        #     if self.config.p_intra_domain != 1.0:
+        #         if self.config.min_p_intra_domain != 1.0:
+        #             raise ValueError("User must set p_intra_domain = 1.0 when encoder_append_cov is True, otherwise set it to False.")
 
         if self.config.use_classifier:
             if self.config.class_key is None:
@@ -223,7 +223,7 @@ class Concord:
                                   domain_embedding_dim=self.config.domain_embedding_dim,
                                   covariate_embedding_dims=self.config.covariate_embedding_dims,
                                   covariate_num_categories=self.covariate_num_categories,
-                                  encoder_append_cov=self.config.encoder_append_cov,
+                                  #encoder_append_cov=self.config.encoder_append_cov,
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
                                   decoder_final_activation=self.config.decoder_final_activation,
