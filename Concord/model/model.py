@@ -10,7 +10,7 @@ class ConcordModel(nn.Module):
                  covariate_num_categories={},
                  encoder_dims=[], decoder_dims=[], 
                  augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
-                 encoder_append_cov=False, 
+                 #encoder_append_cov=False, 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False):
         super().__init__()
@@ -34,11 +34,13 @@ class ConcordModel(nn.Module):
                 self.covariate_embeddings[key] = nn.Embedding(num_embeddings=covariate_num_categories[key], embedding_dim=dim)
                 total_embedding_dim += dim
 
-        self.encoder_append_cov = encoder_append_cov
-        if self.encoder_append_cov :
-            encoder_input_dim = input_dim + total_embedding_dim
-        else:
-            encoder_input_dim = input_dim
+        # self.encoder_append_cov = encoder_append_cov
+        # if self.encoder_append_cov :
+        #     encoder_input_dim = input_dim + total_embedding_dim
+        # else:
+        #     encoder_input_dim = input_dim
+
+        encoder_input_dim = input_dim
 
         logger.info(f"Encoder input dim: {encoder_input_dim}")
         if self.use_decoder:
@@ -102,8 +104,8 @@ class ConcordModel(nn.Module):
             x = x * importance_weights
 
         x = self.augmentation_mask(x)
-        if self.encoder_append_cov and embeddings:
-            x = torch.cat([x] + embeddings, dim=1)
+        # if self.encoder_append_cov and embeddings:
+        #     x = torch.cat([x] + embeddings, dim=1)
 
         for layer in self.encoder:
             x = layer(x)

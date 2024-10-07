@@ -91,7 +91,7 @@ def get_numeric_color(pal='RdYlBu'):
 
 
 def plot_embedding(adata, basis, color_by=None, 
-                   pal='Set1',
+                   pal=None,
                    highlight_indices=None,
                    highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
                    figsize=(9, 3), dpi=300, ncols=1,
@@ -112,9 +112,11 @@ def plot_embedding(adata, basis, color_by=None,
     for col, ax in zip(color_by, axs):
         data_col = adata.obs[col]
 
-        current_pal = pal.get(col, 'Set1') 
+        current_pal = pal.get(col, None) 
 
         if pd.api.types.is_numeric_dtype(data_col):
+            if current_pal is None:
+                current_pal = 'viridis'
             cmap = get_numeric_color(current_pal)
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
@@ -125,6 +127,8 @@ def plot_embedding(adata, basis, color_by=None,
             adata.obs[col] = data_col
 
             color_map = get_factor_color(data_col, current_pal)
+            if color_map is None:
+                color_map = 'Set1'
             categories = data_col.astype('category').cat.categories
             palette = [color_map[cat] for cat in categories]
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
