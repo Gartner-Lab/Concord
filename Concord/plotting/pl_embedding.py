@@ -110,7 +110,18 @@ def plot_embedding(adata, basis, color_by=None,
         pal = {col: pal for col in color_by}
 
     for col, ax in zip(color_by, axs):
-        data_col = adata.obs[col]
+        if col is None:
+            ax = sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
+                                 legend_loc='right margin', legend_fontsize=font_size,
+                                 size=point_size, alpha=alpha)
+            continue
+        elif col not in adata.obs:
+            if col in adata.var_names:
+                data_col = adata[:, col].X
+            else:
+                raise KeyError(f"Column '{col}' not found in adata.obs or adata.var")
+        else:
+            data_col = adata.obs[col]
 
         current_pal = pal.get(col, None) 
 
