@@ -200,6 +200,11 @@ class Concord:
         # Start with the default parameters
         initial_params = self.default_params.copy()
 
+        # Check if any of the provided parameters are not in the default parameters
+        invalid_params = set(kwargs.keys()) - set(initial_params.keys())
+        if invalid_params:
+            raise ValueError(f"Invalid parameters provided: {invalid_params}")
+
         # Update with user-provided values (if any)
         initial_params.update(kwargs)
 
