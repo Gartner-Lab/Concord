@@ -38,14 +38,14 @@ class AnnDataset(Dataset):
 
     def _get_data_matrix(self):
         if self.input_layer_key == 'X':
-            return self.adata.X.A if issparse(self.adata.X) else self.adata.X
+            return self.adata.X.toarray() if issparse(self.adata.X) else self.adata.X
         else:
-            return self.adata.layers[self.input_layer_key].A if issparse(self.adata.layers[self.input_layer_key]) else \
+            return self.adata.layers[self.input_layer_key].toarray() if issparse(self.adata.layers[self.input_layer_key]) else \
             self.adata.layers[self.input_layer_key]
 
     def get_embedding(self, embedding_key, idx):
         if embedding_key == 'X':
-            return self.adata.X.A[idx]
+            return self.adata.X.toarray()[idx]
         elif embedding_key in self.adata.obsm.key():
             return self.adata.obsm[embedding_key][idx]
         else:
