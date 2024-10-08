@@ -2,6 +2,7 @@
 import torch
 from torch.utils.data import Sampler
 import logging
+import numpy as np
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +20,9 @@ class ConcordSampler(Sampler):
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
 
+        # Check if indices is a NumPy ndarray, and convert it to a tensor if necessary
+        if isinstance(indices, np.ndarray):
+            indices = torch.tensor(indices)
         self.global_indices_subset = torch.tensor(indices.clone().detach(), device=self.device) 
         self.filter_batch = len(indices) < len(domain_ids) # if subset of global indices is used
         self.indices_mapping = {global_idx: local_idx for local_idx, global_idx in enumerate(indices)} # map global indices to local indices
