@@ -85,7 +85,7 @@ class Concord:
             use_classifier=False,
             classifier_weight=1.0,
             unlabeled_class=None,
-            use_importance_mask=True,
+            use_importance_mask=False,
             importance_penalty_weight=0,
             importance_penalty_type='L1',
             dropout_prob=0.1,
@@ -121,6 +121,9 @@ class Concord:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
             self.config.input_feature = self.adata.var_names.tolist()
+
+        if self.config.importance_penalty_weight == 0 and self.config.use_importance_mask:
+            logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
 
         if self.config.domain_key is not None:
             if(self.config.domain_key not in self.adata.obs.columns):

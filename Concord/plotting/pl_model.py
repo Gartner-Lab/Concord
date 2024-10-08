@@ -60,7 +60,7 @@ def visualize_importance_weights(model, adata, top_n=20, mode='histogram', fonts
 
 
 
-def plot_importance_heatmap(importance_matrix, adata, figsize=(20, 15), save_path=None):
+def plot_importance_heatmap(importance_matrix, input_feature=None, figsize=(20, 15), save_path=None):
     """
     Plots a heatmap of the importance matrix with adjustments for label readability.
 
@@ -68,11 +68,9 @@ def plot_importance_heatmap(importance_matrix, adata, figsize=(20, 15), save_pat
     - importance_matrix (torch.Tensor): The importance matrix with shape (n_input_features, n_encoded_neurons).
     - adata (anndata.AnnData): The AnnData object containing the input features.
     """
-    # Convert the importance matrix to a NumPy array
-    importance_matrix = importance_matrix.detach().numpy()
 
     # Extract input feature names from adata
-    input_feature_names = adata.var.index.tolist()
+    input_feature_names = input_feature
     encoded_neuron_names = [f'Neuron {i}' for i in range(importance_matrix.shape[1])]
 
     # Create a DataFrame for the heatmap
@@ -94,7 +92,7 @@ def plot_importance_heatmap(importance_matrix, adata, figsize=(20, 15), save_pat
     plt.setp(cluster_grid.ax_heatmap.yaxis.get_majorticklabels(), fontsize=10)
 
     # Adjust the overall plot to make room for labels
-    cluster_grid.fig.subplots_adjust(bottom=0.3, right=0.8)
+    cluster_grid.figure.subplots_adjust(bottom=0.3, right=0.8)
 
     plt.title('Feature Importance Heatmap with Hierarchical Clustering')
     plt.xlabel('Input Features')
@@ -117,8 +115,6 @@ def plot_top_genes_per_neuron(importance_matrix, adata, top_n=10, ncols=4, figsi
     - top_n (int): Number of top contributing genes to display for each neuron.
     - ncols (int): Number of columns in the grid layout.
     """
-    # Convert the importance matrix to a NumPy array
-    importance_matrix = importance_matrix.detach().numpy()
 
     # Extract input feature names from adata
     input_feature_names = adata.var.index.tolist()

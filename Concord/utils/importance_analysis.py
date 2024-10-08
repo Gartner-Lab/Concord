@@ -42,14 +42,14 @@ def compute_feature_importance(model, input_tensors, layer_index):
         importance_matrix[:, i] = input_tensors.grad.mean(dim=0)
         input_tensors.grad.zero_()
 
-    return importance_matrix
+    return importance_matrix.cpu().numpy()
 
 
 
 
 
 
-def prepare_ranked_list(importance_matrix, adata):
+def prepare_ranked_list(importance_matrix, input_features=None):
     """
     Prepare a ranked list of genes based on their importance weights for each neuron.
 
@@ -61,10 +61,8 @@ def prepare_ranked_list(importance_matrix, adata):
     - ranked_lists (dict): A dictionary with neuron names as keys and ranked gene lists as values.
     """
     # Convert the importance matrix to a DataFrame
-    importance_matrix = importance_matrix.detach().numpy()
-    input_feature_names = adata.var.index.tolist()
     encoded_neuron_names = [f'Neuron {i}' for i in range(importance_matrix.shape[1])]
-    df_importance = pd.DataFrame(importance_matrix, index=input_feature_names, columns=encoded_neuron_names)
+    df_importance = pd.DataFrame(importance_matrix, index=input_features, columns=encoded_neuron_names)
 
     # Prepare ranked lists
     ranked_lists = {}
