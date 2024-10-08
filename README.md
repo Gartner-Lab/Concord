@@ -43,7 +43,7 @@ Build and install Concord:
 
 ```bash
 python setup.py sdist bdist_wheel
-pip install dist/Concord-0.8.0-py3-none-any.whl
+pip install dist/Concord-0.8.2-py3-none-any.whl
 ```
 
 ### 5. (Optional) Install FAISS for accelerated KNN search (not recommended for Mac):
