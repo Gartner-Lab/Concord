@@ -169,7 +169,6 @@ def plot_embedding(adata, basis, color_by=None,
             if current_pal is None:
                 current_pal = 'Set1'
             color_map = get_factor_color(data_col, current_pal)
-            print("color_map", color_map)
             categories = data_col.astype('category').cat.categories
             palette = [color_map[cat] for cat in categories]
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
