@@ -23,6 +23,31 @@ NUMERIC_PALETTES = {
 }
 
 
+def extend_palette(base_colors, num_colors):
+    """
+    Extends the palette to the required number of colors using linear interpolation.
+    """
+    base_colors_rgb = [mcolors.to_rgb(color) for color in base_colors]
+    extended_colors = []
+
+    for i in range(num_colors):
+        # Calculate interpolation factor
+        scale = i / max(1, num_colors - 1)
+        # Determine positions in the base palette to blend between
+        index = scale * (len(base_colors_rgb) - 1)
+        lower_idx = int(np.floor(index))
+        upper_idx = min(int(np.ceil(index)), len(base_colors_rgb) - 1)
+        fraction = index - lower_idx
+
+        # Linear interpolation between two colors
+        color = [
+            (1 - fraction) * base_colors_rgb[lower_idx][channel] + fraction * base_colors_rgb[upper_idx][channel]
+            for channel in range(3)
+        ]
+        extended_colors.append(color)
+
+    return [mcolors.rgb2hex(color) for color in extended_colors]
+
 def get_factor_color(labels, pal='Set1', permute=True):
     # Convert labels to strings and replace 'nan' with 'NaN'
     labels = pd.Series(labels).astype(str)
@@ -42,41 +67,46 @@ def get_factor_color(labels, pal='Set1', permute=True):
     # Generate colors for non-NaN labels, excluding light grey
     if pal in NUMERIC_PALETTES:
         colors = NUMERIC_PALETTES[pal]
-        # Remove light grey if present
-        colors = [color for color in colors if color.lower() != light_grey]
+        colors = [color for color in colors if color.lower() != light_grey]  # Remove light grey if present
         if len(colors) < num_colors:
-            # Extend the palette to match the number of labels
-            colors = sns.color_palette(colors, num_colors)
+            colors = extend_palette(colors, num_colors)  # Extend the palette to match the number of labels
+        else:
+            colors = colors[:num_colors]
     else:
         try:
-            colors = sns.color_palette(pal, num_colors + 1)
-            # Convert colors to hex codes and remove light grey
+            base_palette = sns.color_palette(pal)
+            max_palette_colors = len(base_palette)
+            colors = sns.color_palette(pal, min(num_colors, max_palette_colors))
             colors_hex = [mcolors.rgb2hex(color) for color in colors]
             colors_hex = [color for color in colors_hex if color.lower() != light_grey]
-            colors_hex = colors_hex[:num_colors]
-            colors = [mcolors.hex2color(color) for color in colors_hex]
-            if len(colors) < num_colors:
-                # If not enough colors after removing light grey, regenerate without excluding it
-                colors = sns.color_palette(pal, num_colors)
+
+            if num_colors > len(colors_hex):
+                # Extend the palette if more colors are needed
+                colors = extend_palette(colors_hex, num_colors)
+            else:
+                colors = colors_hex
         except ValueError:
             # Default to 'Set1' if palette not found
-            colors = sns.color_palette('Set1', num_colors)
+            colors = sns.color_palette('Set1', min(num_colors, len(sns.color_palette('Set1'))))
+            colors_hex = [mcolors.rgb2hex(color) for color in colors]
+            if num_colors > len(colors_hex):
+                colors = extend_palette(colors_hex, num_colors)
+            else:
+                colors = colors_hex
 
     if permute:
         np.random.seed(1)
         np.random.shuffle(colors)
 
-    # Convert colors to hex codes
-    colors_hex = [mcolors.rgb2hex(color) for color in colors]
-
     # Map colors to non-NaN labels
-    color_map = dict(zip(unique_labels_non_nan, colors_hex))
+    color_map = dict(zip(unique_labels_non_nan, colors))
 
     # Assign light grey to 'NaN' label
     if has_nan:
         color_map['NaN'] = light_grey
 
     return color_map
+
 
 
 def get_numeric_color(pal='RdYlBu'):
@@ -136,10 +166,10 @@ def plot_embedding(adata, basis, color_by=None,
             data_col = data_col.astype(str)
             data_col[data_col == 'nan'] = 'NaN'
             adata.obs[col] = data_col
-
+            if current_pal is None:
+                current_pal = 'Set1'
             color_map = get_factor_color(data_col, current_pal)
-            if color_map is None:
-                color_map = 'Set1'
+            print("color_map", color_map)
             categories = data_col.astype('category').cat.categories
             palette = [color_map[cat] for cat in categories]
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
