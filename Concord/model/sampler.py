@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class ConcordSampler(Sampler):
-    def __init__(self, batch_size, indices, domain_ids, 
+    def __init__(self, batch_size, domain_ids, 
                  neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, min_batch_size=4, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
@@ -15,15 +15,9 @@ class ConcordSampler(Sampler):
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.domain_ids = domain_ids
         self.neighborhood = neighborhood
-
-        assert len(domain_ids) == self.neighborhood.emb.shape[0], "Domain ids and neighborhood emb size mismatch"
         
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
 
-        # Check if indices is a NumPy ndarray, and convert it to a tensor if necessary
-        self.global_indices_subset = torch.tensor(indices).to(self.device) if isinstance(indices, np.ndarray) else indices.clone().detach().to(self.device)
-        self.filter_batch = len(indices) < len(domain_ids) # if subset of global indices is used
-        self.indices_mapping = {global_idx.item(): local_idx for local_idx, global_idx in enumerate(self.global_indices_subset)} # map global indices to local indices
         #self.valid_batches,_ = self._generate_batches()
         self.valid_batches = None
         self.min_batch_size = min_batch_size
@@ -47,49 +41,52 @@ class ConcordSampler(Sampler):
             domain_indices = torch.where(self.domain_ids == domain)[0]
             out_domain_indices = torch.where(self.domain_ids != domain)[0]
 
-            num_core_samples = max(1,(self.domain_counts[domain] // self.batch_size).item()) # number of neighborhoods per domain be proportional to domain cell counts
-
-            core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_core_samples]]
-
-            # Sample within knn neighborhood
-            knn_around_core = self.neighborhood.get_knn_indices(core_samples) # (core_samples, k), contains core + knn around the core samples
-            knn_around_core = torch.tensor(knn_around_core).to(self.device)
-            knn_domain_ids = self.domain_ids[knn_around_core] # (core_samples, k), shows domain of each knn sample
-            domain_mask = knn_domain_ids == domain # mask indicate if sample is in current domain
-            knn_in_domain = torch.where(domain_mask, knn_around_core, torch.tensor(-1, device=self.device))
-            knn_out_domain = torch.where(~domain_mask, knn_around_core, torch.tensor(-1, device=self.device))
-
             # Determine p_intra_domain for the current domain
             p_intra_domain = self.p_intra_domain_dict.get(domain.item())
-            batch_knn_count = int(self.p_intra_knn * self.batch_size)
-            batch_knn_in_domain_count = int(p_intra_domain * batch_knn_count)
-            batch_knn_out_domain_count = batch_knn_count - batch_knn_in_domain_count
-            batch_global_in_domain_count = int(p_intra_domain * (self.batch_size - batch_knn_count))
-            batch_global_out_domain_count = self.batch_size - batch_knn_count - batch_global_in_domain_count
+            num_batches_domain = max(1,(self.domain_counts[domain] // self.batch_size).item()) # number of batches per domain be proportional to domain cell counts
+            
+            # Sample within knn neighborhood if p_intra_knn > 0
+            if self.p_intra_knn == 0:
+                batch_global_in_domain_count = int(p_intra_domain * self.batch_size)
+                batch_global_out_domain_count = self.batch_size - batch_global_in_domain_count
+            else:
+                core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_batches_domain]]
+                knn_around_core = self.neighborhood.get_knn_indices(core_samples) # (core_samples, k), contains core + knn around the core samples
+                knn_around_core = torch.tensor(knn_around_core).to(self.device)
+                knn_domain_ids = self.domain_ids[knn_around_core] # (core_samples, k), shows domain of each knn sample
+                domain_mask = knn_domain_ids == domain # mask indicate if sample is in current domain
+                knn_in_domain = torch.where(domain_mask, knn_around_core, torch.tensor(-1, device=self.device))
+                knn_out_domain = torch.where(~domain_mask, knn_around_core, torch.tensor(-1, device=self.device))
 
-            batch_knn_in_domain = self.permute_nonneg_and_fill(knn_in_domain, batch_knn_in_domain_count)
-            batch_knn_out_domain = self.permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
+                batch_knn_count = int(self.p_intra_knn * self.batch_size)
+                batch_knn_in_domain_count = int(p_intra_domain * batch_knn_count)
+                batch_knn_out_domain_count = batch_knn_count - batch_knn_in_domain_count
+                batch_global_in_domain_count = int(p_intra_domain * (self.batch_size - batch_knn_count))
+                batch_global_out_domain_count = self.batch_size - batch_knn_count - batch_global_in_domain_count
 
-            # Sample globally to fill in rest of batch
-            if len(domain_indices) < num_core_samples * batch_global_in_domain_count:
+                batch_knn_in_domain = self.permute_nonneg_and_fill(knn_in_domain, batch_knn_in_domain_count)
+                batch_knn_out_domain = self.permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
+                batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
+
+            # Sample globally to fill in rest of batch (or all of batch if p_intra_knn == 0)
+            if len(domain_indices) < num_batches_domain * batch_global_in_domain_count:
                 batch_global_in_domain = domain_indices[
-                    torch.randint(len(domain_indices), (num_core_samples * batch_global_in_domain_count,))].view(num_core_samples, batch_global_in_domain_count)
+                    torch.randint(len(domain_indices), (num_batches_domain * batch_global_in_domain_count,))].view(num_batches_domain, batch_global_in_domain_count)
             else:
                 batch_global_in_domain = domain_indices[
-                    torch.randperm(len(domain_indices))[:num_core_samples * batch_global_in_domain_count]].view(num_core_samples, batch_global_in_domain_count)
+                    torch.randperm(len(domain_indices))[:num_batches_domain * batch_global_in_domain_count]].view(num_batches_domain, batch_global_in_domain_count)
 
-            if len(out_domain_indices) < num_core_samples * batch_global_out_domain_count:
+            if len(out_domain_indices) < num_batches_domain * batch_global_out_domain_count:
                 batch_global_out_domain = out_domain_indices[
-                    torch.randint(len(out_domain_indices), (num_core_samples * batch_global_out_domain_count,))].view(
-                    num_core_samples, batch_global_out_domain_count)
+                    torch.randint(len(out_domain_indices), (num_batches_domain * batch_global_out_domain_count,))].view(
+                    num_batches_domain, batch_global_out_domain_count)
             else:
                 batch_global_out_domain = out_domain_indices[
-                    torch.randperm(len(out_domain_indices))[:num_core_samples * batch_global_out_domain_count]].view(
-                    num_core_samples, batch_global_out_domain_count)
+                    torch.randperm(len(out_domain_indices))[:num_batches_domain * batch_global_out_domain_count]].view(
+                    num_batches_domain, batch_global_out_domain_count)
 
-            batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
             batch_global = torch.cat((batch_global_in_domain, batch_global_out_domain), dim=1)
-            sample_mtx = torch.cat((batch_knn, batch_global), dim=1)
+            sample_mtx = torch.cat((batch_knn, batch_global), dim=1) if self.p_intra_knn > 0 else batch_global
 
             for _,batch in enumerate(sample_mtx):
                 valid_batch = batch[batch >= 0]
@@ -106,14 +103,6 @@ class ConcordSampler(Sampler):
     def __iter__(self):
         self.valid_batches = self._generate_batches()
         for batch in self.valid_batches:
-            if self.filter_batch:
-                # Filter batch to only include indices in the subset
-                filtered_batch = batch[torch.isin(batch, self.global_indices_subset)]
-                batch = torch.tensor([self.indices_mapping[idx.item()] for idx in filtered_batch])
-
-            if len(batch) < self.min_batch_size:
-                continue
-
             yield batch
 
     def __len__(self):
