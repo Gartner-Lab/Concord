@@ -117,10 +117,8 @@ class ConcordModel(nn.Module):
                 x = torch.cat([x] + embeddings, dim=1)
             for layer in self.decoder:
                 x = layer(x)
-            if self.use_importance_mask:
-                out['decoded'] = x * importance_weights
-            else:
-                out['decoded'] = x
+            out['decoded'] = x
+
 
         if self.use_classifier:
             x = out['encoded']
