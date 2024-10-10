@@ -159,11 +159,9 @@ class DataLoaderManager:
             SamplerClass = None
 
         if self.train_frac == 1.0:
-            indices = torch.arange(len(dataset))
             if self.use_sampler:
                 self.sampler = SamplerClass(
                     batch_size=self.batch_size, 
-                    indices=indices,
                     domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
@@ -188,19 +186,19 @@ class DataLoaderManager:
             if self.use_sampler:
                 train_sampler = SamplerClass(
                     batch_size=self.batch_size, 
-                    indices=train_indices,
-                    domain_ids=self.domain_ids, 
-                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
-                    neighborhood=self.neighborhood, 
+                    domain_ids=self.domain_ids[train_indices],
+                    p_intra_knn=self.p_intra_knn, 
+                    p_intra_domain_dict=self.p_intra_domain_dict,
+                    neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
 
                 val_sampler = SamplerClass(
                     batch_size=self.batch_size, 
-                    indices=val_indices,
-                    domain_ids=self.domain_ids, 
-                    p_intra_knn=self.p_intra_knn, p_intra_domain_dict=self.p_intra_domain_dict,
-                    neighborhood=self.neighborhood, 
+                    domain_ids=self.domain_ids[val_indices],
+                    p_intra_knn=self.p_intra_knn, 
+                    p_intra_domain_dict=self.p_intra_domain_dict,
+                    neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
                 train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler)

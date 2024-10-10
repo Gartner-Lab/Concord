@@ -79,7 +79,7 @@ class Concord:
             use_decoder=True,  # Default use_decoder is True
             decoder_final_activation='leaky_relu',
             decoder_weight=1.0,
-            clr_mode="aug",
+            clr_mode="aug", # Consider fix
             clr_temperature=0.5,
             clr_weight=1.0,
             use_classifier=False,
@@ -102,7 +102,6 @@ class Concord:
             ivf_nprobe=10,
             pretrained_model=None,
             classifier_freeze_param=False,
-            doublet_synth_ratio=0.4,
             chunked=False,
             chunk_size=10000,
             #encoder_append_cov=False, # Should always be False for now
@@ -141,6 +140,10 @@ class Concord:
         #     if self.config.p_intra_domain != 1.0:
         #         if self.config.min_p_intra_domain != 1.0:
         #             raise ValueError("User must set p_intra_domain = 1.0 when encoder_append_cov is True, otherwise set it to False.")
+
+        if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
+            logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
+            self.config.p_intra_knn = 0
 
         if self.config.use_classifier:
             if self.config.class_key is None:
