@@ -89,7 +89,7 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
             logger.info("Normalized expression data (adata.layers['X_log1p']) not found. Renormalize and log transforming.")
             tmp_adata = adata.copy()
             if 'counts' in adata.layers:
-                tmp_adata.X = tmp_adata.layers['counts']
+                tmp_adata.X = tmp_adata.layers['counts'].copy()
             sc.pp.normalize_total(tmp_adata, target_sum=1e4)
             sc.pp.log1p(tmp_adata)
             norm_exprs_sparse_r = convert_to_sparse_r_matrix(tmp_adata.X.T)
