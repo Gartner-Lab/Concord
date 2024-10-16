@@ -132,6 +132,7 @@ class Concord:
             logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
             self.config.domain_key = 'tmp_domain_label'
             self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
+            self.p_intra_domain = 1.0
 
         self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
 
