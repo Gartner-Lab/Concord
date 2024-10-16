@@ -113,13 +113,12 @@ class DataLoaderManager:
         else:
             validate_probability_dict_compatible(self.p_intra_domain, "p_intra_domain")
             if not isinstance(self.p_intra_domain, dict):
-                if len(unique_domains) == 1 and p_intra_domain < 1.0:
-                    logger.warning(f"You specified p_intra_domain as {p_intra_domain} but you only have one domain. "
-                                f"Resetting p_intra_domain to 1.0.")
-                    p_intra_domain = 1.0
-                else:
-                    p_intra_domain = self.p_intra_domain
-                self.p_intra_domain = {domain: p_intra_domain for domain in unique_domains}
+                if len(unique_domains) == 1:
+                    if self.p_intra_domain != 1.0:
+                        logger.warning(f"You specified p_intra_domain as {self.p_intra_domain} but you only have one domain. "
+                                    f"Resetting p_intra_domain to 1.0.")
+                        self.p_intra_domain = 1.0
+                self.p_intra_domain = {domain: self.p_intra_domain for domain in unique_domains}
             else:
                 if len(unique_domains) != len(self.p_intra_domain):
                     raise ValueError(f"Length of p_intra_domain ({len(self.p_intra_domain)}) does not match the number of unique domains ({len(unique_domains)}).")

@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def clustermap_with_annotations(adata, key, obs_keys, cmap='viridis', figsize=(12, 8), dpi=300, save_path=None):
+def heatmap_with_annotations(adata, val, obs_keys, cmap='viridis', cluster_rows=True, cluster_cols=True, figsize=(12, 8), dpi=300, save_path=None):
     """
-    Create a clustermap colored by multiple columns in adata.obs and optionally save the figure.
+    Create a heatmap colored by multiple columns in adata.obs and optionally save the figure.
 
     Parameters:
     - adata: AnnData object
@@ -15,23 +15,36 @@ def clustermap_with_annotations(adata, key, obs_keys, cmap='viridis', figsize=(1
     - figsize: Size of the figure
     - save_path: Path to save the figure. If None, the figure is not saved.
     """
-    # Extract the data for clustermap
+    # Extract the data for heatmap
     import seaborn as sns
     import scipy.sparse as sp
-    if key == 'X':
-        if sp.issparse(adata.X):
-            data = pd.DataFrame(adata.X.toarray().T)
+    import numpy as np
+
+    # Check if val is string or a matrix
+    if isinstance(val, str):
+        if val == 'X':
+            if sp.issparse(adata.X):
+                data = pd.DataFrame(adata.X.toarray().T)
+            else:
+                data = pd.DataFrame(adata.X.T)
+        elif val in adata.layers.keys():
+            if sp.issparse(adata.layers[val]):
+                data = pd.DataFrame(adata.layers[val].toarray().T)
+            else:
+                data = pd.DataFrame(adata.layers[val].T)
+        elif val in adata.obsm.keys():
+            data = pd.DataFrame(adata.obsm[val].T)
         else:
-            data = pd.DataFrame(adata.X.T)
-    elif key in adata.layers.keys():
-        if sp.issparse(adata.layers[key]):
-            data = pd.DataFrame(adata.layers[key].toarray().T)
-        else:
-            data = pd.DataFrame(adata.layers[key].T)
-    elif key in adata.obsm.keys():
-        data = pd.DataFrame(adata.obsm[key].T)
+            raise ValueError(f"Key '{key}' not found in adata")
+    elif isinstance(val, pd.DataFrame):
+        data = val.T
+        data.reset_index(drop=True, inplace=True)
+    elif  isinstance(val, np.ndarray):
+        data = pd.DataFrame(val.T)
     else:
-        raise ValueError(f"Key '{key}' not found in adata")
+        raise ValueError("val must be a string, pandas DataFrame, or numpy array")
+    
+    assert data.shape[1] == adata.n_obs, "Data matrix must have the same number of rows as adata"
     
     # Create a dataframe for row colors
     col_colors_df = adata.obs[obs_keys].copy()
@@ -53,13 +66,15 @@ def clustermap_with_annotations(adata, key, obs_keys, cmap='viridis', figsize=(1
 
     col_colors.reset_index(drop=True, inplace=True)
 
-    # Create the clustermap with col_colors
+    # Create the heatmap with col_colors
     g = sns.clustermap(
         data,
         cmap=cmap,
         col_colors=col_colors,
         annot=False,
-        figsize=figsize
+        figsize=figsize,
+        row_cluster=cluster_rows,
+        col_cluster=cluster_cols
     )
 
     if save_path:
