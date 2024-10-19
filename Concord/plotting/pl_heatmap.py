@@ -1,9 +1,6 @@
 
-import matplotlib.pyplot as plt
-import pandas as pd
 
-
-def heatmap_with_annotations(adata, val, obs_keys, cmap='viridis', cluster_rows=True, cluster_cols=True, figsize=(12, 8), dpi=300, save_path=None):
+def heatmap_with_annotations(adata, val, obs_keys = None, cmap='viridis', cluster_rows=True, cluster_cols=True, figsize=(12, 8), dpi=300, save_path=None):
     """
     Create a heatmap colored by multiple columns in adata.obs and optionally save the figure.
 
@@ -19,6 +16,9 @@ def heatmap_with_annotations(adata, val, obs_keys, cmap='viridis', cluster_rows=
     import seaborn as sns
     import scipy.sparse as sp
     import numpy as np
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import Normalize
+    import pandas as pd
 
     # Check if val is string or a matrix
     if isinstance(val, str):
@@ -46,25 +46,36 @@ def heatmap_with_annotations(adata, val, obs_keys, cmap='viridis', cluster_rows=
     
     assert data.shape[1] == adata.n_obs, "Data matrix must have the same number of rows as adata"
     
-    # Create a dataframe for row colors
-    col_colors_df = adata.obs[obs_keys].copy()
+    if obs_keys is not None:
+        # Create a dataframe for row colors
+        col_colors_df = adata.obs[obs_keys].copy()
 
-    # Create color palettes for each column in obs_keys
-    col_colors = pd.DataFrame(index=col_colors_df.index)
-    for col in obs_keys:
-        unique_values = col_colors_df[col].dropna().unique()
-        palette = sns.color_palette("husl", len(unique_values))
-        lut = dict(zip(unique_values, palette))
+        # Create color palettes for each column in obs_keys
+        col_colors = pd.DataFrame(index=col_colors_df.index)
+        for col in obs_keys:
+            data_col = col_colors_df[col]
 
-        # Handle categorical data properly
-        if isinstance(col_colors_df[col].dtype, pd.CategoricalDtype):
-            col_colors_df[col] = col_colors_df[col].cat.add_categories('NA')
+            if pd.api.types.is_numeric_dtype(data_col):
+                # Normalize the numeric data
+                norm = Normalize(vmin=data_col.min(), vmax=data_col.max())
+                cmap_numeric = plt.get_cmap('RdBu_r')
+                col_colors[col] = [cmap_numeric(norm(val)) for val in data_col]
 
-        lut['NA'] = (1, 1, 1)
-        col_colors_df[col] = col_colors_df[col].fillna('NA')
-        col_colors[col] = col_colors_df[col].astype(str).map(lut).to_numpy()
-
-    col_colors.reset_index(drop=True, inplace=True)
+            else:
+                data_col = data_col.astype(str)
+                unique_values = data_col.dropna().unique()
+                palette = sns.color_palette("husl", len(unique_values))
+                lut = dict(zip(unique_values, palette))
+                # Handle missing data ('NA')  if any
+                if data_col.isnull().sum() > 0:
+                    lut['NA'] = (1, 1, 1)
+                    data_col = data_col.fillna('NA')
+                
+                col_colors[col] = data_col.map(lut).to_numpy()
+                
+        col_colors.reset_index(drop=True, inplace=True)
+    else:
+        col_colors = None
 
     # Create the heatmap with col_colors
     g = sns.clustermap(
