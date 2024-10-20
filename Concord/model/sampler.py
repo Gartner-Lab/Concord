@@ -40,6 +40,16 @@ class ConcordSampler(Sampler):
         for domain in self.unique_domains:
             domain_indices = torch.where(self.domain_ids == domain)[0]
             out_domain_indices = torch.where(self.domain_ids != domain)[0]
+            
+            # # Test repeating
+            # def resample_through_repeat_and_shuffle(indices, nrepeat=10):
+            #     len_indices = len(indices)
+            #     indices = indices.repeat(nrepeat)
+            #     indices = indices[torch.randperm(len(indices))[:len_indices]]
+            #     return indices
+
+            # domain_indices = resample_through_repeat_and_shuffle(domain_indices)
+            # out_domain_indices = resample_through_repeat_and_shuffle(out_domain_indices)
 
             # Determine p_intra_domain for the current domain
             p_intra_domain = self.p_intra_domain_dict.get(domain.item())
