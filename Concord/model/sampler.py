@@ -40,7 +40,7 @@ class ConcordSampler(Sampler):
         for domain in self.unique_domains:
             domain_indices = torch.where(self.domain_ids == domain)[0]
             out_domain_indices = torch.where(self.domain_ids != domain)[0]
-            
+
             # # Test repeating
             # def resample_through_repeat_and_shuffle(indices, nrepeat=10):
             #     len_indices = len(indices)
@@ -74,8 +74,8 @@ class ConcordSampler(Sampler):
                 batch_global_in_domain_count = int(p_intra_domain * (self.batch_size - batch_knn_count))
                 batch_global_out_domain_count = self.batch_size - batch_knn_count - batch_global_in_domain_count
 
-                batch_knn_in_domain = self.permute_nonneg_and_fill(knn_in_domain, batch_knn_in_domain_count)
-                batch_knn_out_domain = self.permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
+                batch_knn_in_domain = ConcordSampler.permute_nonneg_and_fill(knn_in_domain, batch_knn_in_domain_count)
+                batch_knn_out_domain = ConcordSampler.permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
                 batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
 
             # Sample globally to fill in rest of batch (or all of batch if p_intra_knn == 0)
