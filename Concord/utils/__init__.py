@@ -19,3 +19,5 @@ from .feature_selector import *
 from .benchmarker import *
 from .estimate_aug_mask_prob import *
 from .visCello import *
+from .simulation import *
+from .metrics import *
