@@ -15,8 +15,9 @@ class Simulation:
                  state_level=1.0, 
                  state_dispersion=0.1, 
                  trajectory_trend='both',
-                 trajectory_gene_group_size=3,
-                 trajectory_gap_size=5,
+                 trajectory_program_feature_size=3,
+                 trajectory_program_transition_time=0.3,
+                 trajectory_program_retention_time=0.2,
                  batch_distribution='normal',
                  batch_level=1.0, 
                  batch_dispersion=0.1, 
@@ -35,8 +36,9 @@ class Simulation:
         self.state_dispersion = state_dispersion
 
         self.trajectory_trend = trajectory_trend
-        self.trajectory_gene_group_size = trajectory_gene_group_size
-        self.trajectory_gap_size = trajectory_gap_size
+        self.trajectory_program_feature_size = trajectory_program_feature_size
+        self.trajectory_program_retention_time = trajectory_program_retention_time
+        self.trajectory_program_transition_time = trajectory_program_transition_time
 
         # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
         self.batch_type = batch_type if isinstance(batch_type, list) else [batch_type] * n_batches
@@ -97,11 +99,18 @@ class Simulation:
                                                   trend=self.trajectory_trend, distribution=self.state_distribution, 
                                                  max_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
         elif self.state_type == 'trajectory_dimension_shift':
-            logger.info(f"Simulating dimension shift trajectory with expression trend={self.trajectory_trend}, gene group size {self.trajectory_gene_group_size}, "
-                        f"expression gap size {self.trajectory_gap_size}, distribution {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
+            logger.info(f"Simulating dimension shift trajectory with expression trend={self.trajectory_trend}, gene group size {self.trajectory_program_feature_size}, "
+                        f"expression gap size {self.trajectory_program_retention_time}, distribution {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
             return self.simulate_dimension_shift(num_genes=self.n_genes, num_cells=self.n_cells, trend=self.trajectory_trend, 
-                                                 group_size=self.trajectory_gene_group_size, gap_size=self.trajectory_gap_size, 
+                                                 group_size=self.trajectory_program_feature_size, program_retention_time=self.trajectory_program_retention_time, 
                                                  mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
+        elif self.state_type == "trajectory":
+            logger.info(f"Simulating trajectory with {self.n_states} states, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
+            return self.simulate_trajectory(num_genes=self.n_genes, num_cells=self.n_cells, 
+                                            program_feature_size=self.trajectory_program_feature_size, 
+                                            program_retention_time=self.trajectory_program_retention_time,
+                                            program_transition_time=self.trajectory_program_transition_time, 
+                                           mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
         else:
             raise ValueError(f"Unknown state_type '{self.state_type}'.")
 
@@ -195,11 +204,11 @@ class Simulation:
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
         return ad.AnnData(X=expression_matrix, obs=obs, var=var)
 
-    def simulate_dimension_shift(self, num_genes=10, num_cells=100, trend='increase', group_size=3, gap_size=5, mean_expression=10, dispersion=1.0, seed=42):
+    def simulate_dimension_shift(self, num_genes=10, num_cells=100, trend='increase', group_size=3, program_retention_time=5, mean_expression=10, dispersion=1.0, seed=42):
         np.random.seed(seed)
         assert group_size <= num_genes
-        assert gap_size <= num_cells
-        step_size = num_cells // gap_size
+        assert program_retention_time <= num_cells
+        step_size = num_cells // program_retention_time
         expression_matrix = np.zeros((num_cells, num_genes))
         pseudotime = np.arange(num_cells)
         ngroups = num_genes // group_size + 1
@@ -207,7 +216,7 @@ class Simulation:
 
         for i in range(ngroups):
             gene_idx = np.arange(min(i * group_size, num_genes), min((i + 1) * group_size, num_genes))
-            start = min(i * gap_size, num_cells)  
+            start = min(i * program_retention_time, num_cells)  
             end = min(start + step_size, num_cells) 
             if trend == 'increase':
                 expression_matrix[start:end, gene_idx] = np.linspace(0, mean_expression, end - start)[:, None]
@@ -228,6 +237,56 @@ class Simulation:
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
         return ad.AnnData(X=expression_matrix, obs=obs, var=var)
     
+    def simulate_trajectory(self, num_genes=10, num_cells=100, 
+                            program_feature_size=3, program_retention_time=0.2, program_transition_time=0.3,
+                            mean_expression=10, dispersion=1.0, seed=42):
+        np.random.seed(seed)
+
+        # Simulate a transitional gene program from off to on and back to off
+
+        pseudotime = np.arange(num_cells)
+        program_transition_time = int(num_cells * program_transition_time)
+        program_retention_time = int(num_cells * program_retention_time)
+        program_on_time = program_transition_time * 2 + program_retention_time
+        
+        num_programs = num_genes // program_feature_size + 1
+
+        ncells_sim = num_cells + program_transition_time * 2
+        expression_matrix = np.zeros((ncells_sim, num_genes))
+        gap_size = (ncells_sim - program_on_time) / (num_programs - 1)
+        for i in range(num_programs):
+            gene_idx = np.arange(min(i * program_feature_size, num_genes), min((i + 1) * program_feature_size, num_genes))
+            cell_start = int(i * gap_size)
+            if cell_start >= ncells_sim or gene_idx.size == 0:
+                break
+            cell_end = min(cell_start + program_on_time, ncells_sim)
+            
+            cell_on_start = min(cell_start + program_transition_time, ncells_sim)
+            cell_on_end = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+            cell_off_start = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+
+            expression_matrix[cell_start:cell_on_start, gene_idx] = np.linspace(0, mean_expression, cell_on_start - cell_start).reshape(-1, 1)
+            expression_matrix[cell_on_start:cell_on_end, gene_idx] = mean_expression
+            expression_matrix[cell_off_start:cell_end, gene_idx] = np.linspace(mean_expression, 0, cell_end - cell_off_start).reshape(-1, 1)
+        
+        # Add noise to the expression matrix
+        expression_matrix += np.random.normal(0, dispersion, (ncells_sim, num_genes))
+
+        # Cut the expression matrix to the original number of cells
+        expression_matrix = expression_matrix[program_transition_time:program_transition_time + num_cells, :]
+        
+        obs = pd.DataFrame({'time': pseudotime}, index=[f"Cell_{i+1}" for i in range(num_cells)])
+        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
+        return ad.AnnData(X=expression_matrix, obs=obs, var=var)
+
+
+
+        
+
+
+
+
+
     @staticmethod
     def downsample_mtx_umi(mtx, ratio=0.1, seed=1):
         """
