@@ -1,6 +1,6 @@
 
 
-def heatmap_with_annotations(adata, val, obs_keys = None, cmap='viridis', cluster_rows=True, cluster_cols=True, figsize=(12, 8), dpi=300, save_path=None):
+def heatmap_with_annotations(adata, val, obs_keys = None, cmap='viridis', cluster_rows=True, cluster_cols=True, value_annot = False, figsize=(12, 8), dpi=300, save_path=None):
     """
     Create a heatmap colored by multiple columns in adata.obs and optionally save the figure.
 
@@ -82,7 +82,7 @@ def heatmap_with_annotations(adata, val, obs_keys = None, cmap='viridis', cluste
         data,
         cmap=cmap,
         col_colors=col_colors,
-        annot=False,
+        annot=value_annot,
         figsize=figsize,
         row_cluster=cluster_rows,
         col_cluster=cluster_cols
