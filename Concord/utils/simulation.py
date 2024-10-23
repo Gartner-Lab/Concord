@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import anndata as ad
+import scanpy as sc
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,8 @@ class Simulation:
                  trajectory_program_transition_time=0.3,
                  trajectory_program_retention_time=0.2,
                  trajectory_loop_to = None,
+                 tree_branching_factor=2,
+                 tree_depth=3,
                  batch_distribution='normal',
                  batch_level=1.0, 
                  batch_dispersion=0.1, 
@@ -40,6 +43,9 @@ class Simulation:
         self.trajectory_program_transition_time = trajectory_program_transition_time
         self.trajectory_loop_to = trajectory_loop_to
 
+        self.tree_branching_factor = tree_branching_factor
+        self.tree_depth = tree_depth
+
         # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
         self.batch_type = batch_type if isinstance(batch_type, list) else [batch_type] * n_batches
         self.batch_level = batch_level if isinstance(batch_level, list) else [batch_level] * n_batches
@@ -57,10 +63,21 @@ class Simulation:
         self.seed = seed
         np.random.seed(seed)
 
-    def simulate_data(self):
+    def sort_adata_genes(self, adata):
         import re
+        gene_names = adata.var_names
+        def natural_key(string_):
+            return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
+
+        sorted_gene_names = sorted(gene_names, key=natural_key)
+        adata = adata[:, sorted_gene_names]
+        return adata
+
+    def simulate_data(self):
         from scipy import sparse as sp
         adata_state = self.simulate_state()
+        adata_state = self.sort_adata_genes(adata_state)
+
         batch_list = []
         for i in range(self.n_batches):
             batch_adata = self.simulate_batch(adata_state, batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
@@ -78,31 +95,36 @@ class Simulation:
         if self.to_int:
             adata.X = adata.X.astype(int)
 
-        gene_names = adata.var_names
-        def natural_key(string_):
-            return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
+        adata = self.sort_adata_genes(adata)
 
-        sorted_gene_names = sorted(gene_names, key=natural_key)
-        adata = adata[:, sorted_gene_names]
         return adata, adata_state
 
     def simulate_state(self):
         if self.state_type == 'group':
             logger.info(f"Simulating group state with {self.n_states} groups, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
-            return self.simulate_expression_groups(num_genes=self.n_genes, num_cells=self.n_cells, num_groups=self.n_states, 
+            adata = self.simulate_expression_groups(num_genes=self.n_genes, num_cells=self.n_cells, num_groups=self.n_states, 
                                                    distribution = self.state_distribution,
                                                    mean_expression=self.state_level, dispersion=self.state_dispersion, 
                                                    p_gene_nonspecific=0, seed=self.seed)
         elif self.state_type == "trajectory":
             logger.info(f"Simulating trajectory with {self.n_states} states, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
-            return self.simulate_trajectory(num_genes=self.n_genes, num_cells=self.n_cells, 
+            adata = self.simulate_trajectory(num_genes=self.n_genes, num_cells=self.n_cells, 
                                             program_num=self.trajectory_program_num,
                                             program_retention_time=self.trajectory_program_retention_time,
                                             program_transition_time=self.trajectory_program_transition_time, 
                                             loop_to=self.trajectory_loop_to,
                                            mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
+        elif self.state_type == "tree":
+            logger.info(f"Simulating tree with branching factor {self.tree_branching_factor}, depth {self.tree_depth}, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
+            adata = self.simulate_tree(num_genes=self.n_genes, num_cells=self.n_cells, 
+                                      branching_factor=self.tree_branching_factor, depth=self.tree_depth,
+                                      mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
         else:
             raise ValueError(f"Unknown state_type '{self.state_type}'.")
+        
+        # Fill in na values with 0
+        adata.X = np.nan_to_num(adata.X, nan=0.0)
+        return adata
 
     def simulate_batch(self, adata, batch_name='batch_1', effect_type='batch_specific_features', distribution='normal', 
                        level=1.0, dispersion = 0.1, cell_proportion=0.3, batch_feature_frac=0.1, seed=42):
@@ -233,7 +255,68 @@ class Simulation:
     
 
 
+    def simulate_tree(self, num_genes=10, num_cells=100, 
+                        branching_factor=2, depth=3, 
+                        mean_expression=10, dispersion=1.0, seed=42):
+        np.random.seed(seed)
+        
+        # Simulate a tree-like gene program
+        num_cells_per_branch = num_cells // (branching_factor ** (depth+1))
+        num_genes_per_branch = num_genes // (branching_factor ** (depth+1))
+        
+        # Keep track of the cell and gene indices
+        cell_counter = 0
+        gene_counter = 0
 
+        # Recursive function to simulate gene expression for each branch
+        def simulate_branch(depth, branch_path, inherited_genes=None):
+            nonlocal cell_counter, gene_counter
+            branch_str = '_'.join(map(str, branch_path)) if branch_path else 'root'
+            print("Simulating depth:", depth, "branch:", branch_str)
+
+            # Determine the number of genes and cells for this branch
+            cur_num_genes = num_genes_per_branch
+            cur_num_cells = num_cells_per_branch
+            
+            cur_branch_genes = [f"gene_{gene_counter + i}" for i in range(cur_num_genes)]
+            cur_branch_cells = [f"cell_{cell_counter + i}" for i in range(cur_num_cells)]
+
+            gene_counter += cur_num_genes
+            cell_counter += cur_num_cells
+
+            #print("depth", depth, "branch_path", branch_path, "gene_counter", gene_counter, "cell_counter", cell_counter)
+
+            # Simulate linear increasing gene expression for branch-specific genes
+            cur_branch_expression = np.tile(np.linspace(0, mean_expression, cur_num_cells).reshape(-1, 1), (1, cur_num_genes))
+            cur_branch_expression = Simulation.simulate_distribution('normal', cur_branch_expression, dispersion, (cur_num_cells, cur_num_genes))
+            
+            if inherited_genes is not None:
+                # Simulate linear decreasing gene expression for inherited genes
+                inherited_expression = Simulation.simulate_distribution('normal', mean_expression, dispersion, (cur_num_cells, len(inherited_genes)))
+                cur_branch_expression = np.concatenate([inherited_expression, cur_branch_expression], axis=1)
+                cur_branch_genes = inherited_genes + cur_branch_genes
+
+            adata = sc.AnnData(cur_branch_expression)
+            adata.obs_names = cur_branch_cells
+            adata.var_names = cur_branch_genes
+            adata.obs['branch'] = branch_str
+            adata.obs['depth'] = depth
+
+            # Base case: if depth is 0, return the adata
+            if depth == 0:
+                return adata
+            
+            #expression_matrix[cell_idx, gene_idx] = np.random.normal(mean_expression, dispersion, (num_cells_per_branch, num_gene_per_branch))[0]
+            # Recursively simulate sub-branches
+            for i in range(branching_factor):
+                new_branch_path = branch_path + [i]
+                new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes)
+                adata = sc.concat([adata, new_adata], join='outer')
+
+            return adata
+            
+        adata = simulate_branch(depth, branch_path=[])
+        return adata
 
 
         
