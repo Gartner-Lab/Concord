@@ -14,9 +14,10 @@ class Simulation:
                  state_distribution='normal',
                  state_level=1.0, 
                  state_dispersion=0.1, 
-                 trajectory_trend='both',
-                 trajectory_gene_group_size=3,
-                 trajectory_gap_size=5,
+                 trajectory_program_num=3,
+                 trajectory_program_transition_time=0.3,
+                 trajectory_program_retention_time=0.2,
+                 trajectory_loop_to = None,
                  batch_distribution='normal',
                  batch_level=1.0, 
                  batch_dispersion=0.1, 
@@ -34,9 +35,10 @@ class Simulation:
         self.state_level = state_level
         self.state_dispersion = state_dispersion
 
-        self.trajectory_trend = trajectory_trend
-        self.trajectory_gene_group_size = trajectory_gene_group_size
-        self.trajectory_gap_size = trajectory_gap_size
+        self.trajectory_program_num = trajectory_program_num
+        self.trajectory_program_retention_time = trajectory_program_retention_time
+        self.trajectory_program_transition_time = trajectory_program_transition_time
+        self.trajectory_loop_to = trajectory_loop_to
 
         # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
         self.batch_type = batch_type if isinstance(batch_type, list) else [batch_type] * n_batches
@@ -91,17 +93,14 @@ class Simulation:
                                                    distribution = self.state_distribution,
                                                    mean_expression=self.state_level, dispersion=self.state_dispersion, 
                                                    p_gene_nonspecific=0, seed=self.seed)
-        elif self.state_type == 'trajectory_gradual':
-            logger.info(f"Simulating gradual trajectory with expression trend={self.trajectory_trend}, max expression {self.state_level}, distribution {self.state_distribution} and dispersion level {self.state_dispersion}.")
-            return self.simulate_gradual_changes(num_genes=self.n_genes, num_cells=self.n_cells,
-                                                  trend=self.trajectory_trend, distribution=self.state_distribution, 
-                                                 max_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
-        elif self.state_type == 'trajectory_dimension_shift':
-            logger.info(f"Simulating dimension shift trajectory with expression trend={self.trajectory_trend}, gene group size {self.trajectory_gene_group_size}, "
-                        f"expression gap size {self.trajectory_gap_size}, distribution {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
-            return self.simulate_dimension_shift(num_genes=self.n_genes, num_cells=self.n_cells, trend=self.trajectory_trend, 
-                                                 group_size=self.trajectory_gene_group_size, gap_size=self.trajectory_gap_size, 
-                                                 mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
+        elif self.state_type == "trajectory":
+            logger.info(f"Simulating trajectory with {self.n_states} states, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
+            return self.simulate_trajectory(num_genes=self.n_genes, num_cells=self.n_cells, 
+                                            program_num=self.trajectory_program_num,
+                                            program_retention_time=self.trajectory_program_retention_time,
+                                            program_transition_time=self.trajectory_program_transition_time, 
+                                            loop_to=self.trajectory_loop_to,
+                                           mean_expression=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
         else:
             raise ValueError(f"Unknown state_type '{self.state_type}'.")
 
@@ -179,55 +178,67 @@ class Simulation:
             adata = adata[np.random.permutation(adata.obs_names), :]
         return adata
 
-    def simulate_gradual_changes(self, num_genes=10, num_cells=10, trend='both', distribution='normal', time_key='time', max_expression=1, dispersion=0.1, seed=42):
-        expression_matrix = np.zeros((num_cells, num_genes))
-        for i in range(num_genes):
-            if trend == 'increase':
-                expression_matrix[:, i] = np.linspace(0, max_expression, num_cells)
-            elif trend == 'decrease':
-                expression_matrix[:, i] = np.linspace(max_expression, 0, num_cells)
-            elif trend == 'both':
-                expression_matrix[:, i] = np.linspace(0, max_expression, num_cells) if i >= num_genes // 2 else np.linspace(max_expression, 0, num_cells)
-            expression_matrix[:, i] = Simulation.simulate_distribution(distribution, expression_matrix[:, i], dispersion, num_cells)
 
-        obs = pd.DataFrame(index=[f"Cell_{i+1}" for i in range(num_cells)])
-        obs[time_key] = np.linspace(0, 1, num_cells)
-        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
-        return ad.AnnData(X=expression_matrix, obs=obs, var=var)
-
-    def simulate_dimension_shift(self, num_genes=10, num_cells=100, trend='increase', group_size=3, gap_size=5, mean_expression=10, dispersion=1.0, seed=42):
+    
+    def simulate_trajectory(self, num_genes=10, num_cells=100, 
+                            program_num=3, program_retention_time=0.2, program_transition_time=0.3,
+                            mean_expression=10, dispersion=1.0, seed=42,
+                            loop_to = None):
         np.random.seed(seed)
-        assert group_size <= num_genes
-        assert gap_size <= num_cells
-        step_size = num_cells // gap_size
-        expression_matrix = np.zeros((num_cells, num_genes))
+
+        # Simulate a transitional gene program from off to on and back to off
+
         pseudotime = np.arange(num_cells)
-        ngroups = num_genes // group_size + 1
-        mid = num_genes // 2 // group_size
+        program_transition_time = int(num_cells * program_transition_time)
+        program_retention_time = int(num_cells * program_retention_time)
+        program_on_time = program_transition_time * 2 + program_retention_time
+        
+        program_feature_size = num_genes // program_num + (1 if num_genes % program_num != 0 else 0)
+        ncells_sim = num_cells + program_on_time
+        expression_matrix = np.zeros((ncells_sim, num_genes))
 
-        for i in range(ngroups):
-            gene_idx = np.arange(min(i * group_size, num_genes), min((i + 1) * group_size, num_genes))
-            start = min(i * gap_size, num_cells)  
-            end = min(start + step_size, num_cells) 
-            if trend == 'increase':
-                expression_matrix[start:end, gene_idx] = np.linspace(0, mean_expression, end - start)[:, None]
-                expression_matrix[end:, gene_idx] = mean_expression
-            elif trend == 'decrease':
-                expression_matrix[:start, gene_idx] = mean_expression
-                expression_matrix[start:end, gene_idx] = np.linspace(mean_expression, 0, end - start)[:, None]
-            elif trend == 'both':
-                if i >= mid:
-                    expression_matrix[start:end, gene_idx] = np.linspace(0, mean_expression, end - start)[:, None]
-                    expression_matrix[end:, gene_idx] = mean_expression
-                else:
-                    expression_matrix[:start, gene_idx] = mean_expression
-                    expression_matrix[start:end, gene_idx] = np.linspace(mean_expression, 0, end - start)[:, None]
-            expression_matrix[:, gene_idx] += np.random.normal(0, dispersion, (num_cells, len(gene_idx)))
+        if loop_to is not None:
+            assert loop_to < program_num-1, "loop_to should be less than program_num-1"
+            program_num = program_num + 1
 
+        gap_size = num_cells / (program_num - 1)
+
+        for i in range(program_num):
+            if loop_to is not None and i == program_num-1:
+                gene_idx = np.arange(min(loop_to * program_feature_size, num_genes), min((loop_to + 1) * program_feature_size, num_genes))
+            else:
+                gene_idx = np.arange(min(i * program_feature_size, num_genes), min((i + 1) * program_feature_size, num_genes))
+            cell_start = int(i * gap_size)
+            if cell_start >= ncells_sim or gene_idx.size == 0:
+                break
+            cell_end = min(cell_start + program_on_time, ncells_sim)
+            
+            cell_on_start = min(cell_start + program_transition_time, ncells_sim)
+            cell_on_end = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+            cell_off_start = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+
+            expression_matrix[cell_start:cell_on_start, gene_idx] = np.linspace(0, mean_expression, cell_on_start - cell_start).reshape(-1, 1)
+            expression_matrix[cell_on_start:cell_on_end, gene_idx] = mean_expression
+            expression_matrix[cell_off_start:cell_end, gene_idx] = np.linspace(mean_expression, 0, cell_end - cell_off_start).reshape(-1, 1)
+        
+        # Add noise to the expression matrix
+        expression_matrix += np.random.normal(0, dispersion, (ncells_sim, num_genes))
+
+        # Cut the expression matrix to the original number of cells
+        expression_matrix = expression_matrix[(program_transition_time + program_retention_time//2):(program_transition_time + program_retention_time//2 + num_cells), :]
+        
         obs = pd.DataFrame({'time': pseudotime}, index=[f"Cell_{i+1}" for i in range(num_cells)])
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
         return ad.AnnData(X=expression_matrix, obs=obs, var=var)
     
+
+
+
+
+
+        
+
+
     @staticmethod
     def downsample_mtx_umi(mtx, ratio=0.1, seed=1):
         """

@@ -108,7 +108,7 @@ def plot_embedding(adata, basis, color_by=None,
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
 
-def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal='Set1',  
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,  
                       save_path=None, point_size=3,
                       opacity=0.7, width=800, height=600):
 
@@ -144,10 +144,12 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal='Set1',
         data_col = df[col]
 
         # Get the palette for the current column
-        current_pal = pal.get(col, 'Set1')  # Default to 'Set1' if not specified
+        current_pal = pal.get(col, None)  
 
         # Check if the column is numeric or categorical
         if pd.api.types.is_numeric_dtype(data_col):
+            if current_pal is None:
+                current_pal = 'viridis'
             cmap = get_numeric_color(current_pal)
             colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
             colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
@@ -160,6 +162,8 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal='Set1',
             data_col = data_col.astype(str)
             data_col[data_col == 'nan'] = 'NaN'
             adata.obs[col] = data_col
+            if current_pal is None:
+                current_pal = 'Set1'
 
             color_map = get_factor_color(data_col, current_pal)
             fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
