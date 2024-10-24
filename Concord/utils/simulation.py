@@ -204,7 +204,7 @@ class Simulation:
     
     def simulate_trajectory(self, num_genes=10, num_cells=100, 
                             program_num=3, program_retention_time=0.2, program_transition_time=0.3,
-                            mean_expression=10, dispersion=1.0, seed=42,
+                            distribution='normal', mean_expression=10, dispersion=1.0, seed=42,
                             loop_to = None):
         np.random.seed(seed)
 
@@ -220,31 +220,33 @@ class Simulation:
         expression_matrix = np.zeros((ncells_sim, num_genes))
 
         if loop_to is not None:
-            assert loop_to < program_num-1, "loop_to should be less than program_num-1"
-            program_num = program_num + 1
+            if isinstance(loop_to, int):
+                loop_to = [loop_to]
 
-        gap_size = num_cells / (program_num - 1)
+            if isinstance(loop_to, list):
+                assert max(loop_to) < program_num-1, "loop_to should be less than program_num-1"
+                cellgroup_num = program_num + len(loop_to)
+            else:
+                raise ValueError("loop_to should be an integer or a list of integers")
 
-        for i in range(program_num):
-            if loop_to is not None and i == program_num-1:
-                gene_idx = np.arange(min(loop_to * program_feature_size, num_genes), min((loop_to + 1) * program_feature_size, num_genes))
+        gap_size = num_cells / (cellgroup_num - 1)
+
+        for i in range(cellgroup_num):
+            if loop_to is not None and i >= program_num:
+                loop_to_program_idx = loop_to[i - program_num]
+                gene_idx = np.arange(min(loop_to_program_idx * program_feature_size, num_genes), min((loop_to_program_idx + 1) * program_feature_size, num_genes))
             else:
                 gene_idx = np.arange(min(i * program_feature_size, num_genes), min((i + 1) * program_feature_size, num_genes))
+            
             cell_start = int(i * gap_size)
             if cell_start >= ncells_sim or gene_idx.size == 0:
                 break
             cell_end = min(cell_start + program_on_time, ncells_sim)
             
-            cell_on_start = min(cell_start + program_transition_time, ncells_sim)
-            cell_on_end = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
-            cell_off_start = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+            expression_matrix = self.simulate_expression_block(expression_matrix, gene_idx, cell_start, cell_end, mean_expression, program_transition_time, program_retention_time)
 
-            expression_matrix[cell_start:cell_on_start, gene_idx] = np.linspace(0, mean_expression, cell_on_start - cell_start).reshape(-1, 1)
-            expression_matrix[cell_on_start:cell_on_end, gene_idx] = mean_expression
-            expression_matrix[cell_off_start:cell_end, gene_idx] = np.linspace(mean_expression, 0, cell_end - cell_off_start).reshape(-1, 1)
-        
         # Add noise to the expression matrix
-        expression_matrix += np.random.normal(0, dispersion, (ncells_sim, num_genes))
+        expression_matrix = Simulation.simulate_distribution(distribution, expression_matrix, dispersion, (ncells_sim, num_genes))
 
         # Cut the expression matrix to the original number of cells
         expression_matrix = expression_matrix[(program_transition_time + program_retention_time//2):(program_transition_time + program_retention_time//2 + num_cells), :]
@@ -252,6 +254,20 @@ class Simulation:
         obs = pd.DataFrame({'time': pseudotime}, index=[f"Cell_{i+1}" for i in range(num_cells)])
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
         return ad.AnnData(X=expression_matrix, obs=obs, var=var)
+    
+
+    def simulate_expression_block(self, expression_matrix, gene_idx, cell_start, cell_end, mean_expression, program_transition_time, program_retention_time):
+        ncells_sim = expression_matrix.shape[0]
+        
+        cell_on_start = min(cell_start + program_transition_time, ncells_sim)
+        cell_on_end = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+        cell_off_start = min(cell_start + program_transition_time + program_retention_time, ncells_sim)
+
+        expression_matrix[cell_start:cell_on_start, gene_idx] = np.linspace(0, mean_expression, cell_on_start - cell_start).reshape(-1, 1)
+        expression_matrix[cell_on_start:cell_on_end, gene_idx] = mean_expression
+        expression_matrix[cell_off_start:cell_end, gene_idx] = np.linspace(mean_expression, 0, cell_end - cell_off_start).reshape(-1, 1)
+
+        return expression_matrix
     
 
 
