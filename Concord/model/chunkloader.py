@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from .dataloader import DataLoaderManager
 
 class ChunkLoader:
     def __init__(self, adata, input_layer_key, domain_key, 

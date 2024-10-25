@@ -25,6 +25,7 @@ class nt_xent_loss(nn.Module):
         loss = nn.CrossEntropyLoss()(similarity_matrix.masked_fill(mask, -float('inf')), labels.argmax(dim=1))
         return loss
 
+
 class nt_bxent_loss(nn.Module):
     def __init__(self, temperature=0.5):
         super().__init__()
@@ -49,8 +50,6 @@ class nt_bxent_loss(nn.Module):
         num_neg = x.size(0) - num_pos
 
         return ((loss_pos / num_pos) + (loss_neg / num_neg)).mean()
-
-
 
 
 
