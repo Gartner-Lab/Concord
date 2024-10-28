@@ -150,6 +150,8 @@ class Simulation:
             raise ValueError("cell_proportion must be between 0 and 1.")
         n_cells = int(adata.n_obs * cell_proportion)
         cell_indices = np.random.choice(adata.n_obs, size=n_cells, replace=False)
+        # Sort the cell indices
+        cell_indices = np.sort(cell_indices)
         batch_adata = adata[cell_indices].copy()
         batch_adata.obs['batch'] = batch_name
 

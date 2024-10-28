@@ -77,7 +77,7 @@ class Concord:
             domain_embedding_dim=8,
             covariate_embedding_dims={},
             use_decoder=True,  # Default use_decoder is True
-            decoder_final_activation='leaky_relu',
+            decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
             clr_temperature=0.5,
@@ -374,7 +374,7 @@ class Concord:
             logger.info(f"Final model saved at: {model_save_path}; Configuration saved at: {config_save_path}.")
 
 
-    def predict(self, loader, sort_by_indices=False, return_decoded=False, return_class=True, return_class_prob=True):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_latent=False, return_class=True, return_class_prob=True):  
         self.model.eval()
         class_preds = []
         class_true = []
@@ -382,6 +382,8 @@ class Concord:
         embeddings = []
         decoded_mtx = []
         indices = []
+
+        latent_matrices = {}
         
         if isinstance(loader, list) or type(loader).__name__ == 'ChunkLoader':
             all_embeddings = []
@@ -390,12 +392,15 @@ class Concord:
             all_class_probs = [] if return_class_prob else None
             all_class_true = []
             all_indices = []
+            all_latent_matrices = {}
 
             for chunk_idx, (dataloader, _, ck_indices) in enumerate(loader):
                 logger.info(f'Predicting for chunk {chunk_idx + 1}/{len(loader)}')
-                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true = self.predict(dataloader, 
+                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true, ck_latent = self.predict(dataloader, 
                                                                                         sort_by_indices=True, 
                                                                                         return_decoded=return_decoded, 
+                                                                                        decoder_domain=decoder_domain,
+                                                                                        return_latent=return_latent,
                                                                                         return_class=return_class,
                                                                                         return_class_prob=return_class_prob)
                 all_embeddings.append(ck_embeddings)
@@ -407,24 +412,44 @@ class Concord:
                     all_class_probs.append(ck_class_probs)
                 if ck_class_true is not None:
                     all_class_true.extend(ck_class_true)
+                if return_latent:
+                    for key in ck_latent.keys():
+                        if key not in all_latent_matrices:
+                            all_latent_matrices[key] = []
+                        all_latent_matrices[key].append(ck_latent[key])
 
             all_indices = np.array(all_indices)
             sorted_indices = np.argsort(all_indices)
-            all_embeddings = np.vstack(all_embeddings)[sorted_indices]
-            all_decoded = np.vstack(all_decoded)[sorted_indices] if all_decoded else None
+
+            all_embeddings = np.concatenate(all_embeddings, axis=0)[sorted_indices]
+            all_decoded = np.concatenate(all_decoded, axis=0)[sorted_indices] if all_decoded else None
             all_class_preds = np.array(all_class_preds)[sorted_indices] if all_class_preds else None
             all_class_true = np.array(all_class_true)[sorted_indices] if all_class_true else None
             if return_class_prob:
                 all_class_probs = pd.concat(all_class_probs).iloc[sorted_indices].reset_index(drop=True) if all_class_probs else None
-            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true
+            
+            if return_latent:
+                for key in all_latent_matrices.keys():
+                    all_latent_matrices[key] = np.concatenate(all_latent_matrices[key], axis=0)[sorted_indices]
+            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true, all_latent_matrices
         else:
             with torch.no_grad():
+                if decoder_domain is not None:
+                    logger.info(f"Projecting data back to expression space of specified domain: {decoder_domain}")
+                    # map domain to actual domain id used in the model
+                    fixed_domain_id = torch.tensor([self.adata.obs[self.config.domain_key].cat.categories.get_loc(decoder_domain)], dtype=torch.long).to(
+                        self.config.device)
+                else:
+                    logger.info("No domain specified for decoding. Using the same domain as the input data.")
+                    fixed_domain_id = None
+                
                 for data in loader:
                     # Unpack data based on the provided structure
                     data_dict = {key: value.to(self.config.device) for key, value in zip(self.data_structure, data)}
 
                     inputs = data_dict.get('input')
-                    domain_ids = data_dict.get('domain', None)
+                    # Use fixed domain id if provided, and make it same length as inputs
+                    domain_ids = data_dict.get('domain', None) if decoder_domain is None else fixed_domain_id.repeat(inputs.size(0))
                     class_labels = data_dict.get('class', None)
                     original_indices = data_dict.get('idx')
                     covariate_keys = [key for key in data_dict.keys() if key not in ['input', 'domain', 'class', 'idx']]
@@ -436,7 +461,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs, domain_ids, covariate_tensors)
+                    outputs = self.model(inputs, domain_ids, covariate_tensors, return_latent=return_latent)
                     if 'class_pred' in outputs and return_class:
                         class_preds_tensor = outputs['class_pred']
                         class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy()) # TODO May need fix
@@ -446,6 +471,13 @@ class Concord:
                         embeddings.append(outputs['encoded'].cpu().numpy())
                     if 'decoded' in outputs and return_decoded:
                         decoded_mtx.append(outputs['decoded'].cpu().numpy())
+                    if 'latent' in outputs and return_latent:
+                        latent = outputs['latent']
+                        for key, val in latent.items():
+                            if key not in latent_matrices:
+                                latent_matrices[key] = []
+                            latent_matrices[key].append(val.cpu().numpy())   
+                            
 
             if not embeddings:
                 raise ValueError("No embeddings were extracted. Check the model and dataloader.")
@@ -455,6 +487,10 @@ class Concord:
 
             if decoded_mtx:
                 decoded_mtx = np.concatenate(decoded_mtx, axis=0)
+
+            if return_latent:
+                for key in latent_matrices.keys():
+                    latent_matrices[key] = np.concatenate(latent_matrices[key], axis=0)
 
             # Convert predictions and true labels to numpy arrays
             class_preds = np.array(class_preds) if class_preds else None
@@ -474,6 +510,9 @@ class Concord:
                     class_probs = class_probs[sorted_indices]
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
+                if return_latent:
+                    for key in latent_matrices.keys():
+                        latent_matrices[key] = latent_matrices[key][sorted_indices]
 
             if return_class and self.unique_classes is not None:
                 class_preds = self.unique_classes[class_preds] if class_preds is not None else None
@@ -481,10 +520,14 @@ class Concord:
                 if return_class_prob and class_probs is not None:
                     class_probs = pd.DataFrame(class_probs, columns=self.unique_classes)
 
-            return embeddings, decoded_mtx, class_preds, class_probs, class_true
+            return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", preprocess=True, return_decoded=False, return_class=True, return_class_prob=True, save_model=True):
+    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", preprocess=True, 
+                     return_decoded=False, decoder_domain=None,
+                     return_latent=False, 
+                     return_class=True, return_class_prob=True, 
+                     save_model=True):
         # Initialize the model
         self.init_model()
         # Initialize the dataloader
@@ -497,10 +540,20 @@ class Concord:
         self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
-        encoded, decoded, class_preds, class_probs, class_true = self.predict(self.loader, return_decoded=return_decoded, return_class=return_class, return_class_prob=return_class_prob)
+        encoded, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(self.loader, 
+                                                                                               return_decoded=return_decoded, decoder_domain=decoder_domain,
+                                                                                               return_latent=return_latent,
+                                                                                               return_class=return_class, return_class_prob=return_class_prob)
         self.adata.obsm[output_key] = encoded
         if return_decoded:
-            self.adata.layers[output_key+'_decoded'] = decoded
+            if decoder_domain is not None:
+                save_key = f"{output_key}_decoded_{decoder_domain}"
+            else:
+                save_key = f"{output_key}_decoded"
+            self.adata.layers[save_key] = decoded
+        if return_latent:
+            for key, val in latent_matrices.items():
+                self.adata.obsm[output_key+'_'+key] = val
         if class_true is not None:
             self.adata.obs[output_key+'_class_true'] = class_true
         if class_preds is not None:
@@ -509,8 +562,6 @@ class Concord:
             class_probs.index = self.adata.obs.index
             for col in class_probs.columns:
                 self.adata.obs[f'class_prob_{col}'] = class_probs[col]
-        if decoded is not None:
-            self.adata.layers[output_key+'_decoded'] = decoded # Store decoded values in adata.layers
 
     def get_domain_embeddings(self):
         unique_domain_categories = self.adata.obs[self.config.domain_key].cat.categories.values
