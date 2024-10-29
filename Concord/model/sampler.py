@@ -11,6 +11,7 @@ class ConcordSampler(Sampler):
                  neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, min_batch_size=4, device=None):
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
+        print(f"p_intra_knn: {p_intra_knn}")
         self.p_intra_domain_dict = p_intra_domain_dict
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.domain_ids = domain_ids

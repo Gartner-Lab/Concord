@@ -85,7 +85,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x, domain_labels=None, covariate_tensors=None):
+    def forward(self, x, domain_labels=None, covariate_tensors=None, return_latent=False):
         out = {}
 
         embeddings = []
@@ -107,16 +107,29 @@ class ConcordModel(nn.Module):
         # if self.encoder_append_cov and embeddings:
         #     x = torch.cat([x] + embeddings, dim=1)
 
-        for layer in self.encoder:
+        if return_latent:
+            out['latent'] = dict()
+
+        for i in range(len(self.encoder)):
+            layer = self.encoder[i]
             x = layer(x)
+            if return_latent:
+                if layer.__class__.__name__ in ['LeakyReLU', 'ReLU']:
+                    out['latent'][f'encoder_{i}'] = x                
+
         out['encoded'] = x
 
         if self.use_decoder:
             x = out['encoded']
             if embeddings:
                 x = torch.cat([x] + embeddings, dim=1)
-            for layer in self.decoder:
+            for i in range(len(self.decoder)):
+                layer = self.decoder[i]
                 x = layer(x)
+                if return_latent:
+                    if layer.__class__.__name__ in ['LeakyReLU', 'ReLU']:
+                        out['latent'][f'decoder_{i}'] = x
+
             out['decoded'] = x
 
 
