@@ -87,12 +87,14 @@ class Simulation:
         adata_state = self.sort_adata_genes(adata_state)
 
         batch_list = []
+        state_list = []
         for i in range(self.n_batches):
-            batch_adata = self.simulate_batch(adata_state, batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
+            batch_adata, batch_adata_pre = self.simulate_batch(adata_state, batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
                                               distribution = self.batch_distribution[i],
                                               level=self.batch_level[i], dispersion=self.batch_dispersion[i], 
                                               cell_proportion=self.batch_cell_proportion[i], batch_feature_frac=self.batch_feature_frac[i], seed=self.seed+i)
             batch_list.append(batch_adata)
+            state_list.append(batch_adata_pre)
 
         adata = ad.concat(batch_list, join='outer')
         adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X
@@ -105,7 +107,10 @@ class Simulation:
 
         adata = self.sort_adata_genes(adata)
 
-        return adata, adata_state
+        adata_pre = ad.concat(state_list, join='outer')
+        adata_pre = self.sort_adata_genes(adata_pre)
+
+        return adata, adata_pre
 
     def simulate_state(self):
         if self.state_type == 'cluster':
@@ -152,8 +157,9 @@ class Simulation:
         cell_indices = np.random.choice(adata.n_obs, size=n_cells, replace=False)
         # Sort the cell indices
         cell_indices = np.sort(cell_indices)
-        batch_adata = adata[cell_indices].copy()
-        batch_adata.obs['batch'] = batch_name
+        batch_adata_pre = adata[cell_indices].copy()
+        batch_adata_pre.obs['batch'] = batch_name
+        batch_adata = batch_adata_pre.copy()
 
         if effect_type == 'variance_inflation':
             logger.info(f"Simulating variance inflation effect on {batch_name} by multiplying original data with a normal distributed scaling factor with level 1 and std {dispersion}.")
@@ -190,7 +196,7 @@ class Simulation:
         else:
             raise ValueError(f"Unknown batch effect type '{effect_type}'.")
 
-        return batch_adata
+        return batch_adata, batch_adata_pre
     
 
     def simulate_clusters(self, num_genes=6, num_cells=12, num_clusters=2, program_structure="uniform", program_on_time_fraction=0.3,
