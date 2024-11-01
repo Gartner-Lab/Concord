@@ -114,3 +114,40 @@ def get_numeric_color(pal='RdYlBu'):
     else:
         cmap = sns.color_palette(pal, as_cmap=True)
     return cmap
+
+
+
+
+def get_color_mapping(adata, col, pal):
+    """Generate color map or palette based on column data type in adata.obs or adata.var."""
+    if col is None:
+        return None, None, None  # No coloring
+
+    if col not in adata.obs:
+        if col in adata.var_names:
+            data_col = adata[:, col].X
+        else:
+            raise KeyError(f"Column '{col}' not found in adata.obs or adata.var")
+    else:
+        data_col = adata.obs[col]
+
+    # Determine palette
+    current_pal = pal.get(col, None)
+
+    if pd.api.types.is_numeric_dtype(data_col):
+        if current_pal is None:
+            current_pal = 'viridis'
+        cmap = get_numeric_color(current_pal)
+        palette = None
+    else:
+        data_col = data_col.astype(str)
+        data_col[data_col == 'nan'] = 'NaN'
+        adata.obs[col] = data_col
+        if current_pal is None:
+            current_pal = 'Set1'
+        color_map = get_factor_color(data_col, current_pal)
+        categories = data_col.astype('category').cat.categories
+        palette = [color_map[cat] for cat in categories]
+        cmap = None
+
+    return data_col, cmap, palette

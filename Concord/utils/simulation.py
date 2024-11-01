@@ -100,15 +100,17 @@ class Simulation:
         adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X
         adata.X = np.nan_to_num(adata.X, nan=0.0)
 
-        if self.non_neg:
-            adata.X[adata.X < 0] = 0
-        if self.to_int:
-            adata.X = adata.X.astype(int)
-
         adata = self.sort_adata_genes(adata)
 
         adata_pre = ad.concat(state_list, join='outer')
         adata_pre = self.sort_adata_genes(adata_pre)
+
+        if self.non_neg:
+            adata.X[adata.X < 0] = 0
+            adata_pre.X[adata_pre.X < 0] = 0
+        if self.to_int:
+            adata.X = adata.X.astype(int)
+            adata_pre.X = adata_pre.X.astype(int)
 
         return adata, adata_pre
 
@@ -140,6 +142,10 @@ class Simulation:
                                       program_decay=self.tree_program_decay,
                                       mean_expression=self.state_level, min_expression=self.state_min_level,
                                       dispersion=self.state_dispersion, seed=self.seed)
+        elif self.state_type == 'gatto':
+            logger.info(f"Simulating dataset in Gatto et al. 2023 with distribution: {self.state_distribution} with background expression {self.state_level} and dispersion {self.state_dispersion}.")
+            adata = self.simulate_gatto(n_genes=self.n_genes, n_cells=self.n_cells, 
+                                      distribution=self.state_distribution, background_shift=self.state_level, dispersion=self.state_dispersion, seed=self.seed)
         else:
             raise ValueError(f"Unknown state_type '{self.state_type}'.")
         
@@ -305,6 +311,13 @@ class Simulation:
             expression_matrix[cell_start:transition_end, gene_idx] = np.linspace(min_expression, mean_expression, transition_end-cell_start).reshape(-1, 1)
             expression_matrix[transition_end:on_end, gene_idx] = mean_expression
             expression_matrix[on_end:cell_end, gene_idx] = np.linspace(mean_expression, min_expression, cell_end-on_end).reshape(-1, 1)
+        elif "dimension_increase" in structure:
+            gap_size = max(ncells // len(gene_idx), 1)
+            # Simulate a gene program that has each of its genes gradually turning on
+            for i, gene in enumerate(gene_idx):
+                cur_gene_start = min(cell_start + i * gap_size, cell_end)
+                expression_matrix[cur_gene_start:transition_end, gene] = np.linspace(min_expression, mean_expression, transition_end-cur_gene_start)
+                expression_matrix[transition_end:cell_end, gene] = mean_expression
         elif structure == "uniform":
             expression_matrix[cell_start:cell_end, gene_idx] = mean_expression
         else:
@@ -508,3 +521,87 @@ class Simulation:
         
         return final_umi_mtx
 
+
+    # Simulation in Gatto et al., 2023
+    def simulate_gatto(self, n_cells=1000, n_genes=1000, t1=3/5, t2=4/5, scale=5, distribution='normal', dispersion=1.0, background_shift=0, seed=42):
+
+        # Set random seed for reproducibility
+        np.random.seed(seed)
+
+        ## SIMULATE DATA
+
+        # simulate base spiral structure
+        n = n_cells
+        z = np.arange(1, n + 1) / 40  # Differentiation progression component Z
+        r = 5
+        x = r * np.cos(z)  # Cycling process X
+        y = r * np.sin(z)  # Cycling process Y
+
+        # For points after t1, simulate two branches, corresponding to two cell fates
+        t1 = round(t1 * n)
+        # Randomly assign cells to two branches
+        w = np.random.choice([0, 1], size=n)
+        # Simulate two branches
+        x0 = x[t1]
+        y0 = y[t1]
+        w_t1 = w[t1:]
+        x[t1:][w_t1 == 0] = x0 + np.arange(1, sum(w_t1 == 0) + 1) / scale
+        y[t1:][w_t1 == 0] = y0
+
+        x[t1:][w_t1 == 1] = x0
+        y[t1:][w_t1 == 1] = y0 + np.arange(1, sum(w_t1 == 1) + 1) / scale
+
+        # After t2, simulate a homogenoues state for each branch
+        t2 = round(t2 * n)
+        w_t2 = w[t2:]
+        x[t2:][w_t2 == 0] = x[t2:][w_t2 == 0][0]
+        y[t2:][w_t2 == 0] = y[t2:][w_t2 == 0][0]
+        x[t2:][w_t2 == 1] = x[t2:][w_t2 == 1][0]
+        y[t2:][w_t2 == 1] = y[t2:][w_t2 == 1][0]
+
+        # x = x + np.random.normal(0, dispersion, n)
+        # y = y + np.random.normal(0, dispersion, n)
+        # z = z + np.random.normal(0, dispersion, n)
+
+        # Scale to [0, 1]
+        x = (x - min(x)) / (max(x) - min(x))
+        y = (y - min(y)) / (max(y) - min(y))
+        z = (z - min(z)) / (max(z) - min(z))
+
+
+        # Convert w to a state label
+        state = w.astype(str)
+        state[state == '0'] = 'state1'
+        state[state == '1'] = 'state2'
+        state[:t1] = 'state0'
+
+        # Increase number of features 
+        np_repeats = n_genes // 3
+        a = np.arange(1, np_repeats + 1)  # Sequence [1, 2, ..., np_repeats]
+
+        # Protein abundance matrices for each component
+        pz = np.outer(a, z) / np.max(z)
+        px = np.outer(a, x) / np.max(x)
+        py = np.outer(a, y) / np.max(y)
+
+        # Combine the matrices
+        dat = np.vstack([pz, px, py])
+
+        # add constant value
+        dat = dat + background_shift
+    
+        # add additional expression block)
+        print(dat.shape)
+        print(np.random.normal(0, 1, (n_genes//5, n)).shape)
+        dat = np.vstack([dat, np.random.normal(20, 1, (n_genes//5, n))])
+        dat = np.vstack([dat, np.repeat(np.linspace(100, 0, n).reshape(1, -1), n_genes//5, axis=0)])
+
+        expression_matrix = Simulation.simulate_distribution(distribution, dat.T, dispersion)
+        #expression_matrix = dat.T
+        # Convert to anndata object
+        adata = sc.AnnData(expression_matrix)
+        adata.obs['state'] = state
+        adata.obs['state'] = adata.obs['state'].astype('category')
+        adata.obs['time'] = np.arange(1, n + 1)
+
+        return adata
