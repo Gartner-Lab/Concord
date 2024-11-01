@@ -8,12 +8,11 @@ import time
 import pandas as pd
 import matplotlib.colors as mcolors
 from .. import logger
-from .palettes import get_numeric_color, get_factor_color
+from .palettes import get_numeric_color, get_factor_color, get_color_mapping
 
 
 def plot_embedding(adata, basis, color_by=None, 
-                   pal=None,
-                   highlight_indices=None,
+                   pal=None, highlight_indices=None,
                    highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
                    figsize=(9, 3), dpi=300, ncols=1,
                    font_size=8, point_size=10, legend_loc='on data', save_path=None):
@@ -23,7 +22,6 @@ def plot_embedding(adata, basis, color_by=None,
         color_by = [None]  # Use a single plot without coloring
 
     nrows = int(np.ceil(len(color_by) / ncols))
-
     fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
     axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
 
@@ -31,37 +29,17 @@ def plot_embedding(adata, basis, color_by=None,
         pal = {col: pal for col in color_by}
 
     for col, ax in zip(color_by, axs):
+        data_col, cmap, palette = get_color_mapping(adata, col, pal)
+
         if col is None:
             ax = sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
                                  legend_loc='right margin', legend_fontsize=font_size,
                                  size=point_size, alpha=alpha)
-            continue
-        elif col not in adata.obs:
-            if col in adata.var_names:
-                data_col = adata[:, col].X
-            else:
-                raise KeyError(f"Column '{col}' not found in adata.obs or adata.var")
-        else:
-            data_col = adata.obs[col]
-
-        current_pal = pal.get(col, None) 
-
-        if pd.api.types.is_numeric_dtype(data_col):
-            if current_pal is None:
-                current_pal = 'viridis'
-            cmap = get_numeric_color(current_pal)
+        elif pd.api.types.is_numeric_dtype(data_col):
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
                             size=point_size, alpha=alpha, cmap=cmap)
         else:
-            data_col = data_col.astype(str)
-            data_col[data_col == 'nan'] = 'NaN'
-            adata.obs[col] = data_col
-            if current_pal is None:
-                current_pal = 'Set1'
-            color_map = get_factor_color(data_col, current_pal)
-            categories = data_col.astype('category').cat.categories
-            palette = [color_map[cat] for cat in categories]
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=font_size,
                             size=point_size, alpha=alpha, palette=palette)
@@ -87,13 +65,12 @@ def plot_embedding(adata, basis, color_by=None,
                 if not isinstance(embedding, np.ndarray):
                     embedding = np.array(embedding)
                 path_coords = embedding[highlight_indices, :]
-
                 ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=2)  # Red line for the path
 
-        ax.set_title(ax.get_title(), fontsize=font_size)  # Adjust plot title font size
-        ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)  # Adjust X-axis label font size
-        ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)  # Adjust Y-axis label font size
-        
+        ax.set_title(ax.get_title(), fontsize=font_size)
+        ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)
+        ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)
+
         if hasattr(ax, 'collections') and len(ax.collections) > 0:
             cbar = ax.collections[-1].colorbar
             if cbar is not None:
@@ -102,11 +79,11 @@ def plot_embedding(adata, basis, color_by=None,
     for ax in axs[len(color_by):]:
         ax.axis('off')
 
-    #plt.tight_layout()
     plt.show()
 
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
+
 
 def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,  
                       save_path=None, point_size=3,
@@ -138,19 +115,11 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
 
     figs = []
     for col in color_by:
-        if col not in df:
-            raise KeyError(f"Column '{col}' not found in adata.obs")
-
-        data_col = df[col]
-
-        # Get the palette for the current column
-        current_pal = pal.get(col, None)  
-
-        # Check if the column is numeric or categorical
+        # Retrieve color mapping using the new get_color_mapping method
+        data_col, cmap, palette = get_color_mapping(adata, col, pal)
+        
+        # Plot based on data type: numeric or categorical
         if pd.api.types.is_numeric_dtype(data_col):
-            if current_pal is None:
-                current_pal = 'viridis'
-            cmap = get_numeric_color(current_pal)
             colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
             colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
             fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
@@ -158,18 +127,10 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
                                 labels={'color': col}, opacity=opacity,
                                 color_continuous_scale=colorscale)
         else:
-            # Categorical data
-            data_col = data_col.astype(str)
-            data_col[data_col == 'nan'] = 'NaN'
-            adata.obs[col] = data_col
-            if current_pal is None:
-                current_pal = 'Set1'
-
-            color_map = get_factor_color(data_col, current_pal)
             fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
                                 title=f'3D Embedding colored by {col}',
                                 labels={'color': col}, opacity=opacity,
-                                color_discrete_map=color_map)
+                                color_discrete_map={cat: color for cat, color in zip(df[col].unique(), palette)})
 
         fig.update_traces(marker=dict(size=point_size))
         fig.update_layout(width=width, height=height)
