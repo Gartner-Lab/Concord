@@ -326,6 +326,7 @@ def plot_graph(adata, basis,
 # 
 def plot_paga(adata, basis, 
             k=15, groups='leiden', resolution=1.0, 
+            threshold=0.1,
             layout='kk',
             seed=42,
             color_by=None, 
@@ -367,16 +368,16 @@ def plot_paga(adata, basis,
         data_col, cmap, _ = get_color_mapping(adata, col, pal)
 
         if col is None:
-            sc.pl.paga(adata, color=col, ax=ax, show=False,
+            sc.pl.paga(adata, threshold=threshold, color=col, ax=ax, show=False,
                             layout=layout, fontsize=font_size,
                             cmap=cmap, node_size_scale=node_size_scale, edge_width_scale=edge_width_scale)
         elif pd.api.types.is_numeric_dtype(data_col):
-            sc.pl.paga(adata, color=col, ax=ax, show=False,
+            sc.pl.paga(adata, threshold=threshold, color=col, ax=ax, show=False,
                         layout=layout, fontsize=font_size,
                         cmap=cmap, node_size_scale=node_size_scale, edge_width_scale=edge_width_scale, colorbar=False)
         else:
             sc.tl.paga(adata, groups=groups) # Strange that this needs to be run right before otherwise it doesn't work
-            sc.pl.paga(adata, color=col, ax=ax, show=False,
+            sc.pl.paga(adata, threshold=threshold, color=col, ax=ax, show=False,
                             layout=layout, fontsize=font_size,
                             cmap=cmap, node_size_scale=node_size_scale, edge_width_scale=edge_width_scale)
 
