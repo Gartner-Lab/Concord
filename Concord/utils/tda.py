@@ -1,8 +1,7 @@
 
-# Code to compute and visualize persistent homology of data
-
+# Code to compute persistent homology of data
 import numpy as np
-import matplotlib.pyplot as plt
+from ..plotting.pl_tda import plot_persistence_diagram, plot_betti_curves
 
 def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2]):
     from gtda.homology import VietorisRipsPersistence
@@ -11,147 +10,218 @@ def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2])
     diagrams = VR.fit_transform(data)
     return diagrams
 
-def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=True,
-                            legend=True, label_axes=True, colormap='tab10',
-                            marker_size=20, diagonal=True, title=None,
-                            xlim=None, ylim=None):
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(6, 6))
-
-    if homology_dimensions is None:
-        homology_dimensions = np.unique(diagram[:, 2])
-
-    # Prepare colormap
-    cmap = plt.get_cmap(colormap)
-    colors = cmap.colors if hasattr(cmap, 'colors') else [cmap(i) for i in range(cmap.N)]
-    color_dict = {dim: colors[i % len(colors)] for i, dim in enumerate(homology_dimensions)}
-
-    # Plot points for each homology dimension
-    for dim in homology_dimensions:
-        idx = (diagram[:, 2] == dim)
-        births = diagram[idx, 0]
-        deaths = diagram[idx, 1]
-
-        # Handle infinite deaths
-        finite_mask = np.isfinite(deaths)
-        infinite_mask = ~finite_mask
-
-        # Plot finite points
-        ax.scatter(births[finite_mask], deaths[finite_mask],
-                   label=f'H{int(dim)}', s=marker_size, color=color_dict[dim])
-
-        # Plot points at infinity (if any)
-        if np.any(infinite_mask):
-            max_finite = np.max(deaths[finite_mask]) if np.any(finite_mask) else np.max(births)
-            infinite_death = max_finite + 0.1 * (max_finite - np.min(births))
-            ax.scatter(births[infinite_mask], [infinite_death] * np.sum(infinite_mask),
-                       marker='^', s=marker_size, color=color_dict[dim])
-
-            # Adjust y-axis limit to accommodate infinity symbol
-            if ylim is None:
-                ax.set_ylim(bottom=ax.get_ylim()[0], top=infinite_death + 0.1 * infinite_death)
-            # Add infinity symbol as a custom legend entry
-            ax.scatter([], [], marker='^', label='Infinity', color='black')
-
-    # Draw diagonal line
-    if diagonal:
-        limits = [
-            np.min(np.concatenate([diagram[:, 0], diagram[:, 1]])),
-            np.max(np.concatenate([diagram[:, 0], diagram[:, 1]]))
-        ]
-        ax.plot(limits, limits, 'k--', linewidth=1)
-
-    if legend:
-        ax.legend()
-
-    if label_axes:
-        ax.set_xlabel('Birth')
-        ax.set_ylabel('Death')
-
-    if title is not None:
-        ax.set_title(title)
-
-    # Set axis limits if provided
-    if xlim is not None:
-        ax.set_xlim(xlim)
-    if ylim is not None:
-        ax.set_ylim(ylim)
-
-    # Customize font sizes
-    ax.tick_params(axis='both', which='major')
-    ax.set_title(title)
-
-    if show:
-        plt.show()
-
-    return ax
 
 
-def plot_betti_curves(diagram, nbins=100, homology_dimensions=[0,1,2], title="Betti curves", ymax=10, ax=None, show=True):
+def compute_betti_median_or_mode(betti_values, statistic="median"):
+    """
+    Computes the median or mode of Betti numbers for a given Betti curve.
+    """
+    from scipy.stats import mode
+    if statistic == "median":
+        return np.median(betti_values)
+    elif statistic == "mode":
+        return mode(betti_values)[0]
+    else:
+        raise ValueError("Statistic must be 'median' or 'mode'.")
+
+
+def compute_betti_entropy(betti_values):
+    """
+    Computes the entropy of the Betti curve.
+    """
+    from scipy.stats import entropy
+    total = np.sum(betti_values)
+    if total == 0:
+        return 0.0  # Entropy is zero if the Betti curve sums to zero
+    # Normalize values to get a probability distribution
+    prob_dist = betti_values / total
+    return entropy(prob_dist)
+
+
+def interpolate_betti_curve(betti_values, original_sampling, common_sampling):
+    """
+    Interpolates Betti curve onto a common filtration grid.
+    """
+    from scipy.interpolate import interp1d
+    interp_func = interp1d(
+        original_sampling, betti_values, kind='previous',
+        bounds_error=False, fill_value=0.0
+    )
+    interpolated_values = interp_func(common_sampling)
+    return interpolated_values
+
+
+def compute_betti_statistics(diagram, expected_betti_numbers, n_bins=100):
+    """
+    Computes Betti statistics given a persistence diagram.
+
+    Parameters:
+    - diagram: Persistence diagram from Giotto-TDA.
+    - expected_betti_numbers: Array of expected Betti numbers for comparison.
+      For example, np.array([5, 0, 0]) for dimensions 0, 1, and 2.
+    - n_bins: Number of bins for the Betti curve computation (default: 100).
+
+    Returns:
+    - stats_dict: A dictionary containing Betti curve statistics and distance metrics.
+    """
     from gtda.diagrams import BettiCurve
-    betti_curve = BettiCurve(n_bins=nbins)
-    betti_curves = betti_curve.fit_transform(diagram)
-    filtration_values = betti_curve.samplings_
 
-    # Plot Betti curves for Betti-0, Betti-1, and Betti-2
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(8, 5))
-    
+    # Collect Sampling Points and Determine Global Filtration Range
+    samplings = {}
+
+    # Initialize BettiCurve transformer and compute initial Betti curves
+    betti_curve_transformer = BettiCurve(n_bins=n_bins)
+    betti_curves = betti_curve_transformer.fit_transform(diagram)
+    samplings_raw = betti_curve_transformer.samplings_
+
+    min_filtration = np.inf
+    max_filtration = -np.inf
+
+    for dim, sampling in samplings_raw.items():
+        samplings[dim] = sampling
+        min_filtration = min(min_filtration, sampling.min())
+        max_filtration = max(max_filtration, sampling.max())
+
+    # Ensure min_filtration is non-negative
+    min_filtration = max(min_filtration, 0.0)
+
+    # Create Common Filtration Grid
+    common_sampling = np.linspace(min_filtration, max_filtration, n_bins)
+
+    # Interpolate Betti Curves onto the Common Grid
+    interpolated_betti_curves = {}
+
+    for dim in samplings.keys():
+        # Extract Betti values and original sampling for the dimension
+        betti_values = betti_curves[0][dim, :]
+        original_sampling = samplings[dim]
+        # Interpolate
+        interpolated_values = interpolate_betti_curve(
+            betti_values, original_sampling, common_sampling
+        )
+        interpolated_betti_curves[dim] = interpolated_values
+
+    # Compute Betti Curve Statistics
+    homology_dimensions = sorted(interpolated_betti_curves.keys())
+    betti_stats = {}
+    observed_betti_numbers = []
+
     for dim in homology_dimensions:
-        ax.plot(filtration_values[dim], betti_curves[0][dim, :], label=f'Betti-{dim}')
+        betti_values = interpolated_betti_curves[dim]
+        betti_variance = np.var(betti_values)
+        betti_mean = np.mean(betti_values)
+        betti_median = compute_betti_median_or_mode(betti_values, statistic="median")
+        betti_mode = compute_betti_median_or_mode(betti_values, statistic="mode")
+        betti_entropy = compute_betti_entropy(betti_values)
 
-    ax.set_xlabel('Filtration Parameter')
-    ax.set_ylabel('Betti Numbers')
-    ax.set_title(title)
-    ax.set_ylim(0, ymax)
-    ax.legend()
+        betti_stats[dim] = {
+            'variance': betti_variance,
+            'mean': betti_mean,
+            'median': betti_median,
+            'mode': betti_mode,
+            'entropy': betti_entropy
+        }
 
-    if show:
-        plt.show()
-    
-    return ax
+        # Use mode as the observed Betti number for distance calculations
+        observed_betti_numbers.append(betti_mode)
+
+    observed_betti_numbers = np.array(observed_betti_numbers).astype(int)
+    expected_betti_numbers = np.array(expected_betti_numbers).astype(int)
+
+    # Step 6: Compute Distance Metrics
+    # Compute L1 distance
+    l1_distance = np.sum(np.abs(observed_betti_numbers - expected_betti_numbers))
+
+    # Compute L2 distance
+    l2_distance = np.sqrt(np.sum((observed_betti_numbers - expected_betti_numbers) ** 2))
+
+    # Compute Relative Error (handle division by zero)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        relative_error = np.abs((observed_betti_numbers - expected_betti_numbers) / expected_betti_numbers)
+        # Replace infinities and NaNs resulting from division by zero with zeros
+        relative_error = np.nan_to_num(relative_error, nan=0.0, posinf=0.0, neginf=0.0)
+        total_relative_error = np.sum(relative_error)
+
+    # Compile statistics into a dictionary
+    stats_dict = {
+        'betti_stats': betti_stats,
+        'observed_betti_numbers': observed_betti_numbers,
+        'expected_betti_numbers': expected_betti_numbers,
+        'l1_distance': l1_distance,
+        'l2_distance': l2_distance,
+        'total_relative_error': total_relative_error
+    }
+
+    return stats_dict
 
 
-def plot_mapper_graph(adata, key='X_pca', filter_func='projection', input_dim=3, layout_dim=2, 
-                      cover_n_intervals=20, cover_overlap_frac=0.5, cluster_eps=0.5, 
-                      color_by=None, cmap='viridis', node_scale=30, save_path=None, verbose=False):
-    from gtda.mapper import CubicalCover, make_mapper_pipeline, Projection, plot_static_mapper_graph
-    from sklearn.decomposition import PCA
-    from sklearn.cluster import DBSCAN
-
-    data = adata.obsm[key]
-    # Create a pipeline with a projection and a mapper
-    if filter_func == 'projection':
-        filter_func = Projection(columns=list(range(input_dim)))
-    elif filter_func == 'PCA':
-        filter_func = PCA(n_components=input_dim)
-    else:
-        raise ValueError("filter_func must be 'projection' or 'PCA'")
-    
-    cover =  CubicalCover(n_intervals=cover_n_intervals, overlap_frac=cover_overlap_frac)
-    clusterer = DBSCAN(eps=cluster_eps)
 
 
-    pipeline = make_mapper_pipeline(filter_func=filter_func, cover=cover, clusterer=clusterer, verbose=verbose)
-    # Transform the data
-    # Color nodes
-    if color_by is None:
-        df_color = data
-    elif isinstance(color_by, str):
-        if color_by in adata.obs.keys():
-            df_color = adata.obs[color_by]
-        else:
-            raise ValueError(f"Key '{color_by}' not found in adata.obs")
-    else:
-        raise ValueError("color_data must be a string")
-    
-    plotly_params = {"node_trace": {"marker_colorscale": cmap}}
+def summarize_betti_statistics(betti_stats):
+    """
+    Summarizes Betti statistics into pandas DataFrames for Betti Curve Statistics and Distance Metrics.
 
-    fig = plot_static_mapper_graph(pipeline, data, layout_dim=layout_dim, node_scale=node_scale, color_data=df_color, plotly_params=plotly_params)
+    Parameters:
+    - betti_stats: Dictionary containing Betti statistics for each method.
 
-    if save_path:
-        fig.write_html(save_path)
+    Returns:
+    - betti_stats_pivot: DataFrame containing Betti Curve Statistics.
+    - distance_metrics_df: DataFrame containing Distance Metrics.
+    """
+    import pandas as pd
+    # Prepare data for Betti Curve Statistics DataFrame
+    methods = []
+    dims = []
+    stats = []
+    values = []
 
-    fig.show()
+    for method, data in betti_stats.items():
+        for dim, stats_dict in data['betti_stats'].items():
+            for stat_name, value in stats_dict.items():
+                methods.append(method)
+                dims.append(f"Dim {dim}")
+                stats.append(stat_name.capitalize())
+                values.append(value)
+
+    # Create DataFrame for Betti Curve Statistics
+    betti_stats_df = pd.DataFrame({
+        'Method': methods,
+        'Dimension': dims,
+        'Statistic': stats,
+        'Value': values
+    })
+
+    # Pivot the DataFrame to get the desired format
+    betti_stats_pivot = betti_stats_df.pivot_table(
+        index='Method',
+        columns=['Dimension', 'Statistic'],
+        values='Value'
+    )
+
+    # Prepare data for Distance Metrics DataFrame
+    distance_metrics = []
+
+    for method, data in betti_stats.items():
+        entry = {
+            'Method': method,
+            'L1 Distance': data['l1_distance'],
+            'L2 Distance': data['l2_distance'],
+            'Total Relative Error': data['total_relative_error']
+        }
+        # Convert observed and expected Betti numbers to strings for display
+        observed_betti_numbers_str = ', '.join(map(str, data['observed_betti_numbers']))
+        expected_betti_numbers_str = ', '.join(map(str, data['expected_betti_numbers']))
+        entry['Observed Betti Numbers'] = observed_betti_numbers_str
+        entry['Expected Betti Numbers'] = expected_betti_numbers_str
+        distance_metrics.append(entry)
+
+    # Create Distance Metrics DataFrame
+    distance_metrics_df = pd.DataFrame(distance_metrics)
+    distance_metrics_df.set_index('Method', inplace=True)
+
+    return betti_stats_pivot, distance_metrics_df
+
+
+
 
 

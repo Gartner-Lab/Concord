@@ -6,3 +6,4 @@ from .pl_heatmap import *
 from .pl_decoded import *
 from .palettes import *
 from .pl_graph import *
+from .pl_tda import *
