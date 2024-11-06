@@ -76,7 +76,7 @@ class Concord:
             class_key=None,
             domain_embedding_dim=8,
             covariate_embedding_dims={},
-            use_decoder=True,  # Default use_decoder is True
+            use_decoder=False, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
@@ -440,7 +440,8 @@ class Concord:
                     fixed_domain_id = torch.tensor([self.adata.obs[self.config.domain_key].cat.categories.get_loc(decoder_domain)], dtype=torch.long).to(
                         self.config.device)
                 else:
-                    logger.info("No domain specified for decoding. Using the same domain as the input data.")
+                    if self.config.use_decoder:
+                        logger.info("No domain specified for decoding. Using the same domain as the input data.")
                     fixed_domain_id = None
                 
                 for data in loader:

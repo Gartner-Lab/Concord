@@ -16,7 +16,7 @@ from .iff_selection import *
 from .dim_reduction import *
 from .coverage_estimator import *
 from .feature_selector import *
-from .benchmarker import *
+from .benchmark import *
 from .estimate_aug_mask_prob import *
 from .visCello import *
 from .simulation import *

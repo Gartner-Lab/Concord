@@ -206,37 +206,76 @@ class Simulation:
     
 
     def simulate_clusters(self, num_genes=6, num_cells=12, num_clusters=2, program_structure="uniform", program_on_time_fraction=0.3,
-                          distribution="normal", mean_expression=10, min_expression=1, dispersion=1.0, non_specific_gene_fraction=0.1, cluster_key='cluster', permute=False, seed=42):
+                      distribution="normal", mean_expression=10, min_expression=1, dispersion=1.0, non_specific_gene_fraction=0.1,
+                      cluster_key='cluster', permute=False, seed=42):
         np.random.seed(seed)
-        genes_per_cluster = num_genes // num_clusters
-        cells_per_cluster = num_cells // num_clusters
-        num_nonspecific_genes = int(num_genes * non_specific_gene_fraction)
-        expression_matrix = np.zeros((num_cells, num_genes))
+        
+        # Check if num_genes is a list or integer
+        if isinstance(num_genes, list):
+            if len(num_genes) != num_clusters:
+                raise ValueError("Length of num_genes list must match num_clusters.")
+            genes_per_cluster_list = num_genes
+        else:
+            genes_per_cluster = num_genes // num_clusters
+            genes_per_cluster_list = [genes_per_cluster] * num_clusters
+        
+        # Check if num_cells is a list or integer
+        if isinstance(num_cells, list):
+            if len(num_cells) != num_clusters:
+                raise ValueError("Length of num_cells list must match num_clusters.")
+            cells_per_cluster_list = num_cells
+        else:
+            cells_per_cluster = num_cells // num_clusters
+            cells_per_cluster_list = [cells_per_cluster] * num_clusters
+        
+        num_nonspecific_genes = int(sum(genes_per_cluster_list) * non_specific_gene_fraction)
+        total_num_genes = sum(genes_per_cluster_list)
+        total_num_cells = sum(cells_per_cluster_list)
+        expression_matrix = np.zeros((total_num_cells, total_num_genes))
         cell_clusters = []
+        gene_offset = 0  # Tracks the starting gene index for each cluster
+        cell_offset = 0  # Tracks the starting cell index for each cluster
 
         for cluster in range(num_clusters):
-            cell_start, cell_end = cluster * cells_per_cluster, (cluster + 1) * cells_per_cluster if cluster < num_clusters - 1 else num_cells
-            cell_indices = np.arange(cell_start, cell_end+1)
+            # Define cell range for this cluster based on the supplied list
+            cell_start = cell_offset
+            cell_end = cell_offset + cells_per_cluster_list[cluster]
+            cell_indices = np.arange(cell_start, cell_end)
+            cell_offset = cell_end  # Update offset for the next cluster
+            #print(cell_indices)
+            
+            # Define gene range for this cluster based on the supplied list
+            gene_start = gene_offset
+            gene_end = gene_offset + genes_per_cluster_list[cluster]
+            gene_offset = gene_end  # Update offset for the next cluster
 
-            gene_start, gene_end = cluster * genes_per_cluster, (cluster + 1) * genes_per_cluster if cluster < num_clusters - 1 else num_genes
-
-            other_genes = np.setdiff1d(np.arange(num_genes), np.arange(gene_start, gene_end))
+            other_genes = np.setdiff1d(np.arange(total_num_genes), np.arange(gene_start, gene_end))
             nonspecific_gene_indices = np.random.choice(other_genes, num_nonspecific_genes, replace=False)
+            
             # Combine the specific and nonspecific gene indices
             gene_indices = np.concatenate([np.arange(gene_start, gene_end), nonspecific_gene_indices])
 
-            expression_matrix = self.simulate_expression_block(expression_matrix, program_structure, gene_indices, cell_indices, mean_expression, min_expression, program_on_time_fraction)
+            # Simulate expression for the current cluster
+            expression_matrix = self.simulate_expression_block(
+                expression_matrix, program_structure, gene_indices, cell_indices, mean_expression, min_expression, program_on_time_fraction
+            )
             
-            cell_clusters.extend([f"{cluster_key}_{cluster+1}"] * (cell_end - cell_start))
+            cell_clusters.extend([f"{cluster_key}_{cluster+1}"] * len(cell_indices))
 
+        # Apply distribution to simulate realistic expression values
         expression_matrix = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
 
-        obs = pd.DataFrame({f"{cluster_key}": cell_clusters}, index=[f"Cell_{i+1}" for i in range(num_cells)])
-        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
+        # Create AnnData object
+        obs = pd.DataFrame({f"{cluster_key}": cell_clusters}, index=[f"Cell_{i+1}" for i in range(total_num_cells)])
+        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(total_num_genes)])
         adata = ad.AnnData(X=expression_matrix, obs=obs, var=var)
+        
         if permute:
             adata = adata[np.random.permutation(adata.obs_names), :]
+        
         return adata
+
+
 
     
     def simulate_trajectory(self, num_genes=10, num_cells=100, cell_block_size_ratio=0.3,
@@ -299,7 +338,7 @@ class Simulation:
         assert(on_time_fraction <= 1), "on_time_fraction should be less than or equal to 1"
 
         cell_start = cell_idx[0]
-        cell_end = cell_idx[-1]
+        cell_end = cell_idx[-1]+1
 
         program_on_time = int(ncells * on_time_fraction)
         program_transition_time = int(ncells - program_on_time) // 2 if "bidirectional" in structure else int(ncells - program_on_time)
