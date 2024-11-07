@@ -22,3 +22,4 @@ from .visCello import *
 from .simulation import *
 from .metrics import *
 from .tda import *
+from .geometry import *

@@ -19,9 +19,10 @@ def add_legend(ax, labels, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
               title_fontsize=fontsize, bbox_to_anchor=bbox_anchor, borderaxespad=0)
 
 
-def heatmap_with_annotations(adata, val, transpose=True, obs_keys = None, cmap='viridis', 
+def heatmap_with_annotations(adata, val, transpose=True, obs_keys = None, 
+                             cmap='viridis', vmin=None, vmax=None, 
                              cluster_rows=True, cluster_cols=True, pal=None, add_color_legend=False,
-                             value_annot = False, 
+                             value_annot = False, title=None, title_fontsize=16,
                                 yticklabels=True, xticklabels=False, 
                              figsize=(12, 8), dpi=300, show=True, save_path=None):
     """
@@ -105,6 +106,8 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys = None, cmap='
     g = sns.clustermap(
         data,
         cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
         col_colors=use_colors if transpose else None,
         row_colors=use_colors if not transpose else None,
         annot=value_annot,
@@ -114,6 +117,9 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys = None, cmap='
         yticklabels=yticklabels,
         xticklabels=xticklabels
     )
+
+    if title:
+        g.figure.suptitle(title, fontsize=title_fontsize)
 
     if add_color_legend and legend_data:
         for labels, palette, title in legend_data:

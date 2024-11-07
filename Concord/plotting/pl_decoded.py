@@ -11,7 +11,7 @@ def plot_adata_layer_heatmaps(adata, ncells=None, ngenes=None, layers=['X_concor
                               cluster_rows=False, cluster_cols=False,
                               use_clustermap=False,
                               seed=0, figsize=(6,6), cmap='viridis', 
-                              dpi=300, 
+                              dpi=300, vmin=None, vmax=None,
                               save_path=None):
     import seaborn as sns
     import scipy.sparse as sp
@@ -70,6 +70,8 @@ def plot_adata_layer_heatmaps(adata, ncells=None, ngenes=None, layers=['X_concor
                 transpose=transpose, 
                 obs_keys=obs_keys, 
                 cmap=cmap, 
+                vmin=vmin,
+                vmax=vmax,
                 cluster_rows=cluster_rows, 
                 cluster_cols=cluster_cols, 
                 value_annot=False, 
@@ -94,7 +96,11 @@ def plot_adata_layer_heatmaps(adata, ncells=None, ngenes=None, layers=['X_concor
             plt.close(g.figure)
             buf.close()
         else:
-            sns.heatmap(x, cmap=cmap, ax=axes[i])
+            sns.heatmap(x, 
+                        cmap=cmap, 
+                        vmin=vmin, 
+                        vmax=vmax,
+                        ax=axes[i])
             axes[i].set_title(f'Heatmap of {layer}')
 
     if save_path:
