@@ -105,6 +105,10 @@ class Simulation:
         adata_pre = ad.concat(state_list, join='outer')
         adata_pre = self.sort_adata_genes(adata_pre)
 
+        # Concatenate batch name to cell names to make them unique
+        adata.obs_names = [f"{batch}_{cell}" for batch, cell in zip(adata.obs['batch'], adata.obs_names)]
+        adata_pre.obs_names = [f"{batch}_{cell}" for batch, cell in zip(adata_pre.obs['batch'], adata_pre.obs_names)]
+
         if self.non_neg:
             adata.X[adata.X < 0] = 0
             adata_pre.X[adata_pre.X < 0] = 0
@@ -130,6 +134,7 @@ class Simulation:
                                             program_structure=self.program_structure,
                                             program_on_time_fraction=self.program_on_time_fraction,
                                             loop_to=self.trajectory_loop_to,
+                                            distribution=self.state_distribution,
                                             mean_expression=self.state_level, 
                                             min_expression=self.state_min_level,
                                             dispersion=self.state_dispersion, seed=self.seed)
@@ -140,6 +145,7 @@ class Simulation:
                                       program_structure=self.program_structure,
                                       program_on_time_fraction=self.program_on_time_fraction,
                                       program_decay=self.tree_program_decay,
+                                      distribution=self.state_distribution,
                                       mean_expression=self.state_level, min_expression=self.state_min_level,
                                       dispersion=self.state_dispersion, seed=self.seed)
         elif self.state_type == 'gatto':
@@ -263,12 +269,13 @@ class Simulation:
             cell_clusters.extend([f"{cluster_key}_{cluster+1}"] * len(cell_indices))
 
         # Apply distribution to simulate realistic expression values
-        expression_matrix = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
+        expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
 
         # Create AnnData object
         obs = pd.DataFrame({f"{cluster_key}": cell_clusters}, index=[f"Cell_{i+1}" for i in range(total_num_cells)])
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(total_num_genes)])
-        adata = ad.AnnData(X=expression_matrix, obs=obs, var=var)
+        adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
+        adata.layers['no_noise'] = expression_matrix
         
         if permute:
             adata = adata[np.random.permutation(adata.obs_names), :]
@@ -322,15 +329,18 @@ class Simulation:
             
             expression_matrix = self.simulate_expression_block(expression_matrix, program_structure, gene_idx, cell_indices, mean_expression, min_expression, program_on_time_fraction)
 
-        # Add noise to the expression matrix
-        expression_matrix = Simulation.simulate_distribution(distribution, expression_matrix, dispersion, (ncells_sim, num_genes))
 
         # Cut the expression matrix to the original number of cells
         expression_matrix = expression_matrix[(cell_block_size//2):(cell_block_size//2 + num_cells), :]
-        
+
+        # Add noise to the expression matrix
+        expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion, (ncells_sim, num_genes))
+
         obs = pd.DataFrame({'time': pseudotime}, index=[f"Cell_{i+1}" for i in range(num_cells)])
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(num_genes)])
-        return ad.AnnData(X=expression_matrix, obs=obs, var=var)
+        adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
+        adata.layers['no_noise'] = expression_matrix
+        return adata
     
 
     def simulate_expression_block(self, expression_matrix, structure, gene_idx, cell_idx, mean_expression, min_expression, on_time_fraction = 0.3):
@@ -371,6 +381,7 @@ class Simulation:
                         program_structure="linear_increasing",
                         program_on_time_fraction=0.3,
                         program_decay=0.5,
+                        distribution='normal',
                         mean_expression=10, min_expression=0, 
                         dispersion=1.0, seed=42):
         np.random.seed(seed)
@@ -416,19 +427,21 @@ class Simulation:
                 on_time_fraction=program_on_time_fraction
             )
             
-            cur_branch_expression = Simulation.simulate_distribution('normal', cur_branch_expression, dispersion, (cur_num_cells, cur_num_genes))
-            
             if inherited_genes is not None:
                 # Simulate linear decreasing gene expression for inherited genes
-                inherited_expression = Simulation.simulate_distribution('normal', mean_expression, dispersion, (cur_num_cells, len(inherited_genes)))
+                #inherited_expression = Simulation.simulate_distribution('normal', mean_expression, dispersion, (cur_num_cells, len(inherited_genes)))
+                inherited_expression = np.array(mean_expression).reshape(1, -1) * np.ones((cur_num_cells, len(inherited_genes)))
                 cur_branch_expression = np.concatenate([inherited_expression, cur_branch_expression], axis=1)
                 cur_branch_genes = inherited_genes + cur_branch_genes
 
-            adata = sc.AnnData(cur_branch_expression)
+            # Create an AnnData object for the current branch
+            cur_branch_expression_wt_noise = Simulation.simulate_distribution(distribution, cur_branch_expression, dispersion)
+            adata = sc.AnnData(cur_branch_expression_wt_noise)
             adata.obs_names = cur_branch_cells
             adata.var_names = cur_branch_genes
             adata.obs['branch'] = branch_str
             adata.obs['depth'] = depth
+            adata.layers['no_noise'] = cur_branch_expression
 
             # Base case: if depth is 0, return the adata
             if depth == 0:
@@ -635,12 +648,14 @@ class Simulation:
         dat = np.vstack([dat, np.random.normal(20, 1, (n_genes//5, n))])
         dat = np.vstack([dat, np.repeat(np.linspace(100, 0, n).reshape(1, -1), n_genes//5, axis=0)])
 
-        expression_matrix = Simulation.simulate_distribution(distribution, dat.T, dispersion)
+        # Add noise to the expression matrix
+        expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, dat.T, dispersion)
         #expression_matrix = dat.T
         # Convert to anndata object
-        adata = sc.AnnData(expression_matrix)
+        adata = sc.AnnData(expression_matrix_wt_noise)
         adata.obs['state'] = state
         adata.obs['state'] = adata.obs['state'].astype('category')
         adata.obs['time'] = np.arange(1, n + 1)
+        adata.layers['no_noise'] = dat.T
 
         return adata

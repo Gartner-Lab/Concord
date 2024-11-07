@@ -2,7 +2,7 @@
 from .. import logger
 
 def run_umap(adata,
-             source_key='encoded', umap_key='encoded_UMAP',
+             source_key='encoded', result_key='encoded_UMAP',
              n_components=2, n_pc=None,
              n_neighbors=30, min_dist=0.1,
              metric='euclidean', spread=1.0, n_epochs=None,
@@ -29,8 +29,8 @@ def run_umap(adata,
                                spread=spread, n_epochs=n_epochs, random_state=random_state)
 
     
-    adata.obsm[umap_key] = umap_model.fit_transform(source_data)
-    logger.info(f"UMAP embedding stored in adata.obsm['{umap_key}']")
+    adata.obsm[result_key] = umap_model.fit_transform(source_data)
+    logger.info(f"UMAP embedding stored in adata.obsm['{result_key}']")
 
 
 
