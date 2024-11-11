@@ -7,3 +7,4 @@ from .pl_decoded import *
 from .palettes import *
 from .pl_graph import *
 from .pl_tda import *
+from .pl_geometry import *

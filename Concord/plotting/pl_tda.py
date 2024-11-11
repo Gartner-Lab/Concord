@@ -106,48 +106,88 @@ def plot_betti_curves(diagram, nbins=100, homology_dimensions=[0,1,2], title="Be
     return ax
 
 
-def plot_betti_statistic(betti_stats_pivot, statistic, dimension, color='skyblue', figsize=(6,4), dpi=300, save_path=None):
+
+
+def plot_betti_statistic(betti_stats_pivot, statistic='Entropy', dimension=None, log_y=False, bar_width=0.2, 
+                           legend_pos='upper right', pal='tab20', figsize=(7, 4), dpi=300, save_path=None):
     """
-    Plots the specified Betti curve statistic across methods for a given dimension.
+    Plots a grouped bar plot for a specified statistic across dimensions for each method.
+    Allows plotting all dimensions or a single specified dimension.
 
     Parameters:
-    - betti_stats_pivot: DataFrame containing Betti curve statistics (with MultiIndex columns).
-    - statistic: String specifying the statistic to plot ('Entropy', 'Mean', 'Median', 'Mode', 'Variance').
-    - dimension: String specifying the dimension (e.g., 'Dim 0', 'Dim 1', 'Dim 2').
-
+    - betti_stats_pivot: DataFrame with multi-index columns (Dimension, Statistic).
+    - statistic: The name of the statistic to plot (e.g., 'Entropy', 'Variance').
+    - dimension: Specific dimension to plot (e.g., 'Dim 0') or None to plot all dimensions.
+    - log_y: Boolean, whether to use a logarithmic scale for the y-axis.
+    - bar_width: Width of each bar in the grouped bar plot (default is 0.2).
+    - legend_pos: Position of the legend (default is 'upper right').
+    - pal: Color palette for the bars (default is 'tab20').
+    - figsize: Size of the figure (default is (10, 6)).
+    - dpi: Resolution of the figure (default is 300).
+    - save_path: Path to save the figure (default is None).
+    
     Returns:
     - None
     """
+
     import pandas as pd
-    # Ensure the statistic name is capitalized to match the DataFrame columns
-    statistic = statistic.capitalize()
+    import seaborn as sns
+    # If a specific dimension is provided, filter to that dimension only
+    if dimension is not None:
+        # Ensure the dimension is in the correct format
+        dimension = f"Dim {dimension}" if isinstance(dimension, int) else dimension
+        stat_columns = betti_stats_pivot.loc[:, pd.IndexSlice[dimension, statistic]].to_frame()
+        stat_columns.columns = [dimension]  # Rename the column to match the dimension
+    else:
+        # Extract columns for the specified statistic across all dimensions
+        stat_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, statistic]]
+        stat_columns.columns = [f"Dim {i}" for i in range(stat_columns.shape[1])]
 
-    # Access the specific column in the MultiIndex DataFrame
-    try:
-        # If columns have MultiIndex
-        if isinstance(betti_stats_pivot.columns, pd.MultiIndex):
-            data_series = betti_stats_pivot[(dimension, statistic)]
-        else:
-            # If columns are flattened
-            column_name = f"{dimension}_{statistic}"
-            data_series = betti_stats_pivot[column_name]
-    except KeyError:
-        print(f"Statistic '{statistic}' for dimension '{dimension}' not found in the DataFrame.")
-        return
+    # Initialize plot
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
-    # Plot the data
-    plt.figure(figsize=figsize, dpi=dpi)
-    data_series.plot(kind='bar', color=color)
+    # Define number of methods and dimensions to plot
+    n_methods = len(stat_columns.index)
+    n_dimensions = len(stat_columns.columns)
+    
+    # Generate x positions for each method and set offset for each dimension's bar within the group
+    indices = np.arange(n_methods)
+    
+    # Generate color palette
+    if isinstance(pal, str):
+        colors = sns.color_palette(pal, n_dimensions)
+    else:
+        colors = pal
 
-    plt.ylabel(statistic)
-    plt.title(f"{statistic} for {dimension} Across Methods")
-    plt.xticks(rotation=45)
+    # Plot each dimension's data as a separate set of bars
+    for i, (dim, color) in enumerate(zip(stat_columns.columns, colors)):
+        ax.bar(
+            indices + i * bar_width,
+            stat_columns[dim],
+            width=bar_width,
+            color=color,
+            label=dim
+        )
+    
+    # Set labels and titles
+    ax.set_xticks(indices + bar_width * (n_dimensions - 1) / 2)
+    ax.set_xticklabels(stat_columns.index, rotation=45, ha='right')
+    ax.set_ylabel(statistic)
+    if log_y:
+        ax.set_yscale('log')
+
+    title_dimension = f" for {dimension}" if dimension else " across Dimensions"
+    ax.set_title(f'{statistic}{title_dimension} for Each Method')
+    ax.legend(title='Dimension' if not dimension else None, loc=legend_pos)
+    
+    # Adjust layout and show plot
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=dpi, bbox_inches='tight')
+        plt.savefig(save_path, dpi=dpi)
 
     plt.show()
+
 
 
 
