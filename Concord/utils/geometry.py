@@ -52,37 +52,6 @@ def pairwise_distance(adata, keys, metric="cosine"):
     return distance_result
     
 
-def distance_correlation(distance_result, corr_types=['pearsonr', 'spearmanr', 'kendalltau'], groundtruth_key="PCA_no_noise"):
-    from scipy.stats import pearsonr, spearmanr, kendalltau
-    import pandas as pd
-
-    pr_result, sr_result, kt_result = {}, {}, {}
-    
-    # Calculate correlations based on requested types
-    for key in distance_result.keys():
-        if 'pearsonr' in corr_types:
-            pr_result[key] = pearsonr(distance_result[groundtruth_key], distance_result[key])[0]
-        if 'spearmanr' in corr_types:
-            sr_result[key] = spearmanr(distance_result[groundtruth_key], distance_result[key])[0]
-        if 'kendalltau' in corr_types:
-            kt_result[key] = kendalltau(distance_result[groundtruth_key], distance_result[key])[0]
-    
-    # Collect correlation values for each type
-    corr_values = {}
-    for key in distance_result.keys():
-        corr_values[key] = [
-            pr_result.get(key, None),
-            sr_result.get(key, None),
-            kt_result.get(key, None)
-        ]
-    
-    # Create DataFrame with correlation types as row indices and keys as columns
-    corr_df = pd.DataFrame(corr_values, index=['pearsonr', 'spearmanr', 'kendalltau'])
-    
-    # Filter only for requested correlation types
-    corr_df = corr_df.loc[corr_types].T
-
-    return corr_df
     
 
 def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=75, method='spearman'):
@@ -116,13 +85,13 @@ def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=7
     return local_corr, distal_corr
 
 
-def compute_batch_state_distance_ratio(adata, latent_key='X_latent', batch_key='batch', state_key='cluster', metric='cosine'):
+def compute_state_batch_distance_ratio(adata, basis='X_latent', batch_key='batch', state_key='cluster', metric='cosine'):
     """
     Computes the Batch-to-State Distance Ratio using centroids to evaluate batch correction.
     
     Parameters:
     - adata: AnnData object containing latent embeddings in adata.obsm.
-    - latent_key: Key for latent embeddings in adata.obsm.
+    - basis: Key for latent embeddings in adata.obsm.
     - batch_key: Key for batch labels in adata.obs.
     - state_key: Key for cell state labels in adata.obs.
     - metric: Distance metric to use; e.g., 'cosine' or 'euclidean'.
@@ -133,7 +102,7 @@ def compute_batch_state_distance_ratio(adata, latent_key='X_latent', batch_key='
     import numpy as np
     from scipy.spatial.distance import pdist
     # Get the latent embeddings
-    latent_embeddings = adata.obsm[latent_key]
+    latent_embeddings = adata.obsm[basis]
     
     # Calculate centroids for each batch within each state
     batch_centroids = {}
@@ -165,10 +134,9 @@ def compute_batch_state_distance_ratio(adata, latent_key='X_latent', batch_key='
     state_distances = pdist(state_centroid_matrix, metric=metric)
     avg_state_distance = np.mean(state_distances)
     
-    # Compute the Batch-to-State Distance Ratio
-    batch_to_state_ratio = avg_batch_distance / avg_state_distance
+    state_to_batch_ratio = avg_state_distance / avg_batch_distance
     
-    return batch_to_state_ratio
+    return state_to_batch_ratio
 
 
 
@@ -236,7 +204,7 @@ def compute_trustworthiness(adata, embedding_keys, groundtruth, metric='euclidea
         summary_stats_data.append({
             'Embedding': key,
             'Average Trustworthiness': avg_trustworthiness,
-            'Trustworthiness Decay Rate': slope
+            'Trustworthiness Decay (100N)': slope * 100
         })
 
     # Convert collected data to DataFrames
@@ -248,13 +216,34 @@ def compute_trustworthiness(adata, embedding_keys, groundtruth, metric='euclidea
     return trustworthiness_df, summary_stats_df
 
 
-def compute_centroid_distance(adata, basis, group_key, dist_metric='cosine'):
+def compute_centroid_distance(adata, basis, state_key, dist_metric='cosine'):
     import pandas as pd
     from scipy.spatial.distance import pdist
     # Convert embedding data to DataFrame and align with observations
     embedding_df = pd.DataFrame(adata.obsm[basis], index=adata.obs.index)
-    # Compute centroids by grouping based on the specified group_key
-    centroids = embedding_df.groupby(adata.obs[group_key]).mean()
+    # Compute centroids by grouping based on the specified state_key
+    centroids = embedding_df.groupby(adata.obs[state_key]).mean()
     # Calculate pairwise distances between centroids
     dist = pdist(centroids, metric=dist_metric)
     return dist
+
+def compute_dispersion_across_states(adata, basis, state_key, dispersion_metric='var'):
+    mean_disp = {}
+    data = adata.obsm[basis] if basis in adata.obsm else adata.layers[basis]
+    for state in adata.obs[state_key].unique():
+        idx = adata.obs[state_key] == state
+        if dispersion_metric == 'var':
+            mean_disp[state] = np.mean(np.var(data[idx], axis=0))
+        elif dispersion_metric == 'std':
+            mean_disp[state] = np.mean(np.std(data[idx], axis=0))
+        elif dispersion_metric == 'coefficient_of_variation':
+            mean_disp[state] = np.mean(np.std(data[idx], axis=0) / np.mean(data[idx], axis=0))
+        elif dispersion_metric == 'fano_factor':
+            mean_disp[state] = np.mean(np.var(data[idx], axis=0) / np.mean(data[idx], axis=0))
+        else:
+            raise ValueError(f"Invalid dispersion metric: {dispersion_metric}")
+        
+    return mean_disp
+
+
+

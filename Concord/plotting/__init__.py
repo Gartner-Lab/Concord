@@ -8,3 +8,5 @@ from .palettes import *
 from .pl_graph import *
 from .pl_tda import *
 from .pl_geometry import *
+from .pl_benchmark import *
+from .pl_general import *

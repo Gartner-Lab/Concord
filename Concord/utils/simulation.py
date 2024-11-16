@@ -29,7 +29,8 @@ class Simulation:
                  batch_dispersion=0.1, 
                  batch_cell_proportion=None,
                  batch_feature_frac=0.1,
-                 non_specific_gene_fraction=0.1,
+                 global_non_specific_gene_fraction=0.1,
+                 pairwise_non_specific_gene_fraction=None,
                  universal_gene_fraction=0.0,
                  non_neg = False,
                  to_int = False,
@@ -66,7 +67,8 @@ class Simulation:
         self.batch_distribution = batch_distribution if isinstance(batch_distribution, list) else [batch_distribution] * n_batches
         self.batch_feature_frac = batch_feature_frac if isinstance(batch_feature_frac, list) else [batch_feature_frac] * n_batches
 
-        self.non_specific_gene_fraction = non_specific_gene_fraction
+        self.global_non_specific_gene_fraction = global_non_specific_gene_fraction
+        self.pairwise_non_specific_gene_fraction = pairwise_non_specific_gene_fraction
         self.universal_gene_fraction = universal_gene_fraction
         self.non_neg = non_neg
         self.to_int = to_int
@@ -121,6 +123,8 @@ class Simulation:
             adata.X = adata.X.astype(int)
             adata_pre.X = adata_pre.X.astype(int)
 
+        adata.layers['wt_noise'] = adata.X
+        adata_pre.layers['wt_noise'] = adata_pre.X
         return adata, adata_pre
 
     def simulate_state(self):
@@ -130,7 +134,9 @@ class Simulation:
                                            program_structure=self.program_structure, program_on_time_fraction=self.program_on_time_fraction,
                                            distribution = self.state_distribution,
                                            mean_expression=self.state_level, min_expression=self.state_min_level, dispersion=self.state_dispersion, 
-                                           non_specific_gene_fraction=self.non_specific_gene_fraction, seed=self.seed)
+                                           global_non_specific_gene_fraction=self.global_non_specific_gene_fraction,
+                                           pairwise_non_specific_gene_fraction=self.pairwise_non_specific_gene_fraction,
+                                           seed=self.seed)
         elif self.state_type == "trajectory":
             logger.info(f"Simulating trajectory with {self.n_states} states, distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
             adata = self.simulate_trajectory(n_genes=self.n_genes, n_cells=self.n_cells, 
@@ -245,7 +251,9 @@ class Simulation:
     
 
     def simulate_clusters(self, n_genes=6, n_cells=12, num_clusters=2, program_structure="uniform", program_on_time_fraction=0.3,
-                      distribution="normal", mean_expression=10, min_expression=1, dispersion=1.0, non_specific_gene_fraction=0.1,
+                      distribution="normal", mean_expression=10, min_expression=1, dispersion=1.0, 
+                      global_non_specific_gene_fraction=0.1, 
+                      pairwise_non_specific_gene_fraction=None,
                       cluster_key='cluster', permute=False, seed=42):
         np.random.seed(seed)
         
@@ -267,7 +275,6 @@ class Simulation:
             cells_per_cluster = n_cells // num_clusters
             cells_per_cluster_list = [cells_per_cluster] * num_clusters
         
-        num_nonspecific_genes = int(sum(genes_per_cluster_list) * non_specific_gene_fraction)
         total_n_genes = sum(genes_per_cluster_list)
         total_n_cells = sum(cells_per_cluster_list)
         expression_matrix = np.zeros((total_n_cells, total_n_genes))
@@ -275,6 +282,8 @@ class Simulation:
         gene_offset = 0  # Tracks the starting gene index for each cluster
         cell_offset = 0  # Tracks the starting cell index for each cluster
 
+        cluster_gene_indices = {}
+        cluster_cell_indices = {}
         for cluster in range(num_clusters):
             # Define cell range for this cluster based on the supplied list
             cell_start = cell_offset
@@ -288,12 +297,11 @@ class Simulation:
             gene_end = gene_offset + genes_per_cluster_list[cluster]
             gene_offset = gene_end  # Update offset for the next cluster
 
-            other_genes = np.setdiff1d(np.arange(total_n_genes), np.arange(gene_start, gene_end))
-            nonspecific_gene_indices = np.random.choice(other_genes, num_nonspecific_genes, replace=False)
-            
             # Combine the specific and nonspecific gene indices
-            gene_indices = np.concatenate([np.arange(gene_start, gene_end), nonspecific_gene_indices])
+            gene_indices = np.concatenate([np.arange(gene_start, gene_end)])
 
+            cluster_gene_indices[cluster] = gene_indices
+            cluster_cell_indices[cluster] = cell_indices
             # Simulate expression for the current cluster
             expression_matrix = self.simulate_expression_block(
                 expression_matrix, program_structure, gene_indices, cell_indices, mean_expression, min_expression, program_on_time_fraction
@@ -301,15 +309,52 @@ class Simulation:
             
             cell_clusters.extend([f"{cluster_key}_{cluster+1}"] * len(cell_indices))
 
+        # Add non-specific genes to the expression matrix
+
+        if pairwise_non_specific_gene_fraction is not None:
+            logger.info("Adding non-specific genes to the expression matrix. Note this will increase gene count compared to the specified value.")
+            for cluster_pairs in pairwise_non_specific_gene_fraction.keys():
+                cluster1, cluster2 = cluster_pairs
+                cluster1_genes = cluster_gene_indices[cluster1]
+                cluster2_genes = cluster_gene_indices[cluster2]
+                union_genes = np.union1d(cluster1_genes, cluster2_genes)
+                num_nonspecific_genes = int(len(union_genes) * pairwise_non_specific_gene_fraction[cluster_pairs])
+                nonspecific_gene_indices = np.random.choice(union_genes, num_nonspecific_genes, replace=False)
+                cluster1_cells = cluster_cell_indices[cluster1]
+                cluster2_cells = cluster_cell_indices[cluster2]
+                union_cells = np.union1d(cluster1_cells, cluster2_cells)
+                expression_matrix = self.simulate_expression_block(
+                    expression_matrix, program_structure, nonspecific_gene_indices, union_cells, mean_expression, min_expression, program_on_time_fraction
+                )
+            
+        if global_non_specific_gene_fraction is not None and global_non_specific_gene_fraction > 0:
+            logger.info("Adding non-specific genes to the expression matrix. Note this will increase gene count compared to the specified value.")
+            num_nonspecific_genes = int(expression_matrix.shape[1] * global_non_specific_gene_fraction)
+            all_genes = np.arange(expression_matrix.shape[1])
+            nonspecific_gene_indices = np.random.choice(all_genes, num_nonspecific_genes, replace=False)
+            expression_matrix = self.simulate_expression_block(
+                expression_matrix, program_structure, nonspecific_gene_indices, np.arange(total_n_cells), mean_expression, min_expression, program_on_time_fraction
+            )
+            # Sort these genes to the end
+            specific_gene_indices = np.setdiff1d(all_genes, nonspecific_gene_indices)
+            expression_matrix = expression_matrix[:, np.concatenate([specific_gene_indices, nonspecific_gene_indices])]
+            
         # Apply distribution to simulate realistic expression values
-        expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
+        if not isinstance(dispersion, list):
+            expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
+        else:
+            expression_matrix_wt_noise = expression_matrix.copy()
+            # For each cluster, apply a different dispersion value
+            for i, disp in enumerate(dispersion):
+                cell_indices = cluster_cell_indices[i]
+                expression_matrix_wt_noise[cell_indices, :] = Simulation.simulate_distribution(distribution, expression_matrix[cell_indices, :], disp)
+
 
         # Create AnnData object
         obs = pd.DataFrame({f"{cluster_key}": cell_clusters}, index=[f"Cell_{i+1}" for i in range(total_n_cells)])
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(total_n_genes)])
         adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
         adata.layers['no_noise'] = expression_matrix
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
         
         if permute:
             adata = adata[np.random.permutation(adata.obs_names), :]
@@ -374,7 +419,6 @@ class Simulation:
         var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(n_genes)])
         adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
         adata.layers['no_noise'] = expression_matrix
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
         return adata
     
 
@@ -477,7 +521,6 @@ class Simulation:
             adata.obs['branch'] = branch_str
             adata.obs['depth'] = depth
             adata.layers['no_noise'] = cur_branch_expression
-            adata.layers['wt_noise'] = cur_branch_expression_wt_noise
 
             # Base case: if depth is 0, return the adata
             if depth == 0:
@@ -693,7 +736,6 @@ class Simulation:
         adata.obs['state'] = adata.obs['state'].astype('category')
         adata.obs['time'] = np.arange(1, n + 1)
         adata.layers['no_noise'] = dat.T
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
 
         return adata
     
@@ -721,7 +763,6 @@ class Simulation:
         adata = sc.AnnData(expression_matrix_wt_noise)
         adata.obs['time'] = t
         adata.layers['no_noise'] = expression_matrix
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
         return adata
     
 
@@ -755,7 +796,6 @@ class Simulation:
         adata = sc.AnnData(expression_matrix_wt_noise)
         adata.obs['time'] = t
         adata.layers['no_noise'] = expression_matrix
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
         
         return adata
 
@@ -810,7 +850,6 @@ class Simulation:
         adata = sc.AnnData(expression_matrix_wt_noise)
         adata.obs['circle'] = ['circle1'] * num_points + ['circle2'] * num_points
         adata.layers['no_noise'] = expression_matrix
-        adata.layers['wt_noise'] = expression_matrix_wt_noise
         
         return adata
 

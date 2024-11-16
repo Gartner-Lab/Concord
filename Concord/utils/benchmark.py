@@ -2,6 +2,7 @@
 import pandas as pd
 from .timer import Timer
 import logging
+import numpy as np
 from .. import logger
 
 
@@ -110,134 +111,57 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
 
 
 
-def run_scanorama(adata, batch_key="batch", output_key="Scanorama", return_corrected=False):
-    import scanorama
-    import numpy as np
 
-    batch_cats = adata.obs[batch_key].cat.categories
-    adata_list = [adata[adata.obs[batch_key] == b].copy() for b in batch_cats]
+def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendalltau'], groundtruth_key="PCA_no_noise"):
+    from scipy.stats import pearsonr, spearmanr, kendalltau
+    import pandas as pd
 
-    scanorama.integrate_scanpy(adata_list)
-    adata.obsm[output_key] = np.zeros((adata.shape[0], adata_list[0].obsm["X_scanorama"].shape[1]))
-
-    if return_corrected:
-        corrected = scanorama.correct_scanpy(adata_list)
-        adata.layers[output_key + "_corrected"] = np.zeros(adata.shape)
-    for i, b in enumerate(batch_cats):
-        adata.obsm[output_key][adata.obs[batch_key] == b] = adata_list[i].obsm["X_scanorama"]
-        if return_corrected:
-            adata.layers[output_key + "_corrected"][adata.obs[batch_key] == b] = corrected[i].X.toarray()
-
-
-
-def run_liger(adata, batch_key="batch", count_layer="counts", output_key="LIGER", k=30, return_corrected=False):
-    import numpy as np
-    import pyliger
-    from scipy.sparse import csr_matrix
-
-    bdata = adata.copy()
-    # Ensure batch_key is a categorical variable
-    if not bdata.obs[batch_key].dtype.name == "category":
-        bdata.obs[batch_key] = bdata.obs[batch_key].astype("category")
-    batch_cats = bdata.obs[batch_key].cat.categories
-
-    # Set the count layer as the primary data for normalization in Pyliger    
-    bdata.X = bdata.layers[count_layer]
-    # Convert to csr matrix if not
-    if not isinstance(bdata.X, csr_matrix):
-        bdata.X = csr_matrix(bdata.X)
+    pr_result, sr_result, kt_result = {}, {}, {}
     
-    # Create a list of adata objects, one per batch
-    adata_list = [bdata[bdata.obs[batch_key] == b].copy() for b in batch_cats]
-    for i, ad in enumerate(adata_list):
-        ad.uns["sample_name"] = batch_cats[i]
-        ad.uns["var_gene_idx"] = np.arange(bdata.n_vars)  # Ensures same genes are used in each adata
+    # Calculate correlations based on requested types
+    for key in data_dict.keys():
+        ground_val = data_dict[groundtruth_key]
+        ground_val = np.array(list(ground_val.values())) if isinstance(ground_val, dict) else ground_val
 
-    # Create a LIGER object from the list of adata per batch
-    liger_data = pyliger.create_liger(adata_list, remove_missing=False, make_sparse=False)
-    liger_data.var_genes = bdata.var_names  # Set genes for LIGER data consistency
+        latent_val = data_dict[key]
+        latent_val = np.array(list(latent_val.values())) if isinstance(latent_val, dict) else latent_val
 
-    # Run LIGER integration steps
-    pyliger.normalize(liger_data)
-    pyliger.scale_not_center(liger_data)
-    pyliger.optimize_ALS(liger_data, k=k)
-    pyliger.quantile_norm(liger_data)
-
-
-    # Initialize the obsm field for the integrated data
-    adata.obsm[output_key] = np.zeros((adata.shape[0], liger_data.adata_list[0].obsm["H_norm"].shape[1]))
+        if 'pearsonr' in corr_types:
+            pr_result[key] = pearsonr(ground_val, latent_val)[0]
+        if 'spearmanr' in corr_types:
+            sr_result[key] = spearmanr(ground_val, latent_val)[0]
+        if 'kendalltau' in corr_types:
+            kt_result[key] = kendalltau(ground_val, latent_val)[0]
     
-    # Populate the integrated embeddings back into the main AnnData object
-    for i, b in enumerate(batch_cats):
-        adata.obsm[output_key][adata.obs[batch_key] == b] = liger_data.adata_list[i].obsm["H_norm"]
-
-    if return_corrected:
-        corrected_expression = np.zeros(adata.shape)
-        for i, b in enumerate(batch_cats):
-            H = liger_data.adata_list[i].obsm["H_norm"]  # Latent representation (cells x factors)
-            W = liger_data.W  # Gene loadings (genes x factors)
-            corrected_expression[adata.obs[batch_key] == b] = H @ W.T
-
-        adata.layers[output_key + "_corrected"] = corrected_expression
+    # Collect correlation values for each type
+    corr_values = {}
+    for key in data_dict.keys():
+        corr_values[key] = [
+            pr_result.get(key, None),
+            sr_result.get(key, None),
+            kt_result.get(key, None)
+        ]
     
-
-def run_harmony(adata, batch_key="batch", output_key="Harmony", input_key="X_pca"):
-    from harmony import harmonize
-    if input_key not in adata.obsm:
-        raise ValueError(f"Input key '{input_key}' not found in adata.obsm")
+    # Create DataFrame with correlation types as row indices and keys as columns
+    corr_df = pd.DataFrame(corr_values, index=['pearsonr', 'spearmanr', 'kendalltau'])
     
-    adata.obsm[output_key] = harmonize(adata.obsm[input_key], adata.obs, batch_key=batch_key)
+    # Filter only for requested correlation types
+    corr_df = corr_df.loc[corr_types].T
+
+    return corr_df
 
 
-
-def run_scvi(adata, layer="counts", batch_key="batch", gene_likelihood="nb", n_layers=2, n_latent=30, output_key="scVI", return_model=False, return_corrected=False, transform_batch=None):
-    import scvi
-    # Set up the AnnData object for SCVI
-    scvi.model.SCVI.setup_anndata(adata, layer=layer, batch_key=batch_key)
-    
-    # Initialize and train the SCVI model
-    vae = scvi.model.SCVI(adata, gene_likelihood=gene_likelihood, n_layers=n_layers, n_latent=n_latent)
-    vae.train()
-    
-    # Store the latent representation in the specified obsm key
-    adata.obsm[output_key] = vae.get_latent_representation()
-
-    if return_corrected:
-        corrected_expression = vae.get_normalized_expression(transform_batch=transform_batch)
-        adata.layers[output_key + "_corrected" + ("" if transform_batch is None else f"_{transform_batch}")] = corrected_expression
-    
-    if return_model:
-        return vae
-    
-
-def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels_key="cell_type", unlabeled_category="Unknown", output_key="scANVI", 
-               gene_likelihood="nb", n_layers=2, n_latent=30, return_corrected=False, transform_batch=None):
-    import scvi
-    # Train SCVI model if not supplied
-    if scvi_model is None:
-        scvi_model = run_scvi(adata, layer=layer, batch_key=batch_key, gene_likelihood=gene_likelihood,
-                              n_layers=n_layers, n_latent=n_latent, output_key="scVI")
-    
-    # Set up and train the SCANVI model
-    lvae = scvi.model.SCANVI.from_scvi_model(scvi_model, adata=adata, labels_key=labels_key, unlabeled_category=unlabeled_category)
-    lvae.train(max_epochs=20, n_samples_per_label=100)
-    
-    if return_corrected:
-        corrected_expression = lvae.get_normalized_expression(transform_batch=transform_batch)
-        adata.layers[output_key + "_corrected" + ("" if transform_batch is None else f"_{transform_batch}")] = corrected_expression
-    # Store the SCANVI latent representation in the specified obsm key
-    adata.obsm[output_key] = lvae.get_latent_representation()
-    
-
-
-
-def benchmark_topology(adata, keys, homology_dimensions=[0,1,2], expected_betti_numbers=[0,0,0], n_bins=100):
+def benchmark_topology(adata, keys, homology_dimensions=[0,1,2], expected_betti_numbers=[0,0,0], n_bins=100, save_dir=None, file_suffix=None):
     import pandas as pd
     from .tda import compute_persistent_homology, compute_betti_statistics, summarize_betti_statistics
+
+    results = {}
     dg_list = {}
     for key in keys:
         logger.info(f"Computing persistent homology for {key}")
         dg_list[key] =  compute_persistent_homology(adata, key=key, homology_dimensions=homology_dimensions)
+    
+    results['diagrams'] = dg_list
 
     expected_betti_numbers = [4,0,0]
     betti_stats = {}    
@@ -246,44 +170,61 @@ def benchmark_topology(adata, keys, homology_dimensions=[0,1,2], expected_betti_
         betti_stats[key] = compute_betti_statistics(diagram=dg_list[key], expected_betti_numbers=expected_betti_numbers, n_bins=n_bins)
 
     betti_stats_pivot, distance_metrics_df = summarize_betti_statistics(betti_stats)
+    results['betti_stats'] = betti_stats_pivot
+    results['distance_metrics'] = distance_metrics_df
 
     entropy_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Entropy']]
     average_entropy = entropy_columns.mean(axis=1)
     variance_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Variance']]
     average_variance = variance_columns.mean(axis=1)
     final_metrics = pd.concat([average_entropy, average_variance], axis=1)
-    final_metrics.columns = ['Entropy', 'Variance']
-    final_metrics['L1 distance'] = distance_metrics_df['L1 Distance']
-    
-    return final_metrics, dg_list, betti_stats_pivot, distance_metrics_df
+    final_metrics.columns = pd.MultiIndex.from_tuples([('Betti curve', 'Entropy'), ('Betti curve', 'Variance')])
+    final_metrics[('Betti number', 'L1 distance')] = distance_metrics_df['L1 Distance']
+    results['combined_metrics'] = final_metrics
+
+    if save_dir is not None and file_suffix is not None:
+        for key, result in results.items():
+            if isinstance(result, pd.DataFrame):
+                result.to_csv(save_dir / f"{key}_{file_suffix}.csv")
+            else:
+                continue
+
+    return results
 
 
 
 def benchmark_geometry(adata, keys, 
-                       eval_metrics=['cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'cluster_distance_corr', 'batch_state_distance_ratio'],
+                       eval_metrics=['cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
                        dist_metric='cosine', 
                        groundtruth_key = 'PCA_no_noise', 
                        state_key = 'cluster',
+                       batch_key = 'batch',
+                       groundtruth_dispersion = None,
                        corr_types = ['pearsonr', 'spearmanr', 'kendalltau'], 
                        trustworthiness_n_neighbors = np.arange(10, 101, 10),
+                       dispersion_metric='var',
                        return_type='dataframe',
                        verbose=True,
                        save_dir=None, 
                        file_suffix=None):
     import pandas as pd
-    from .geometry import pairwise_distance, distance_correlation, local_vs_distal_corr, compute_trustworthiness, compute_centroid_distance, compute_batch_state_distance_ratio
-
-    results = {}
+    from .geometry import pairwise_distance, local_vs_distal_corr, compute_trustworthiness, compute_centroid_distance, compute_state_batch_distance_ratio, compute_dispersion_across_states
+    results_df = {}
+    results_full = {}
     if verbose:
         logger.setLevel(logging.INFO)
 
     # Global distance correlation
     if 'cell_distance_corr' in eval_metrics:
         logger.info("Computing cell distance correlation")
-        distance_result = pairwise_distance(adata, keys = keys, metric=dist_metric)
-        corr_result = distance_correlation(distance_result, corr_types=corr_types, groundtruth_key=groundtruth_key)
-        corr_result.columns = [f'cell_{col}' for col in corr_result.columns]
-        results['cell_distance_corr'] = corr_result
+        distance_result = pairwise_distance(adata, keys = keys, metric=dist_metric)            
+        corr_result = compute_correlation(distance_result, corr_types=corr_types, groundtruth_key=groundtruth_key)
+        results_df['cell_distance_corr'] = corr_result
+        results_df['cell_distance_corr'].columns = [f'cell_{col}' for col in corr_result.columns]
+        results_full['cell_distance_corr'] = {
+            'distance': distance_result,
+            'correlation': corr_result
+        }
 
     # Local vs distal correlation
     if 'local_distal_corr' in eval_metrics:
@@ -297,44 +238,111 @@ def benchmark_geometry(adata, keys,
         local_spearman_df = pd.DataFrame(local_spearman, index = [f'Local {corr_method} correlation']).T
         distal_spearman_df = pd.DataFrame(distal_spearman, index = [f'Distal {corr_method} correlation']).T
         local_distal_corr_df = pd.concat([local_spearman_df, distal_spearman_df], axis=1)
-        results['local_distal_corr'] = local_distal_corr_df
+        results_df['local_distal_corr'] = local_distal_corr_df
+        results_full['local_distal_corr'] = local_distal_corr_df
 
     # Trustworthiness
     if 'trustworthiness' in eval_metrics:
         logger.info("Computing trustworthiness")
         trustworthiness_scores, trustworthiness_stats = compute_trustworthiness(adata, embedding_keys = keys, groundtruth=groundtruth_key, metric=dist_metric, n_neighbors=trustworthiness_n_neighbors)
-        results['trustworthiness'] = trustworthiness_stats
+        results_df['trustworthiness'] = trustworthiness_stats
+        results_full['trustworthiness'] = {
+            'scores': trustworthiness_scores,
+            'stats': trustworthiness_stats
+        }
         
     # Cluster centroid distances correlation
-    if 'cluster_distance_corr' in eval_metrics:
+    if 'state_distance_corr' in eval_metrics:
         logger.info("Computing cluster centroid distances correlation")
         cluster_centroid_distances = {}
         for key in keys:
             cluster_centroid_distances[key] = compute_centroid_distance(adata, key, state_key)
             
-        corr_cluster_result = distance_correlation(cluster_centroid_distances, corr_types=corr_types, groundtruth_key=groundtruth_key)
-        corr_cluster_result.columns = [f'{state_key}_{col}' for col in corr_cluster_result.columns]
-        results['cluster_distance_corr'] = corr_cluster_result
+        corr_dist_result = compute_correlation(cluster_centroid_distances, corr_types=corr_types, groundtruth_key=groundtruth_key)
+        corr_dist_result.columns = [f'{state_key}_distance_{col}' for col in corr_dist_result.columns]
+        results_df['state_distance_corr'] = corr_dist_result
+        results_full['state_distance_corr'] = {
+            'distance': cluster_centroid_distances,
+            'correlation': corr_dist_result
+        }
+
+    if 'state_dispersion_corr' in eval_metrics:
+        logger.info("Computing state dispersion correlation")
+        state_dispersion = {}
+        for key in keys:
+            state_dispersion[key] = compute_dispersion_across_states(adata, basis = key, state_key=state_key, dispersion_metric=dispersion_metric)
+            
+        if groundtruth_dispersion is not None:
+            state_dispersion['Groundtruth'] = groundtruth_dispersion
+
+        # Fix
+        corr_dispersion_result = compute_correlation(state_dispersion, corr_types=corr_types, groundtruth_key='Groundtruth' if groundtruth_dispersion is not None else groundtruth_key)
+        corr_dispersion_result.columns = [f'{state_key}_dispersion_{col}' for col in corr_dispersion_result.columns]
+        results_df['state_dispersion_corr'] = corr_dispersion_result
+        results_full['state_dispersion_corr'] = {
+            'dispersion': state_dispersion,
+            'correlation': corr_dispersion_result
+        }
 
     # Batch-to-State Distance Ratio for all latent embeddings
-    if 'batch_state_distance_ratio' in eval_metrics:
-        logger.info("Computing batch-state distance ratio")
-        batch_state_distance_ratios = {}
+    if 'state_batch_distance_ratio' in eval_metrics:
+        logger.info("Computing state-batch distance ratio")
+        state_batch_distance_ratios = {}
         for key in keys:
-            batch_state_distance_ratios[key] = compute_batch_state_distance_ratio(adata, latent_key=key, batch_key=batch_key, state_key=state_key, metric='cosine')
+            state_batch_distance_ratios[key] = compute_state_batch_distance_ratio(adata, basis=key, batch_key=batch_key, state_key=state_key, metric='cosine')
 
-        batch_state_distance_ratio_df = pd.DataFrame(batch_state_distance_ratios, index=[f'Batch-State Distance Ratio']).T
-        results['batch_state_distance_ratio'] = batch_state_distance_ratio_df
+        state_batch_distance_ratio_df = pd.DataFrame(state_batch_distance_ratios, index=[f'State-Batch Distance Ratio']).T
+        state_batch_distance_ratio_df = np.log10(state_batch_distance_ratio_df)
+        state_batch_distance_ratio_df.columns = [f'State-Batch Distance Ratio (log10)']
+        # Set groundtruth to Nan
+        if groundtruth_key in state_batch_distance_ratio_df.index:
+            state_batch_distance_ratio_df.loc[groundtruth_key] = np.nan
+        results_df['state_batch_distance_ratio'] = state_batch_distance_ratio_df
+        results_full['state_batch_distance_ratio'] = state_batch_distance_ratio_df
     
     if save_dir is not None and file_suffix is not None:
-        for key, result in results.items():
+        for key, result in results_df.items():
             result.to_csv(save_dir / f"{key}_{file_suffix}.csv")
     
-    # Combine the results into a single dataframe
-    if return_type == 'dict':
-        return results
+    combined_results_df = pd.concat(results_df, axis=1)
+
+    if return_type == 'full':
+        return combined_results_df, results_full
     else :
-        # Merge the results into a single dataframe using the same index
-        combined_results = pd.concat(results, axis=1)
-        return combined_results
+        return combined_results_df
     
+
+# Convert benchmark table to scores
+def benchmark_stats_to_score(df, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_class='', rank=False, rank_col=None):
+    import pandas as pd
+    from sklearn.preprocessing import MinMaxScaler
+
+    df = df.copy()
+    if min_max_scale:
+        df = pd.DataFrame(
+            MinMaxScaler().fit_transform(df),
+            columns=df.columns,
+            index=df.index,
+        )
+        df.columns = pd.MultiIndex.from_tuples([(col[0], f"{col[1]}(min-max)") for col in df.columns])
+
+    if one_minus:
+        df = 1 - df
+        df.columns = pd.MultiIndex.from_tuples([(col[0], f"1-{col[1]}") for col in df.columns])
+
+    if aggregate_score:
+        aggregate_df = pd.DataFrame(
+            df.mean(axis=1),
+            columns=pd.MultiIndex.from_tuples([('Aggregate score', aggregate_class)]),
+        )
+        df = pd.concat([df, aggregate_df], axis=1)
+
+    if rank:
+        if rank_col is None:
+            raise ValueError("rank_col must be specified when rank=True.")
+        # Reorder the rows based on the aggregate score
+        df = df.sort_values(by=rank_col, ascending=False)
+
+    return df
+
+
