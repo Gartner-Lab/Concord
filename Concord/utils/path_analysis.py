@@ -83,6 +83,9 @@ def find_peak_locations(smoothed_matrix):
     return peak_locations
 
 def sort_and_smooth_signal_along_path(adata, signal_key=None, path=None, sigma=2):
+    if path is None:
+        path = np.arange(adata.n_obs)
+        
     data = adata.obsm[signal_key][path]
     # Smooth each column and find the peak location
     smoothed_data = smooth_matrix(data, sigma=sigma)

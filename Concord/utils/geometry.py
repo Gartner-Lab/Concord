@@ -54,7 +54,7 @@ def pairwise_distance(adata, keys, metric="cosine"):
 
     
 
-def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=75, method='spearman'):
+def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=75, method='pearsonr'):
     from scipy.stats import spearmanr, pearsonr, kendalltau
     from scipy.spatial.distance import pdist
     # Step 1: Compute pairwise distances
@@ -73,14 +73,14 @@ def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=7
     if method == 'spearman':
         local_corr, _ = spearmanr(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = spearmanr(dist_high[distal_mask], dist_low[distal_mask])
-    elif method == 'pearson':
+    elif method == 'pearsonr':
         local_corr, _ = pearsonr(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = pearsonr(dist_high[distal_mask], dist_low[distal_mask])
     elif method == 'kendall':
         local_corr, _ = kendalltau(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = kendalltau(dist_high[distal_mask], dist_low[distal_mask])
     else:
-        raise ValueError(f"Method {method} not recognized. Must be one of 'spearman', 'pearson', or 'kendall'.")
+        raise ValueError(f"Method {method} not recognized. Must be one of 'spearman', 'pearsonr', or 'kendall'.")
 
     return local_corr, distal_corr
 

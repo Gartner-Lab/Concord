@@ -8,7 +8,7 @@ import time
 import pandas as pd
 import matplotlib.colors as mcolors
 from .. import logger
-from .palettes import get_numeric_color, get_factor_color, get_color_mapping
+from .palettes import get_color_mapping
 
 
 def plot_embedding(adata, basis, color_by=None, 
@@ -117,7 +117,6 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
     for col in color_by:
         # Retrieve color mapping using the new get_color_mapping method
         data_col, cmap, palette = get_color_mapping(adata, col, pal)
-        
         # Plot based on data type: numeric or categorical
         if pd.api.types.is_numeric_dtype(data_col):
             colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
@@ -130,7 +129,7 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
             fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
                                 title=f'3D Embedding colored by {col}',
                                 labels={'color': col}, opacity=opacity,
-                                color_discrete_map={cat: color for cat, color in zip(df[col].unique(), palette)})
+                                color_discrete_map=palette)
 
         fig.update_traces(marker=dict(size=point_size))
         fig.update_layout(width=width, height=height)
@@ -230,3 +229,224 @@ def plot_custom_embeddings_umap(custom_embedding=None, figsize=(5, 5), dpi=300,
     # Show the plot
     plt.show()
 
+
+
+
+
+def plot_all_embeddings(
+    adata,
+    combined_keys,
+    color_bys=['time', 'batch'],
+    basis_types=['PAGA', 'KNN', 'PCA', 'UMAP'],
+    pal={'time': 'viridis', 'batch': 'Set1'},
+    k=15,
+    edges_color='grey',
+    edges_width=0.05,
+    layout='kk',
+    threshold=0.1,
+    node_size_scale=0.1,
+    edge_width_scale=0.1,
+    font_size=7,
+    point_size=2.5,
+    alpha=0.8,
+    figsize=(9, 0.9),
+    ncols=11,
+    seed=42,
+    leiden_key='leiden',
+    legend_loc = None,
+    colorbar_loc = None,
+    save_dir='.',
+    file_suffix='plot'
+):
+    
+    nrows = int(np.ceil(len(combined_keys) / ncols))
+
+    for basis_type in basis_types:
+        print(f"Plotting {basis_type} embeddings")
+        for color_by in color_bys:
+            print(f"Coloring by {color_by}")
+            fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=300, constrained_layout=True)
+            axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
+
+            for key, ax in zip(combined_keys, axs):
+                data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
+                basis = f'{key}_{basis_type}' if basis_type not in key else key
+
+                if basis_type in ['PCA', 'UMAP']:
+                    if pd.api.types.is_numeric_dtype(data_col):
+                        sc.pl.embedding(
+                            adata, basis=basis, color=color_by, ax=ax, show=False,
+                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc
+                        )
+                    else:
+                        sc.pl.embedding(
+                            adata, basis=basis, color=color_by, ax=ax, show=False,
+                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, palette=palette
+                        )
+
+                elif basis_type == 'KNN':
+                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)    
+                    sc.tl.draw_graph(adata, layout=layout, random_state=seed)
+                    if pd.api.types.is_numeric_dtype(data_col):
+                        sc.pl.draw_graph(
+                            adata, color=color_by, ax=ax, show=False,
+                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, cmap=cmap, edges=True,
+                            edges_width=edges_width, edges_color=edges_color, colorbar_loc=colorbar_loc
+                        )
+                    else:
+                        sc.pl.draw_graph(
+                            adata, color=color_by, ax=ax, show=False,
+                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            size=point_size, alpha=alpha, palette=palette,
+                            edges=True, edges_width=edges_width, edges_color=edges_color
+                        )
+
+                elif basis_type == 'PAGA':
+                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)    
+                    sc.tl.paga(adata, groups=leiden_key, use_rna_velocity=False)
+                    if pd.api.types.is_numeric_dtype(data_col):
+                        sc.pl.paga(
+                            adata, threshold=threshold, color=color_by, ax=ax, show=False,
+                            layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
+                            edge_width_scale=edge_width_scale, colorbar=False
+                        )
+                    else:
+                        sc.pl.paga(
+                            adata, threshold=threshold, color=color_by, ax=ax, show=False,
+                            layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
+                            edge_width_scale=edge_width_scale
+                        )
+
+                if 'PCA' in key:
+                    key = key.replace('PCA_', '')
+                ax.set_title(key, fontsize=font_size)
+                ax.set_xlabel('')
+                ax.set_ylabel('')
+                ax.set_xticks([])
+                ax.set_yticks([])
+
+            # Hide any remaining empty axes
+            for ax in axs[len(combined_keys):]:
+                ax.set_visible(False)
+
+            # Save the figure
+            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.png", bbox_inches="tight")
+            plt.show()
+
+
+
+
+
+def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color_by='batch', save_path='rotation.mp4', pal=None,
+                                      point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60):
+    """
+    Visualize a rotating 3D embedding and save it as an MP4 video for presentation purposes.
+
+    Parameters:
+    adata : AnnData
+        AnnData object containing embeddings and metadata.
+    embedding_key : str, optional
+        Key in adata.obsm where the embedding is stored. Default is 'encoded_UMAP'.
+    color_by : str, optional
+        Column in adata.obs to color the points by. Default is 'batch'.
+    save_path : str, optional
+        Path to save the video. Default is 'rotation.mp4'.
+    point_size : int, optional
+        Size of the points in the plot. Default is 3.
+    opacity : float, optional
+        Opacity of the points in the plot. Default is 0.7.
+    width : int, optional
+        Width of the plot in pixels. Default is 800.
+    height : int, optional
+        Height of the plot in pixels. Default is 600.
+    rotation_duration : int, optional
+        Duration of the rotation in seconds. Default is 10 seconds.
+    num_steps : int, optional
+        Number of steps for the rotation animation. Default is 60.
+
+    Returns:
+    None
+    """
+    import numpy as np
+    import plotly.graph_objs as go
+    import plotly.express as px
+    import moviepy.editor as mpy
+    import os
+    if embedding_key not in adata.obsm:
+        raise KeyError(f"Embedding key '{embedding_key}' not found in adata.obsm")
+
+    if color_by not in adata.obs:
+        raise KeyError(f"Column '{color_by}' not found in adata.obs")
+
+    embedding = adata.obsm[embedding_key]
+
+    if embedding.shape[1] < 3:
+        raise ValueError(f"Embedding '{embedding_key}' must have at least 3 dimensions")
+
+    # Use only the first 3 dimensions for plotting
+    embedding = embedding[:, :3]
+
+    # Create a DataFrame for Plotly
+    df = adata.obs.copy()
+    df['DIM1'] = embedding[:, 0]
+    df['DIM2'] = embedding[:, 1]
+    df['DIM3'] = embedding[:, 2]
+
+    # Create initial 3D scatter plot
+    data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
+        
+    # Plot based on data type: numeric or categorical
+    if pd.api.types.is_numeric_dtype(data_col):
+        colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
+        colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
+        fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
+                            title=f'3D Embedding colored by {color_by}',
+                            labels={'color': color_by}, opacity=opacity,
+                            color_continuous_scale=colorscale)
+    else:
+        fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
+                            title=f'3D Embedding colored by {color_by}',
+                            labels={'color': color_by}, opacity=opacity,
+                            color_discrete_map=palette)
+    
+    # fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
+    #                     title=f'3D Embedding colored by {color_by}', labels={'color': color_by},
+    #                     opacity=opacity)
+
+    fig.update_traces(marker=dict(size=point_size), selector=dict(mode='markers'))
+    fig.update_layout(width=width, height=height)
+
+    # Create rotation steps by defining camera positions
+    asp_ratio = 1.5
+    def generate_camera_angles(num_steps):
+        return [
+            dict(
+                eye=dict(x=np.cos(2 * np.pi * t / num_steps) * asp_ratio, y=np.sin(2 * np.pi * t / num_steps) * asp_ratio, z=asp_ratio / 2)
+            )
+            for t in range(num_steps)
+        ]
+
+    # Generate camera angles for the rotation
+    camera_angles = generate_camera_angles(num_steps)
+    print(f"number of frames: {len(camera_angles)}")
+    # Save the frames as images
+    frame_files = []
+    for i, camera_angle in enumerate(camera_angles):
+        fig.update_layout(scene_camera=camera_angle)
+        frame_file = f"frame_{i:04d}.png"
+        fig.write_image(frame_file)
+        frame_files.append(frame_file)
+
+    # Create the video using MoviePy
+    clips = [mpy.ImageClip(frame).set_duration(rotation_duration / num_steps) for frame in frame_files]
+    video = mpy.concatenate_videoclips(clips, method="compose")
+    video.write_videofile(save_path, fps=num_steps / rotation_duration)
+
+    # Clean up the temporary image files
+    for frame_file in frame_files:
+        os.remove(frame_file)
+
+    print(f"Rotation video saved to {save_path}")
