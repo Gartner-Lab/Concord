@@ -147,7 +147,9 @@ def get_color_mapping(adata, col, pal):
             current_pal = 'Set1'
         color_map = get_factor_color(data_col, current_pal)
         categories = data_col.astype('category').cat.categories
-        palette = [color_map[cat] for cat in categories]
+        #palette = [color_map[cat] for cat in categories]
+        # return a dict
+        palette = {cat: color_map[cat] for cat in categories}
         cmap = None
 
     return data_col, cmap, palette

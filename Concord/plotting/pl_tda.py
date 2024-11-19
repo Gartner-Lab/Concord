@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=True,
                             legend=True, legend_loc='lower right', label_axes=True, colormap='tab10',
-                            marker_size=20, diagonal=True, title=None,
+                            marker_size=20, diagonal=True, title=None, fontsize=12, axis_ticks=True,
                             xlim=None, ylim=None):
     diagram = diagram[0] # This is due to how giotto-tda returns the diagram
     if ax is None:
@@ -54,8 +54,8 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
         ax.plot(limits, limits, 'k--', linewidth=1)
 
     if label_axes:
-        ax.set_xlabel('Birth')
-        ax.set_ylabel('Death')
+        ax.set_xlabel('Birth', fontsize=fontsize-2)
+        ax.set_ylabel('Death', fontsize=fontsize-2)
 
     if title is not None:
         ax.set_title(title)
@@ -66,21 +66,25 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
     if ylim is not None:
         ax.set_ylim(ylim)
 
+    # Set axis ticks
+    if not axis_ticks:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
     # Customize font sizes
     ax.tick_params(axis='both', which='major')
-    ax.set_title(title)
+    ax.set_title(title, fontsize=fontsize)
     # Set legend position, and make legend points (not font) larger
     if legend:
-        ax.legend(loc=legend_loc, markerscale=3, handletextpad=0.2)
+        ax.legend(loc=legend_loc, markerscale=3, handletextpad=0.2, fontsize=fontsize-1)
         
-
     if show:
         plt.show()
 
     return ax
 
 
-def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_size=(3,3), save_path=None):
+def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_size=(3,3), legend=True, legend_loc=None, fontsize=12, save_path=None, **kwargs):
     # Plot the persistence diagrams into a single figure
     import matplotlib.pyplot as plt
     combined_keys = list(diagrams.keys())
@@ -89,12 +93,12 @@ def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_s
     base_height = base_size[1]
     base_width = base_size[0]
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(base_width * n_cols, base_height * n_rows), dpi=dpi)
+    axes = np.atleast_2d(axes).flatten()  # Ensure axs is a 1D array for easy iteration
     for i, key in enumerate(combined_keys):
         # avoid plotting empty subplots
         if i >= n_plots:
             break
-        ax = axes[i // n_cols, i % n_cols]
-        plot_persistence_diagram(diagrams[key], ax=ax, marker_size=marker_size, title=key, show=False)
+        plot_persistence_diagram(diagrams[key], ax=axes[i], marker_size=marker_size, title=key, show=False, legend=legend, legend_loc=legend_loc, fontsize=fontsize, **kwargs)
 
     # Save the plot
     fig.tight_layout()
@@ -103,7 +107,7 @@ def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_s
     plt.show()
 
 
-def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Betti curves", ymax=10, ax=None, show=True, legend=True, legend_loc='upper right'):
+def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Betti curves", ymax=10, ax=None, show=True, legend=True, legend_loc='upper right', label_axes=True, axis_ticks=True, fontsize=12):
     from gtda.diagrams import BettiCurve
     betti_curve = BettiCurve(n_bins=nbins)
     betti_curves = betti_curve.fit_transform(diagram)
@@ -116,9 +120,15 @@ def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Bet
     for dim in homology_dimensions:
         ax.plot(filtration_values[dim], betti_curves[0][dim, :], label=f'Betti-{dim}')
 
-    ax.set_xlabel('Filtration Parameter')
-    ax.set_ylabel('Betti Numbers')
-    ax.set_title(title)
+    if label_axes:
+        ax.set_xlabel('Filtration Parameter', fontsize=fontsize-2)
+        ax.set_ylabel('Betti Numbers', fontsize=fontsize-2)
+
+    if not axis_ticks:
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    ax.set_title(title, fontsize=fontsize)
     ax.set_ylim(0, ymax)
     if legend:
         ax.legend(loc=legend_loc)
@@ -129,7 +139,7 @@ def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Bet
     return ax
 
 
-def plot_betti_curves(diagrams, nbins=100, ymax=8, n_cols=3, base_size=(3,3), dpi=300, legend=True, save_path=None):
+def plot_betti_curves(diagrams, nbins=100, ymax=8, n_cols=3, base_size=(3,3), dpi=300, legend=True, save_path=None, **kwargs):
     # Plot the betti curves into a single figure
     import matplotlib.pyplot as plt
     combined_keys = list(diagrams.keys())
@@ -138,12 +148,12 @@ def plot_betti_curves(diagrams, nbins=100, ymax=8, n_cols=3, base_size=(3,3), dp
     base_height = base_size[1]
     base_width = base_size[0]
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(base_width * n_cols, base_height * n_rows), dpi=dpi)
+    axes = np.atleast_2d(axes).flatten()  # Ensure axs is a 1D array for easy iteration
     for i, key in enumerate(combined_keys):
         # avoid plotting empty subplots
         if i >= n_plots:
             break
-        ax = axes[i // n_cols, i % n_cols]
-        plot_betti_curve(diagrams[key], nbins=nbins, ymax=ymax, ax=ax, title=key, show=False, legend=legend)
+        plot_betti_curve(diagrams[key], nbins=nbins, ymax=ymax, ax=axes[i], title=key, show=False, legend=legend, **kwargs)
 
     # Save the plot
     fig.tight_layout()

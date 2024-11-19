@@ -66,7 +66,7 @@ class Concord:
             batch_size=64,
             n_epochs=5,
             lr=1e-2,
-            schedule_ratio=0.99,
+            schedule_ratio=0.97,
             train_frac=1.0,
             latent_dim=32,
             encoder_dims=[128],

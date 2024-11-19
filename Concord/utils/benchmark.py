@@ -151,23 +151,15 @@ def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendall
     return corr_df
 
 
-def benchmark_topology(adata, keys, homology_dimensions=[0,1,2], expected_betti_numbers=[0,0,0], n_bins=100, save_dir=None, file_suffix=None):
+def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, save_dir=None, file_suffix=None):
     import pandas as pd
-    from .tda import compute_persistent_homology, compute_betti_statistics, summarize_betti_statistics
+    from .tda import compute_betti_statistics, summarize_betti_statistics
 
     results = {}
-    dg_list = {}
-    for key in keys:
-        logger.info(f"Computing persistent homology for {key}")
-        dg_list[key] =  compute_persistent_homology(adata, key=key, homology_dimensions=homology_dimensions)
-    
-    results['diagrams'] = dg_list
-
-    expected_betti_numbers = [4,0,0]
     betti_stats = {}    
     # Compute betti stats for all keys
-    for key in dg_list.keys():
-        betti_stats[key] = compute_betti_statistics(diagram=dg_list[key], expected_betti_numbers=expected_betti_numbers, n_bins=n_bins)
+    for key in diagrams.keys():
+        betti_stats[key] = compute_betti_statistics(diagram=diagrams[key], expected_betti_numbers=expected_betti_numbers, n_bins=n_bins)
 
     betti_stats_pivot, distance_metrics_df = summarize_betti_statistics(betti_stats)
     results['betti_stats'] = betti_stats_pivot
@@ -204,6 +196,8 @@ def benchmark_geometry(adata, keys,
                        trustworthiness_n_neighbors = np.arange(10, 101, 10),
                        dispersion_metric='var',
                        return_type='dataframe',
+                       local_percentile=0.1,
+                       distal_percentile=0.9,
                        verbose=True,
                        save_dir=None, 
                        file_suffix=None):
@@ -229,15 +223,15 @@ def benchmark_geometry(adata, keys,
     # Local vs distal correlation
     if 'local_distal_corr' in eval_metrics:
         logger.info("Computing local vs distal correlation")
-        local_spearman = {}
-        distal_spearman = {}
-        corr_method = 'spearman'
+        local_cor = {}
+        distal_cor = {}
+        corr_method = 'pearsonr'
         for key in keys:
-            local_spearman[key], distal_spearman[key] = local_vs_distal_corr(adata.obsm[groundtruth_key], adata.obsm[key], method=corr_method)
+            local_cor[key], distal_cor[key] = local_vs_distal_corr(adata.obsm[groundtruth_key], adata.obsm[key], method=corr_method, local_percentile=local_percentile, distal_percentile=distal_percentile)
 
-        local_spearman_df = pd.DataFrame(local_spearman, index = [f'Local {corr_method} correlation']).T
-        distal_spearman_df = pd.DataFrame(distal_spearman, index = [f'Distal {corr_method} correlation']).T
-        local_distal_corr_df = pd.concat([local_spearman_df, distal_spearman_df], axis=1)
+        local_cor_df = pd.DataFrame(local_cor, index = [f'Local correlation']).T
+        distal_cor_df = pd.DataFrame(distal_cor, index = [f'Distal correlation']).T
+        local_distal_corr_df = pd.concat([local_cor_df, distal_cor_df], axis=1)
         results_df['local_distal_corr'] = local_distal_corr_df
         results_full['local_distal_corr'] = local_distal_corr_df
 
@@ -259,7 +253,7 @@ def benchmark_geometry(adata, keys,
             cluster_centroid_distances[key] = compute_centroid_distance(adata, key, state_key)
             
         corr_dist_result = compute_correlation(cluster_centroid_distances, corr_types=corr_types, groundtruth_key=groundtruth_key)
-        corr_dist_result.columns = [f'{state_key}_distance_{col}' for col in corr_dist_result.columns]
+        corr_dist_result.columns = [f'State_distance_{col}' for col in corr_dist_result.columns]
         results_df['state_distance_corr'] = corr_dist_result
         results_full['state_distance_corr'] = {
             'distance': cluster_centroid_distances,
@@ -277,7 +271,7 @@ def benchmark_geometry(adata, keys,
 
         # Fix
         corr_dispersion_result = compute_correlation(state_dispersion, corr_types=corr_types, groundtruth_key='Groundtruth' if groundtruth_dispersion is not None else groundtruth_key)
-        corr_dispersion_result.columns = [f'{state_key}_dispersion_{col}' for col in corr_dispersion_result.columns]
+        corr_dispersion_result.columns = [f'State_dispersion_{col}' for col in corr_dispersion_result.columns]
         results_df['state_dispersion_corr'] = corr_dispersion_result
         results_full['state_dispersion_corr'] = {
             'dispersion': state_dispersion,
@@ -306,6 +300,27 @@ def benchmark_geometry(adata, keys,
     
     combined_results_df = pd.concat(results_df, axis=1)
 
+    colname_mapping = {
+        'cell_distance_corr': 'Cell distance correlation',
+        'local_distal_corr': 'Cell distance correlation',
+        'trustworthiness': 'Trustworthiness',
+        'state_distance_corr': 'State distance',
+        'state_dispersion_corr': 'Dispersion',
+        'state_batch_distance_ratio': 'State/batch',
+        'cell_pearsonr': 'Global',
+        'cell_kendalltau': 'Kendall(c)',
+        'Local correlation': 'Local',
+        'Distal correlation': 'Distal',
+        'Average Trustworthiness': 'Mean',
+        'Trustworthiness Decay (100N)': 'Decay',
+        'State_distance_pearsonr': 'Pearson(s)',
+        'State_distance_kendalltau': 'Kendall(s)',
+        'State_dispersion_pearsonr': 'Correlation',
+        'State_dispersion_kendalltau': 'Kendall(s)',
+        'State-Batch Distance Ratio (log10)': 'Distance ratio (log10)',
+    }
+    combined_results_df = combined_results_df.rename(columns=colname_mapping)
+
     if return_type == 'full':
         return combined_results_df, results_full
     else :
@@ -313,7 +328,7 @@ def benchmark_geometry(adata, keys,
     
 
 # Convert benchmark table to scores
-def benchmark_stats_to_score(df, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_class='', rank=False, rank_col=None):
+def benchmark_stats_to_score(df, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name1 = 'Aggregate score', aggregate_score_name2='', name_exact=False, rank=False, rank_col=None):
     import pandas as pd
     from sklearn.preprocessing import MinMaxScaler
 
@@ -324,16 +339,18 @@ def benchmark_stats_to_score(df, min_max_scale=True, one_minus=False, aggregate_
             columns=df.columns,
             index=df.index,
         )
-        df.columns = pd.MultiIndex.from_tuples([(col[0], f"{col[1]}(min-max)") for col in df.columns])
+        if name_exact:
+            df.columns = pd.MultiIndex.from_tuples([(col[0], f"{col[1]}(min-max)") for col in df.columns])
 
     if one_minus:
         df = 1 - df
-        df.columns = pd.MultiIndex.from_tuples([(col[0], f"1-{col[1]}") for col in df.columns])
+        if name_exact:
+            df.columns = pd.MultiIndex.from_tuples([(col[0], f"1-{col[1]}") for col in df.columns])
 
     if aggregate_score:
         aggregate_df = pd.DataFrame(
             df.mean(axis=1),
-            columns=pd.MultiIndex.from_tuples([('Aggregate score', aggregate_class)]),
+            columns=pd.MultiIndex.from_tuples([(aggregate_score_name1, aggregate_score_name2)]),
         )
         df = pd.concat([df, aggregate_df], axis=1)
 

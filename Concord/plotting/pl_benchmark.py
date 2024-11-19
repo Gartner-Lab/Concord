@@ -31,7 +31,7 @@ def add_metric_row(df):
     return result_df
 
 
-def plot_benchmark_table(df, pal='PRGn', cmap_method='norm', dpi=300, save_path=None, figsize=None):
+def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', agg_name='Aggregate score', dpi=300, save_path=None, figsize=None):
     # Plot the geometry results using plotable
     from plottable import ColumnDefinition, Table
     from plottable.plots import bar
@@ -47,11 +47,17 @@ def plot_benchmark_table(df, pal='PRGn', cmap_method='norm', dpi=300, save_path=
     plot_df['Method'] = plot_df.index
 
     cmap = mpl.cm.get_cmap(pal)
+    cmap_agg = mpl.cm.get_cmap(pal_agg)
     if cmap_method == 'norm':
         cmap_fn = lambda col_data: normed_cmap(col_data, cmap=cmap, num_stds=2.5)
     elif cmap_method == 'minmax':
         cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
             norm=mpl.colors.Normalize(vmin=col_data.min(), vmax=col_data.max()),
+            cmap=cmap
+        ).to_rgba
+    elif cmap_method == '0_to_1':
+        cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
+            norm=mpl.colors.Normalize(vmin=0, vmax=1),
             cmap=cmap
         ).to_rgba
     else:
@@ -61,8 +67,8 @@ def plot_benchmark_table(df, pal='PRGn', cmap_method='norm', dpi=300, save_path=
         ColumnDefinition("Method", width=1.5, textprops={"ha": "left", "weight": "bold"}),
     ]
 
-    aggr_cols = df.columns[df.loc['Metric'] == 'Aggregate score']
-    stats_cols = df.columns[df.loc['Metric'] != 'Aggregate score']
+    aggr_cols = df.columns[df.loc['Metric'] == agg_name]
+    stats_cols = df.columns[df.loc['Metric'] != agg_name]
 
     # Circles for the metric values
     column_definitions += [
@@ -88,7 +94,7 @@ def plot_benchmark_table(df, pal='PRGn', cmap_method='norm', dpi=300, save_path=
             title=col.replace(" ", "\n", 1),
             plot_fn=bar,
             plot_kw={
-                "cmap": mpl.cm.YlGnBu,
+                "cmap": cmap_agg,
                 "plot_bg_bar": False,
                 "annotate": True,
                 "height": 0.9,

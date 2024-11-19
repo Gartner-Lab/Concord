@@ -86,3 +86,15 @@ def log_scib_results(config_dicts, eval_results, save_dir, file_name):
         eval_df.to_excel(writer, sheet_name='Results', index=False)
 
     return config_df, eval_df
+
+
+
+
+def natural_key(string_):
+    import re
+    return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
+
+
+def sort_string_list(string_list):
+    return sorted(string_list, key=natural_key)
+

@@ -75,28 +75,24 @@ class Simulation:
         self.seed = seed
         np.random.seed(seed)
 
-    def sort_adata_genes(self, adata):
-        import re
-        gene_names = adata.var_names
-        def natural_key(string_):
-            return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
-
-        sorted_gene_names = sorted(gene_names, key=natural_key)
-        adata = adata[:, sorted_gene_names]
-        return adata
 
     def simulate_data(self):
         from scipy import sparse as sp
+        from .other_util import sort_string_list
         adata_state = self.simulate_state()
-        adata_state = self.sort_adata_genes(adata_state)
+
+        adata_state = adata_state[:, sort_string_list(adata_state.var_names)]
 
         batch_list = []
         state_list = []
         for i in range(self.n_batches):
-            batch_adata, batch_adata_pre = self.simulate_batch(adata_state, batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
-                                              distribution = self.batch_distribution[i],
-                                              level=self.batch_level[i], dispersion=self.batch_dispersion[i], 
-                                              cell_proportion=self.batch_cell_proportion[i], batch_feature_frac=self.batch_feature_frac[i], seed=self.seed+i)
+            batch_adata, batch_adata_pre = self.simulate_batch(
+                adata_state, 
+                cell_proportion=self.batch_cell_proportion[i], 
+                batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
+                distribution = self.batch_distribution[i],
+                level=self.batch_level[i], dispersion=self.batch_dispersion[i], 
+                batch_feature_frac=self.batch_feature_frac[i], seed=self.seed+i)
             batch_list.append(batch_adata)
             state_list.append(batch_adata_pre)
 
@@ -104,10 +100,10 @@ class Simulation:
         adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X
         adata.X = np.nan_to_num(adata.X, nan=0.0)
 
-        adata = self.sort_adata_genes(adata)
+        adata = adata[:, sort_string_list(adata.var_names)]
 
         adata_pre = ad.concat(state_list, join='outer')
-        adata_pre = self.sort_adata_genes(adata_pre)
+        adata_pre = adata_pre[:, sort_string_list(adata_pre.var_names)]
 
         # Concatenate batch name to cell names to make them unique
         adata.obs_names = [f"{batch}_{cell}" for batch, cell in zip(adata.obs['batch'], adata.obs_names)]
@@ -125,6 +121,7 @@ class Simulation:
 
         adata.layers['wt_noise'] = adata.X
         adata_pre.layers['wt_noise'] = adata_pre.X
+        adata.layers['counts'] = adata.X.copy()
         return adata, adata_pre
 
     def simulate_state(self):
@@ -198,16 +195,19 @@ class Simulation:
         adata.X = np.nan_to_num(adata.X, nan=0.0)
         return adata
 
-    def simulate_batch(self, adata, batch_name='batch_1', effect_type='batch_specific_features', distribution='normal', 
-                       level=1.0, dispersion = 0.1, cell_proportion=0.3, batch_feature_frac=0.1, seed=42):
+    def simulate_batch(self, adata, cell_indices=None, cell_proportion=0.3, batch_name='batch_1', effect_type='batch_specific_features', distribution='normal', 
+                       level=1.0, dispersion = 0.1,batch_feature_frac=0.1, seed=42):
         from scipy import sparse as sp
         np.random.seed(seed)
         if not (0 < cell_proportion <= 1):
             raise ValueError("cell_proportion must be between 0 and 1.")
-        n_cells = int(adata.n_obs * cell_proportion)
-        cell_indices = np.random.choice(adata.n_obs, size=n_cells, replace=False)
-        # Sort the cell indices
-        cell_indices = np.sort(cell_indices)
+        
+        if cell_indices is None:
+            n_cells = int(adata.n_obs * cell_proportion)
+            cell_indices = np.random.choice(adata.n_obs, size=n_cells, replace=False)
+            # Sort the cell indices
+            cell_indices = np.sort(cell_indices)
+        
         batch_adata_pre = adata[cell_indices].copy()
         batch_adata_pre.obs['batch'] = batch_name
         batch_adata = batch_adata_pre.copy()

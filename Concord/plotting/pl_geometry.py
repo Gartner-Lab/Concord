@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-def plot_trustworthiness(trustworthiness_df, text_shift=1, legend=False, fontsize=8, figsize=(6,4), dpi=300, save_path=None):
+def plot_trustworthiness(trustworthiness_df, text_label=True, text_shift=1, legend=False, fontsize=8, legend_fontsize=8, figsize=(6,4), dpi=300, save_path=None):
     plt.figure(figsize=figsize, dpi=dpi)
 
     # Plot trustworthiness for each embedding
@@ -12,12 +12,13 @@ def plot_trustworthiness(trustworthiness_df, text_shift=1, legend=False, fontsiz
         plt.plot(embedding_data['n_neighbors'], embedding_data['Trustworthiness'], label=embedding_key)
         
         # Add text label at the last point for each embedding
-        plt.text(
-            embedding_data['n_neighbors'].values[-1]+text_shift, 
-            embedding_data['Trustworthiness'].values[-1], 
-            embedding_key, 
-            fontsize=fontsize
-        )
+        if text_label:
+            plt.text(
+                embedding_data['n_neighbors'].values[-1]+text_shift, 
+                embedding_data['Trustworthiness'].values[-1], 
+                embedding_key, 
+                fontsize=fontsize
+            )
 
     # Add plot details
     plt.title('Trustworthiness of Latent Embeddings', fontsize=9)
@@ -28,7 +29,15 @@ def plot_trustworthiness(trustworthiness_df, text_shift=1, legend=False, fontsiz
     
     # Add legend at right margin
     if legend:
-        plt.legend(fontsize=7, loc = 'right')
+        plt.legend(
+            title=None, 
+            loc='center left', 
+            bbox_to_anchor=(1, 0.5),
+            markerscale=1.5,
+            handletextpad=0.2,
+            fontsize=legend_fontsize,
+            title_fontsize=legend_fontsize
+        )
 
     # Save and show the plot
     if save_path:
@@ -36,7 +45,7 @@ def plot_trustworthiness(trustworthiness_df, text_shift=1, legend=False, fontsiz
     plt.show()
 
 
-def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), dpi=300, save_path=None):
+def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, dpi=300, save_path=None):
     # Visualize the distance matrices in a more compact layout
     from scipy.spatial.distance import squareform
     import matplotlib.pyplot as plt
@@ -52,9 +61,12 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
     fig, axes = plt.subplots(
         n_rows, n_cols, figsize=(base_width * n_cols, base_height * n_rows), dpi=dpi
     )
+    axes = np.atleast_2d(axes).flatten() 
+
+    cbar_kws = {"shrink": 0.8, "label": None, "format": "%.2f", "pad": 0.02} if cbar else None
 
     for i, key in enumerate(keys):
-        ax = axes[i // n_cols, i % n_cols]
+        ax = axes[i]
         sns.heatmap(
             squareform(distances[key]),
             ax=ax,
@@ -62,13 +74,14 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
             xticklabels=False,
             yticklabels=False,
             annot=annot_value, fmt=".2f", annot_kws={"size": 6},
-            cbar_kws={"shrink": 0.8, "label": None, "format": "%.2f", "pad": 0.02},
+            cbar=cbar,  # Pass the value of cbar here to toggle the color bar
+            cbar_kws=cbar_kws
         )
-        ax.set_title(key, fontsize=10)  # Increase the title font size
+        ax.set_title(key, fontsize=fontsize)  # Increase the title font size
 
     # Hide empty subplots if n_plots < n_cols * n_rows
     for j in range(n_plots, n_cols * n_rows):
-        fig.delaxes(axes.flatten()[j])
+        fig.delaxes(axes[j])
 
     # Set compact layout
     fig.tight_layout(pad=0.5, h_pad=0.8, w_pad=0.3)  # Adjust padding
@@ -93,12 +106,12 @@ def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_nois
     fig, axes = plt.subplots(
         n_rows, n_cols, figsize=(base_width * n_cols, base_height * n_rows), dpi=dpi
     )
-    
+    axes = np.atleast_2d(axes).flatten() 
     for i, key in enumerate(keys):
         # avoid plotting empty subplots
         if i >= n_plots:
             break
-        ax = axes[i // n_cols, i % n_cols]
+        ax = axes[i]
 
         # flat distance[ground_key] to np array if dict
         if isinstance(data_dict[ground_key], dict):
@@ -108,7 +121,7 @@ def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_nois
             ground_val = data_dict[ground_key] 
             latent_val = data_dict[key]
 
-        ax.scatter(ground_val, latent_val, s=s, alpha=alpha)
+        ax.scatter(ground_val, latent_val, s=s, alpha=alpha, edgecolors='none')
         if correlation is not None:
             corr_text = '\n' + '\n'.join([f'{col}:{correlation.loc[key, col]:.2f}' for col in correlation.columns])
         else:
