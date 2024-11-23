@@ -1,7 +1,15 @@
 import numpy as np
 from .. import logger
 
-def calculate_domain_coverage(adata, domain_key=None, neighborhood=None):
+def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, basis='X_pca', pca_n_comps=50):
+
+    if neighborhood is None:
+        from ..model.knn import Neighborhood
+        from ..utils.anndata_utils import get_adata_basis
+        # Compute neighborhood
+        logger.info(f"Computing neighborhood graph for coverage estimation using {basis}.")
+        emb = get_adata_basis(adata, basis=basis, pca_n_comps=pca_n_comps)
+        neighborhood = Neighborhood(emb=emb, k=k)
 
     domain_labels = adata.obs[domain_key]
     unique_domains = domain_labels.unique()
@@ -24,8 +32,7 @@ def calculate_domain_coverage(adata, domain_key=None, neighborhood=None):
     return domain_coverage
 
 
-def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, max_p_intra_domain = 1.0,
-                                   scale_to_min_max=True):
+def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.5, max_p_intra_domain = 1.0, scale_to_min_max=True):
         """
             Convert coverage values top_intra values, with optional scaling and capping.
 
@@ -51,21 +58,10 @@ def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.1, 
         p_intra_domain_dict = coverage.copy()
 
         if scale_to_min_max:
-            # Linearly scale the values in p_intra_domain_dict to the range between min_p_intra_domain and max_p_intra_domain
-            min_coverage = min(p_intra_domain_dict.values())
-            max_coverage = max(p_intra_domain_dict.values())
-            if min_p_intra_domain < min_coverage:
-                logger.warn(f"Minimum coverage value ({min_coverage:.3f}) is greater than min_p_intra_domain ({min_p_intra_domain:.3f}) when scale_to_min_max is True." 
-                                 "Resetting min_p_intra_domain equal to the minimum coverage value.")
-                min_p_intra_domain = min_coverage
-            if min_coverage < max_coverage:  
-                scale = (max_p_intra_domain - min_p_intra_domain) / (max_coverage - min_coverage)
-                p_intra_domain_dict = {
-                    domain: min_p_intra_domain + (value - min_coverage) * scale
-                    for domain, value in p_intra_domain_dict.items()
-                }
-            else:
-                p_intra_domain_dict = {domain: (min_p_intra_domain + max_p_intra_domain) / 2 for domain in p_intra_domain_dict}
+            p_intra_domain_dict = {
+                domain: min_p_intra_domain + (max_p_intra_domain - min_p_intra_domain) * value
+                for domain, value in p_intra_domain_dict.items()
+            }
         else:
             # Cap values to the range [min_p_intra_domain, max_p_intra_domain]
             p_intra_domain_dict = {

@@ -186,7 +186,7 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
 
 
 def benchmark_geometry(adata, keys, 
-                       eval_metrics=['cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
+                       eval_metrics=['pseudotime', 'cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
                        dist_metric='cosine', 
                        groundtruth_key = 'PCA_no_noise', 
                        state_key = 'cluster',
@@ -198,6 +198,10 @@ def benchmark_geometry(adata, keys,
                        return_type='dataframe',
                        local_percentile=0.1,
                        distal_percentile=0.9,
+                       start_point=0,
+                       end_point=None,
+                       pseudotime_k = 30,
+                       truetime_key = 'time',
                        verbose=True,
                        save_dir=None, 
                        file_suffix=None):
@@ -207,6 +211,31 @@ def benchmark_geometry(adata, keys,
     results_full = {}
     if verbose:
         logger.setLevel(logging.INFO)
+
+
+    # Pseudotime correlation
+    if 'pseudotime' in eval_metrics:
+        from .path_analysis import shortest_path_on_knn_graph, compute_pseudotime_from_shortest_path
+        logger.info("Computing pseudotime correlation")
+        if start_point is None or end_point is None:
+            raise ValueError("start_point and end_point must be specified for pseudotime computation.")
+        if truetime_key not in adata.obs:
+            raise ValueError(f"Groundtruth time key '{truetime_key}' not found in adata.obs.")
+        # Compute pseudotime for each method post integration
+        time_dict={}
+        for basis in keys:
+            print("Computing pseudotime for", basis)
+            if basis not in adata.obsm:
+                continue
+            
+            pseudotime_key = f"{basis}_pseudotime"
+            path, _ = shortest_path_on_knn_graph(adata, emb_key=basis, k=pseudotime_k, point_a=start_point, point_b=end_point, use_faiss=True)
+            time_dict[basis]=compute_pseudotime_from_shortest_path(adata, path=path, basis=basis, pseudotime_key=pseudotime_key)
+
+        time_dict[truetime_key] = adata.obs[truetime_key]
+        pseudotime_result = compute_correlation(time_dict, corr_types=corr_types, groundtruth_key=truetime_key)
+        results_df['pseudotime'] = pseudotime_result
+        results_full['pseudotime'] = pseudotime_result
 
     # Global distance correlation
     if 'cell_distance_corr' in eval_metrics:

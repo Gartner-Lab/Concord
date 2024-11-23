@@ -21,7 +21,7 @@ def add_legend(ax, labels, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
 def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None, 
                              cmap='viridis', vmin=None, vmax=None, 
                              cluster_rows=True, cluster_cols=True, pal=None, add_color_legend=False,
-                             value_annot=False, title=None, title_fontsize=16,
+                             value_annot=False, title=None, title_fontsize=16, annot_fontsize=8,
                              yticklabels=True, xticklabels=False, 
                              use_clustermap=True, ax=None,
                              figsize=(12, 8), dpi=300, show=True, save_path=None):
@@ -77,11 +77,11 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
                 norm = mcolors.Normalize(vmin=data_col.min(), vmax=data_col.max())
                 use_colors[col] = [col_cmap(norm(val)) for val in data_col]
             else:
-                use_colors[col] = data_col.map(dict(zip(data_col.unique(), palette))).to_numpy()       
+                use_colors[col] = data_col.map(palette).to_numpy()       
                 if add_color_legend:
                     unique_labels = data_col.unique()
                     legend_data.append((unique_labels, palette, col))
-                
+
         use_colors.reset_index(drop=True, inplace=True)
     else:
         use_colors = None
@@ -98,6 +98,7 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
             col_colors=use_colors if transpose else None,
             row_colors=use_colors if not transpose else None,
             annot=value_annot,
+            annot_kws={"size": annot_fontsize},
             figsize=figsize if ax is None else None,
             row_cluster=cluster_rows,
             col_cluster=cluster_cols,

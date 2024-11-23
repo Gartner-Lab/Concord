@@ -494,13 +494,12 @@ class Simulation:
             cell_counter += cur_n_cells
 
             #print("depth", depth, "branch_path", branch_path, "gene_counter", gene_counter, "cell_counter", cell_counter)
-
             # Simulate linear increasing gene expression for branch-specific genes
             cur_branch_expression = self.simulate_expression_block(
                 np.zeros((cur_n_cells, cur_n_genes)), 
                 program_structure, 
                 np.arange(cur_n_genes), 
-                np.arange(cur_n_cells+1), 
+                np.arange(cur_n_cells), 
                 mean_expression, 
                 min_expression, 
                 on_time_fraction=program_on_time_fraction
@@ -536,6 +535,10 @@ class Simulation:
             return adata
             
         adata = simulate_branch(depth, branch_path=[])
+
+        adata.X = np.nan_to_num(adata.X, nan=0.0)
+        for key in adata.layers.keys():
+            adata.layers[key] = np.nan_to_num(adata.layers[key], nan=0.0)
         return adata
 
 

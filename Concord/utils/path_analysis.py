@@ -108,3 +108,66 @@ def geodesic_distance_along_path(adata, emb_key=None, path=None):
 
     geodesic_distances = np.cumsum([0] + gd_distances)
     return geodesic_distances
+
+
+# Function to project a point onto a line segment
+def project_point_onto_segment(point, seg_start, seg_end):
+    seg_vector = seg_end - seg_start
+    point_vector = point - seg_start
+    proj_length = np.dot(point_vector, seg_vector) / np.linalg.norm(seg_vector)**2
+    proj_length = np.clip(proj_length, 0, 1)  # Clip to segment bounds
+    return seg_start + proj_length * seg_vector, proj_length
+    
+
+def compute_pseudotime_from_shortest_path(adata, path, basis, pseudotime_key="pseudotime_SP"):
+    """
+    Compute pseudotime for each cell by projecting it onto the shortest path in a given embedding.
+
+    Parameters
+    ----------
+    adata : AnnData
+        The AnnData object containing the high-dimensional data and embedding.
+    path : list of int
+        Indices of cells defining the shortest path.
+    basis : str
+        The key in `adata.obsm` where the embedding is stored (e.g., "X_pca" or "X_umap").
+    pseudotime_key : str, optional
+        The key to store the computed pseudotime in `adata.obs`. Default is "pseudotime_SP".
+
+    Returns
+    -------
+    None
+        Modifies `adata.obs` in-place to include the computed pseudotime.
+    """
+    # Extract the coordinates of the shortest path
+    path_coords = adata.obsm[basis][path]
+
+    # Compute cumulative pseudotime along the path
+    path_distances = [0] + [np.linalg.norm(path_coords[i + 1] - path_coords[i])
+                            for i in range(len(path_coords) - 1)]
+    cumulative_pseudotime = np.cumsum(path_distances)
+
+    # Project each cell onto the path
+    pseudotimes = []
+    for point in adata.obsm[basis]:
+        min_dist = np.inf
+        best_t = 0
+        for i in range(len(path_coords) - 1):
+            # Project point onto the segment
+            seg_start, seg_end = path_coords[i], path_coords[i + 1]
+            proj, t = project_point_onto_segment(point, seg_start, seg_end)
+            dist = np.linalg.norm(point - proj)
+            if dist < min_dist:
+                min_dist = dist
+                # Interpolate pseudotime based on the segment
+                best_t = cumulative_pseudotime[i] + t * (cumulative_pseudotime[i + 1] - cumulative_pseudotime[i])
+        pseudotimes.append(best_t)
+
+    # Normalize pseudotime to the range [0, 1]
+    pseudotimes = np.array(pseudotimes)
+    pseudotimes = (pseudotimes - pseudotimes.min()) / (pseudotimes.max() - pseudotimes.min())
+
+    # Assign pseudotime to AnnData
+    adata.obs[pseudotime_key] = pseudotimes
+
+    return pseudotimes

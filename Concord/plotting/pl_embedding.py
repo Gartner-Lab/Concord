@@ -12,18 +12,25 @@ from .palettes import get_color_mapping
 
 
 def plot_embedding(adata, basis, color_by=None, 
-                   pal=None, highlight_indices=None,
+                   pal=None, highlight_indices=None, default_color='lightgrey', highlight_color='black',
                    highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
-                   figsize=(9, 3), dpi=300, ncols=1,
-                   font_size=8, point_size=10, legend_loc='on data', save_path=None):
+                   figsize=(9, 3), dpi=300, ncols=1, ax = None,
+                   title=None, xlabel = None, ylabel = None,
+                   font_size=8, point_size=10, path_width=1, legend_loc='on data', save_path=None):
     warnings.filterwarnings('ignore')
 
     if color_by is None or len(color_by) == 0:
         color_by = [None]  # Use a single plot without coloring
 
-    nrows = int(np.ceil(len(color_by) / ncols))
-    fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
-    axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
+    if ax is None:
+        nrows = int(np.ceil(len(color_by) / ncols))
+        fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
+        axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
+        return_single_ax = False
+    else:
+        axs = [ax]
+        return_single_ax = True
+        assert len(axs) == len(color_by), "Number of axes must match the number of color_by columns"
 
     if not isinstance(pal, dict):
         pal = {col: pal for col in color_by}
@@ -32,9 +39,11 @@ def plot_embedding(adata, basis, color_by=None,
         data_col, cmap, palette = get_color_mapping(adata, col, pal)
 
         if col is None:
-            ax = sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
+            sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
                                  legend_loc='right margin', legend_fontsize=font_size,
                                  size=point_size, alpha=alpha)
+            for collection in ax.collections:
+                collection.set_color(default_color)
         elif pd.api.types.is_numeric_dtype(data_col):
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
@@ -51,7 +60,13 @@ def plot_embedding(adata, basis, color_by=None,
         # Highlight selected points
         if highlight_indices is not None:
             highlight_data = adata[highlight_indices, :]
-            if pd.api.types.is_numeric_dtype(data_col):
+            if col is None:
+                sc.pl.embedding(highlight_data, basis=basis, ax=ax, show=False,
+                                legend_loc=None, legend_fontsize=font_size,
+                                size=highlight_size, alpha=1.0)
+                for collection in ax.collections:
+                    collection.set_color(highlight_color)
+            elif pd.api.types.is_numeric_dtype(data_col):
                 sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
                                 legend_loc=None, legend_fontsize=font_size,
                                 size=highlight_size, alpha=1.0, cmap=cmap)
@@ -65,11 +80,11 @@ def plot_embedding(adata, basis, color_by=None,
                 if not isinstance(embedding, np.ndarray):
                     embedding = np.array(embedding)
                 path_coords = embedding[highlight_indices, :]
-                ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=2)  # Red line for the path
+                ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=path_width)  # Red line for the path
 
-        ax.set_title(ax.get_title(), fontsize=font_size)
-        ax.set_xlabel(ax.get_xlabel(), fontsize=font_size)
-        ax.set_ylabel(ax.get_ylabel(), fontsize=font_size)
+        ax.set_title(ax.get_title() if title is None else title, fontsize=font_size)
+        ax.set_xlabel(ax.get_xlabel() if xlabel is None else xlabel, fontsize=font_size-2)
+        ax.set_ylabel(ax.get_ylabel() if ylabel is None else ylabel, fontsize=font_size-2)
 
         if hasattr(ax, 'collections') and len(ax.collections) > 0:
             cbar = ax.collections[-1].colorbar
@@ -79,10 +94,11 @@ def plot_embedding(adata, basis, color_by=None,
     for ax in axs[len(color_by):]:
         ax.axis('off')
 
-    plt.show()
-
-    if save_path is not None:
+    if save_path is not None and not return_single_ax:
         fig.savefig(save_path, dpi=dpi)
+
+    if not return_single_ax:
+        plt.show()
 
 
 def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,  
@@ -253,9 +269,11 @@ def plot_all_embeddings(
     ncols=11,
     seed=42,
     leiden_key='leiden',
+    leiden_resolution=1.0,
     legend_loc = None,
     colorbar_loc = None,
     save_dir='.',
+    save_format='png',
     file_suffix='plot'
 ):
     
@@ -305,7 +323,8 @@ def plot_all_embeddings(
                         )
 
                 elif basis_type == 'PAGA':
-                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)    
+                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed) 
+                    sc.tl.leiden(adata, key_added=leiden_key, resolution=leiden_resolution, random_state=seed)   
                     sc.tl.paga(adata, groups=leiden_key, use_rna_velocity=False)
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.paga(
@@ -333,7 +352,7 @@ def plot_all_embeddings(
                 ax.set_visible(False)
 
             # Save the figure
-            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.png", bbox_inches="tight")
+            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}", bbox_inches="tight")
             plt.show()
 
 
@@ -341,7 +360,8 @@ def plot_all_embeddings(
 
 
 def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color_by='batch', save_path='rotation.mp4', pal=None,
-                                      point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60):
+                                      point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60,
+                                      legend_itemsize=100, font_size=16):
     """
     Visualize a rotating 3D embedding and save it as an MP4 video for presentation purposes.
 
@@ -411,6 +431,15 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
                             title=f'3D Embedding colored by {color_by}',
                             labels={'color': color_by}, opacity=opacity,
                             color_discrete_map=palette)
+        
+        # Increase size of the points in the legend
+        fig.update_layout(
+            legend=dict(
+                font=dict(size=font_size),  # Increase legend font size
+                itemsizing='constant',  # Make legend items the same size
+                itemwidth=max(legend_itemsize, 30)  # Increase legend item width
+            )
+        )
     
     # fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
     #                     title=f'3D Embedding colored by {color_by}', labels={'color': color_by},
@@ -418,6 +447,7 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
 
     fig.update_traces(marker=dict(size=point_size), selector=dict(mode='markers'))
     fig.update_layout(width=width, height=height)
+    
 
     # Create rotation steps by defining camera positions
     asp_ratio = 1.5

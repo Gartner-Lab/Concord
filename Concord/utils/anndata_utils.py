@@ -187,3 +187,24 @@ def subset_adata_to_obsm_indices(adata, obsm):
     return adata_subset
 
 
+
+def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
+    import numpy as np
+    if basis in adata.obsm:
+        logger.info(f"Using existing embedding '{basis}' from adata.obsm")
+        emb = adata.obsm[basis].astype(np.float32)
+    elif basis == 'X':
+        emb = adata.X.astype(np.float32)
+    elif basis in adata.layers:
+        emb = adata.layers[basis].astype(np.float32)
+    else:
+        if basis == 'X_pca':
+            pca_n_comps = pca_n_comps if pca_n_comps < min(adata.n_vars, adata.n_obs) else min(adata.n_vars, adata.n_obs)
+            logger.info("PCA embedding not found in adata.obsm. Running PCA...")
+            sc.tl.pca(adata, svd_solver='arpack', n_comps=pca_n_comps)
+            logger.info("PCA completed.")
+            emb = adata.obsm['X_pca'].astype(np.float32)
+        else:
+            raise ValueError(f"Embedding '{basis}' not found in adata.obsm or adata.layers.")
+    
+    return emb

@@ -93,7 +93,7 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
     plt.show()
 
 
-def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', s=1, alpha=0.5, n_cols=3, figsize=(4, 4), dpi=300, save_path=None):
+def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', s=1, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), dpi=300, save_path=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -126,11 +126,11 @@ def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_nois
             corr_text = '\n' + '\n'.join([f'{col}:{correlation.loc[key, col]:.2f}' for col in correlation.columns])
         else:
             corr_text = ''
-        ax.set_title(f'{key}{corr_text}', fontsize=6)
-        ax.set_xlabel(f'{ground_key}', fontsize=6)
-        ax.set_ylabel(f'{key}', fontsize=6)
+        ax.set_title(f'{key}{corr_text}', fontsize=fontsize)
+        ax.set_xlabel(f'{ground_key}', fontsize=fontsize)
+        ax.set_ylabel(f'{key}', fontsize=fontsize)
         # ax set tick label font
-        ax.tick_params(axis='both', which='major', labelsize=6)
+        ax.tick_params(axis='both', which='major', labelsize=fontsize-1)
 
     plt.tight_layout()
     if save_path:
