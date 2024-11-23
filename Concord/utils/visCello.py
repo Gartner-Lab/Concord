@@ -134,6 +134,8 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     for key in adata.obsm_keys():
         proj_df = pd.DataFrame(adata.obsm[key], index=adata.obs.index, columns=[f"{key}_{i+1}" for i in range(adata.obsm[key].shape[1])])
         proj_r_df = ro.conversion.py2rpy(proj_df)
+        # change column name to valid R column name with make.names
+        proj_r_df.colnames = base.make_names(proj_r_df.colnames)
         proj_list[key] = proj_r_df
 
     # Assign the proj list to the cello object

@@ -64,7 +64,7 @@ class Concord:
             project_name="concord",
             input_feature=None,
             batch_size=64,
-            n_epochs=5,
+            n_epochs=10,
             lr=1e-2,
             schedule_ratio=0.97,
             train_frac=1.0,
@@ -92,7 +92,7 @@ class Concord:
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
             sampler_knn=None,
-            p_intra_knn=0.3,
+            p_intra_knn=0.5,
             p_intra_domain=None,
             min_p_intra_domain=1.0,
             max_p_intra_domain=1.0,

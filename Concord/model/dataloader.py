@@ -63,21 +63,10 @@ class DataLoaderManager:
         self.sampler = None
 
 
-    def compute_embedding_and_knn(self):
+    def compute_embedding_and_knn(self, emb_key='X_pca'):
         # Get embedding for current adata
-        if self.sampler_emb not in self.adata.obsm:
-            if self.sampler_emb == 'X_pca':
-                self.pca_n_comps = self.pca_n_comps if self.pca_n_comps < self.adata.n_vars else self.adata.n_vars-1
-                logger.info("PCA embedding not found in adata.obsm. Running PCA...")
-                sc.tl.pca(self.adata, svd_solver='arpack', n_comps=self.pca_n_comps)
-                logger.info("PCA completed.")
-                self.emb = self.adata.obsm['X_pca'].astype(np.float32)
-            else:
-                raise ValueError(f"Embedding '{self.sampler_emb}' not found in adata.obsm.")
-        else:
-            logger.info(f"Using existing embedding '{self.sampler_emb}' from adata.obsm")
-            self.emb = self.adata.obsm[self.sampler_emb].astype(np.float32)
-
+        from ..utils.anndata_utils import get_adata_basis
+        self.emb = get_adata_basis(self.adata, basis=emb_key, pca_n_comps=self.pca_n_comps)
         # Initialize KNN
         self.neighborhood = Neighborhood(emb=self.emb, k=self.sampler_knn, use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe)
 
@@ -103,7 +92,7 @@ class DataLoaderManager:
                     domain_coverage = calculate_domain_coverage(
                         adata=self.adata, domain_key=self.domain_key, neighborhood=self.neighborhood
                     )
-                    logger.info(f"Converting coverage to p_intra_domain...")
+                    logger.info(f"Converting coverage {domain_coverage} to p_intra_domain...")
                     self.p_intra_domain = coverage_to_p_intra(
                         self.domain_labels, coverage=domain_coverage, 
                         min_p_intra_domain=self.min_p_intra_domain, 
@@ -151,7 +140,7 @@ class DataLoaderManager:
         self.data_structure = dataset.get_data_structure()
 
         if self.use_sampler:
-            self.compute_embedding_and_knn()
+            self.compute_embedding_and_knn(self.sampler_emb)
             self.compute_p_intra_domain()
             SamplerClass = ConcordMatchNNSampler if self.clr_mode == 'nn' else ConcordSampler
         else:

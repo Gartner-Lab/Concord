@@ -36,8 +36,11 @@ def select_features(
         sampled_size = adata.n_obs
 
     if sampled_size > 100000:
-        raise ValueError(f"The number of cells for VEG selection ({sampled_size}) exceeds the limit of 100,000. "
-                        f"Please specify a lower subsample_frac value to downsample cells for VEG calling.")
+        logger.warning(f"The number of cells for VEG selection ({sampled_size}) exceeds the limit of 100,000. "
+                        f"Downsampling cells to 50,000 for VEG selection."
+                        f"Note you can set subsample_frac to a value between 0 and 1 to control the number of cells.")
+        sampled_indices = np.random.choice(adata.n_obs, 50000, replace=False)
+        sampled_size = 50000
     
     # Handle backed mode and subsampling
     if adata.isbacked:
