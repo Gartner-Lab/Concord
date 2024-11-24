@@ -70,17 +70,17 @@ def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=7
     distal_mask = dist_high > distance_threshold_distal
 
     # Step 4: Compute Spearman correlations for local and distal distances
-    if method == 'spearman':
+    if method == 'spearmanr':
         local_corr, _ = spearmanr(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = spearmanr(dist_high[distal_mask], dist_low[distal_mask])
     elif method == 'pearsonr':
         local_corr, _ = pearsonr(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = pearsonr(dist_high[distal_mask], dist_low[distal_mask])
-    elif method == 'kendall':
+    elif method == 'kendalltau':
         local_corr, _ = kendalltau(dist_high[local_mask], dist_low[local_mask])
         distal_corr, _ = kendalltau(dist_high[distal_mask], dist_low[distal_mask])
     else:
-        raise ValueError(f"Method {method} not recognized. Must be one of 'spearman', 'pearsonr', or 'kendall'.")
+        raise ValueError(f"Method {method} not recognized. Must be one of 'spearmanr', 'pearsonr', or 'kendalltau'.")
 
     return local_corr, distal_corr
 

@@ -223,19 +223,30 @@ def benchmark_geometry(adata, keys,
             raise ValueError(f"Groundtruth time key '{truetime_key}' not found in adata.obs.")
         # Compute pseudotime for each method post integration
         time_dict={}
+        path_dict = {}
         for basis in keys:
-            print("Computing pseudotime for", basis)
+            logger.info(f"Computing pseudotime for {basis}")
             if basis not in adata.obsm:
                 continue
             
             pseudotime_key = f"{basis}_pseudotime"
-            path, _ = shortest_path_on_knn_graph(adata, emb_key=basis, k=pseudotime_k, point_a=start_point, point_b=end_point, use_faiss=True)
-            time_dict[basis]=compute_pseudotime_from_shortest_path(adata, path=path, basis=basis, pseudotime_key=pseudotime_key)
+            try:
+                path, _ = shortest_path_on_knn_graph(adata, emb_key=basis, k=pseudotime_k, point_a=start_point, point_b=end_point, use_faiss=True)
+                time_dict[basis] = compute_pseudotime_from_shortest_path(adata, path=path, basis=basis, pseudotime_key=pseudotime_key)
+                path_dict[basis] = path
+            except:
+                logger.info(f"Failed to compute shortest path for {basis}")
+                continue
 
         time_dict[truetime_key] = adata.obs[truetime_key]
         pseudotime_result = compute_correlation(time_dict, corr_types=corr_types, groundtruth_key=truetime_key)
-        results_df['pseudotime'] = pseudotime_result
-        results_full['pseudotime'] = pseudotime_result
+        pseudotime_result.columns = [f'{col}(pt)' for col in pseudotime_result.columns]
+        results_df['Pseudotime'] = pseudotime_result.drop(truetime_key, inplace=False)
+        results_full['Pseudotime'] = {
+            'path': path_dict,
+            'pseudotime': time_dict,
+            'correlation': pseudotime_result
+        }
 
     # Global distance correlation
     if 'cell_distance_corr' in eval_metrics:
@@ -243,7 +254,7 @@ def benchmark_geometry(adata, keys,
         distance_result = pairwise_distance(adata, keys = keys, metric=dist_metric)            
         corr_result = compute_correlation(distance_result, corr_types=corr_types, groundtruth_key=groundtruth_key)
         results_df['cell_distance_corr'] = corr_result
-        results_df['cell_distance_corr'].columns = [f'cell_{col}' for col in corr_result.columns]
+        results_df['cell_distance_corr'].columns = [f'{col}(cd)' for col in corr_result.columns]
         results_full['cell_distance_corr'] = {
             'distance': distance_result,
             'correlation': corr_result
@@ -254,12 +265,12 @@ def benchmark_geometry(adata, keys,
         logger.info("Computing local vs distal correlation")
         local_cor = {}
         distal_cor = {}
-        corr_method = 'pearsonr'
+        corr_method = 'spearmanr' # Default to spearmanr
         for key in keys:
             local_cor[key], distal_cor[key] = local_vs_distal_corr(adata.obsm[groundtruth_key], adata.obsm[key], method=corr_method, local_percentile=local_percentile, distal_percentile=distal_percentile)
 
-        local_cor_df = pd.DataFrame(local_cor, index = [f'Local correlation']).T
-        distal_cor_df = pd.DataFrame(distal_cor, index = [f'Distal correlation']).T
+        local_cor_df = pd.DataFrame(local_cor, index = [f'Local {corr_method}']).T
+        distal_cor_df = pd.DataFrame(distal_cor, index = [f'Distal {corr_method}']).T
         local_distal_corr_df = pd.concat([local_cor_df, distal_cor_df], axis=1)
         results_df['local_distal_corr'] = local_distal_corr_df
         results_full['local_distal_corr'] = local_distal_corr_df
@@ -282,7 +293,7 @@ def benchmark_geometry(adata, keys,
             cluster_centroid_distances[key] = compute_centroid_distance(adata, key, state_key)
             
         corr_dist_result = compute_correlation(cluster_centroid_distances, corr_types=corr_types, groundtruth_key=groundtruth_key)
-        corr_dist_result.columns = [f'State_distance_{col}' for col in corr_dist_result.columns]
+        corr_dist_result.columns = [f'{col}(st)' for col in corr_dist_result.columns]
         results_df['state_distance_corr'] = corr_dist_result
         results_full['state_distance_corr'] = {
             'distance': cluster_centroid_distances,
@@ -298,9 +309,8 @@ def benchmark_geometry(adata, keys,
         if groundtruth_dispersion is not None:
             state_dispersion['Groundtruth'] = groundtruth_dispersion
 
-        # Fix
         corr_dispersion_result = compute_correlation(state_dispersion, corr_types=corr_types, groundtruth_key='Groundtruth' if groundtruth_dispersion is not None else groundtruth_key)
-        corr_dispersion_result.columns = [f'State_dispersion_{col}' for col in corr_dispersion_result.columns]
+        corr_dispersion_result.columns = [f'{col}(sd)' for col in corr_dispersion_result.columns]
         results_df['state_dispersion_corr'] = corr_dispersion_result
         results_full['state_dispersion_corr'] = {
             'dispersion': state_dispersion,
@@ -336,16 +346,8 @@ def benchmark_geometry(adata, keys,
         'state_distance_corr': 'State distance',
         'state_dispersion_corr': 'Dispersion',
         'state_batch_distance_ratio': 'State/batch',
-        'cell_pearsonr': 'Global',
-        'cell_kendalltau': 'Kendall(c)',
-        'Local correlation': 'Local',
-        'Distal correlation': 'Distal',
         'Average Trustworthiness': 'Mean',
         'Trustworthiness Decay (100N)': 'Decay',
-        'State_distance_pearsonr': 'Pearson(s)',
-        'State_distance_kendalltau': 'Kendall(s)',
-        'State_dispersion_pearsonr': 'Correlation',
-        'State_dispersion_kendalltau': 'Kendall(s)',
         'State-Batch Distance Ratio (log10)': 'Distance ratio (log10)',
     }
     combined_results_df = combined_results_df.rename(columns=colname_mapping)
@@ -357,11 +359,14 @@ def benchmark_geometry(adata, keys,
     
 
 # Convert benchmark table to scores
-def benchmark_stats_to_score(df, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name1 = 'Aggregate score', aggregate_score_name2='', name_exact=False, rank=False, rank_col=None):
+def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name1 = 'Aggregate score', aggregate_score_name2='', name_exact=False, rank=False, rank_col=None):
     import pandas as pd
     from sklearn.preprocessing import MinMaxScaler
 
     df = df.copy()
+    if fillna is not None:
+        df = df.fillna(fillna)
+
     if min_max_scale:
         df = pd.DataFrame(
             MinMaxScaler().fit_transform(df),
