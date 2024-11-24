@@ -15,8 +15,12 @@ def plot_embedding(adata, basis, color_by=None,
                    pal=None, highlight_indices=None, default_color='lightgrey', highlight_color='black',
                    highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
                    figsize=(9, 3), dpi=300, ncols=1, ax = None,
-                   title=None, xlabel = None, ylabel = None,
-                   font_size=8, point_size=10, path_width=1, legend_loc='on data', save_path=None):
+                   title=None, xlabel = None, ylabel = None, xticks=True, yticks=True,
+                   colorbar_loc='right',
+                   font_size=8, point_size=10, path_width=1, legend_loc='on data', 
+                   rasterized=True,
+                   save_path=None):
+    import matplotlib.collections as mcoll
     warnings.filterwarnings('ignore')
 
     if color_by is None or len(color_by) == 0:
@@ -47,7 +51,7 @@ def plot_embedding(adata, basis, color_by=None,
         elif pd.api.types.is_numeric_dtype(data_col):
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, cmap=cmap)
+                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc)
         else:
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=font_size,
@@ -69,7 +73,7 @@ def plot_embedding(adata, basis, color_by=None,
             elif pd.api.types.is_numeric_dtype(data_col):
                 sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
                                 legend_loc=None, legend_fontsize=font_size,
-                                size=highlight_size, alpha=1.0, cmap=cmap)
+                                size=highlight_size, alpha=1.0, cmap=cmap, colorbar_loc=None)
             else:
                 sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
                                 legend_loc=None, legend_fontsize=font_size,
@@ -83,13 +87,21 @@ def plot_embedding(adata, basis, color_by=None,
                 ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=path_width)  # Red line for the path
 
         ax.set_title(ax.get_title() if title is None else title, fontsize=font_size)
-        ax.set_xlabel(ax.get_xlabel() if xlabel is None else xlabel, fontsize=font_size-2)
-        ax.set_ylabel(ax.get_ylabel() if ylabel is None else ylabel, fontsize=font_size-2)
+        ax.set_xlabel('' if xlabel is None else xlabel, fontsize=font_size-2)
+        ax.set_ylabel('' if ylabel is None else ylabel, fontsize=font_size-2)
+        ax.set_xticks([]) if not xticks else None
+        ax.set_yticks([]) if not yticks else None
 
         if hasattr(ax, 'collections') and len(ax.collections) > 0:
             cbar = ax.collections[-1].colorbar
             if cbar is not None:
                 cbar.ax.tick_params(labelsize=font_size)
+
+        # Example snippet in your function
+        if rasterized:
+            for artist in ax.get_children():
+                if isinstance(artist, mcoll.PathCollection):
+                    artist.set_rasterized(True)
 
     for ax in axs[len(color_by):]:
         ax.axis('off')
@@ -210,40 +222,6 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
         # Show the plot title with neuron name
         plt.suptitle(neuron_title, fontsize=font_size + 2)
         plt.show()
-
-
-
-def plot_custom_embeddings_umap(custom_embedding=None, figsize=(5, 5), dpi=300, 
-                                font_size=3, point_size=5,  save_path=None):
-    if custom_embedding is None:
-        raise ValueError("custom_embedding must be provided.")
-    
-    # Extract embeddings (values) and custom names (index)
-    embeddings = custom_embedding.values
-    custom_names = custom_embedding.index
-
-    umap_model = umap.UMAP(n_neighbors=5, min_dist=0.3, n_components=2, random_state=42)
-    umap_embeddings = umap_model.fit_transform(embeddings)
-    
-    # Plot the UMAP embeddings
-    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-    scatter = ax.scatter(umap_embeddings[:, 0], umap_embeddings[:, 1], s=point_size, color='blue')
-
-    # Annotate each point with the corresponding custom name
-    for i, custom_name in enumerate(custom_names):
-        ax.text(umap_embeddings[i, 0], umap_embeddings[i, 1], custom_name, fontsize=font_size, ha='right')
-
-    ax.set_title('UMAP of Embedding', fontsize=font_size + 2)
-    ax.set_xlabel('UMAP Dimension 1', fontsize=font_size + 1)
-    ax.set_ylabel('UMAP Dimension 2', fontsize=font_size + 1)
-    ax.grid(True)
-
-    # Optionally save the figure
-    if save_path is not None:
-        fig.savefig(save_path, dpi=dpi, bbox_inches='tight')
-
-    # Show the plot
-    plt.show()
 
 
 

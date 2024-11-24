@@ -45,10 +45,11 @@ def plot_trustworthiness(trustworthiness_df, text_label=True, text_shift=1, lege
     plt.show()
 
 
-def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, dpi=300, save_path=None):
+def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, rasterize=True, dpi=300, save_path=None):
     # Visualize the distance matrices in a more compact layout
     from scipy.spatial.distance import squareform
     import matplotlib.pyplot as plt
+    import matplotlib.collections as mcoll
     import seaborn as sns
     import numpy as np
     
@@ -67,7 +68,7 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
 
     for i, key in enumerate(keys):
         ax = axes[i]
-        sns.heatmap(
+        hmap = sns.heatmap(
             squareform(distances[key]),
             ax=ax,
             cmap="viridis",
@@ -77,6 +78,13 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
             cbar=cbar,  # Pass the value of cbar here to toggle the color bar
             cbar_kws=cbar_kws
         )
+
+        # Example to iterate over the children of the heatmap and set rasterization
+        if rasterize:
+            for artist in hmap.get_children():
+                if isinstance(artist, mcoll.QuadMesh):
+                    artist.set_rasterized(True)
+                    
         ax.set_title(key, fontsize=fontsize)  # Increase the title font size
 
     # Hide empty subplots if n_plots < n_cols * n_rows
@@ -93,7 +101,7 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
     plt.show()
 
 
-def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', s=1, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), dpi=300, save_path=None):
+def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', s=1, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), rasterized=True, dpi=300, save_path=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -121,7 +129,7 @@ def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_nois
             ground_val = data_dict[ground_key] 
             latent_val = data_dict[key]
 
-        ax.scatter(ground_val, latent_val, s=s, alpha=alpha, edgecolors='none')
+        ax.scatter(ground_val, latent_val, s=s, alpha=alpha, edgecolors='none', rasterized=rasterized)
         if correlation is not None:
             corr_text = '\n' + '\n'.join([f'{col}:{correlation.loc[key, col]:.2f}' for col in correlation.columns])
         else:
