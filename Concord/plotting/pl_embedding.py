@@ -20,7 +20,6 @@ def plot_embedding(adata, basis, color_by=None,
                    font_size=8, point_size=10, path_width=1, legend_loc='on data', 
                    rasterized=True,
                    save_path=None):
-    import matplotlib.collections as mcoll
     warnings.filterwarnings('ignore')
 
     if color_by is None or len(color_by) == 0:
@@ -97,8 +96,8 @@ def plot_embedding(adata, basis, color_by=None,
             if cbar is not None:
                 cbar.ax.tick_params(labelsize=font_size)
 
-        # Example snippet in your function
         if rasterized:
+            import matplotlib.collections as mcoll
             for artist in ax.get_children():
                 if isinstance(artist, mcoll.PathCollection):
                     artist.set_rasterized(True)
@@ -250,6 +249,7 @@ def plot_all_embeddings(
     leiden_resolution=1.0,
     legend_loc = None,
     colorbar_loc = None,
+    rasterized=True,
     save_dir='.',
     save_format='png',
     file_suffix='plot'
@@ -325,12 +325,20 @@ def plot_all_embeddings(
                 ax.set_xticks([])
                 ax.set_yticks([])
 
+                if rasterized:
+                    import matplotlib.collections as mcoll
+                    for artist in ax.get_children():
+                        if isinstance(artist, mcoll.PathCollection):
+                            artist.set_rasterized(True)
+                        if isinstance(artist, mcoll.LineCollection):  # Find the edges
+                            artist.set_rasterized(True)
+
             # Hide any remaining empty axes
             for ax in axs[len(combined_keys):]:
                 ax.set_visible(False)
 
             # Save the figure
-            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}", bbox_inches="tight")
+            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}", bbox_inches=None)
             plt.show()
 
 

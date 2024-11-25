@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=True,
                             legend=True, legend_loc='lower right', label_axes=True, colormap='tab10',
                             marker_size=20, diagonal=True, title=None, fontsize=12, axis_ticks=True,
-                            xlim=None, ylim=None):
+                            xlim=None, ylim=None, rasterized=True):
     diagram = diagram[0] # This is due to how giotto-tda returns the diagram
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 6))
@@ -30,7 +30,7 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
 
         # Plot finite points
         ax.scatter(births[finite_mask], deaths[finite_mask],
-                   label=f'H{int(dim)}', s=marker_size, color=color_dict[dim])
+                   label=f'H{int(dim)}', s=marker_size, color=color_dict[dim], rasterized=rasterized)
 
         # Plot points at infinity (if any)
         if np.any(infinite_mask):
@@ -43,7 +43,7 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
             if ylim is None:
                 ax.set_ylim(bottom=ax.get_ylim()[0], top=infinite_death + 0.1 * infinite_death)
             # Add infinity symbol as a custom legend entry
-            ax.scatter([], [], marker='^', label='Infinity', color='black')
+            ax.scatter([], [], marker='^', label='Infinity', color='black', rasterized=rasterized)
 
     # Draw diagonal line
     if diagonal:
@@ -84,7 +84,7 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
     return ax
 
 
-def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_size=(3,3), legend=True, legend_loc=None, fontsize=12, save_path=None, **kwargs):
+def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_size=(3,3), legend=True, legend_loc=None, rasterized=True, fontsize=12, save_path=None, **kwargs):
     # Plot the persistence diagrams into a single figure
     import matplotlib.pyplot as plt
     combined_keys = list(diagrams.keys())
@@ -98,7 +98,7 @@ def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_s
         # avoid plotting empty subplots
         if i >= n_plots:
             break
-        plot_persistence_diagram(diagrams[key], ax=axes[i], marker_size=marker_size, title=key, show=False, legend=legend, legend_loc=legend_loc, fontsize=fontsize, **kwargs)
+        plot_persistence_diagram(diagrams[key], ax=axes[i], marker_size=marker_size, title=key, show=False, legend=legend, legend_loc=legend_loc, fontsize=fontsize, rasterized=rasterized, **kwargs)
 
     # Save the plot
     fig.tight_layout()
