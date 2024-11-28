@@ -20,7 +20,7 @@ def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, 
 
     for domain in unique_domains:
         domain_indices = np.where(domain_labels == domain)[0]
-        domain_neighbor_indices = neighborhood.get_knn_indices(domain_indices)
+        domain_neighbor_indices = neighborhood.get_knn(domain_indices)
 
         # Flatten and deduplicate indices
         unique_neighbors = set(domain_neighbor_indices.flatten())

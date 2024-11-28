@@ -48,6 +48,7 @@ class Neighborhood:
 
         self.index = None
         self.nbrs = None
+        self.graph = None
 
         self._build_knn_index()
 
@@ -86,21 +87,23 @@ class Neighborhood:
             self.nbrs = NearestNeighbors(n_neighbors=self.k + 1).fit(self.emb)
 
 
-    def get_knn_indices(self, core_samples, k=None, include_self=True):
+    def get_knn(self, core_samples, k=None, include_self=True, return_distance=False):
         """
-        Retrieve k-NN indices for the given samples.
+        Retrieve k-NN indices (and optionally distances) for the given samples.
 
         Parameters:
         core_samples: np.ndarray or torch.Tensor
             The indices of core samples to find k-NN for.
         k: int, optional
-            Number of neighbors to retrieve. If None, uses the default self.k
+            Number of neighbors to retrieve. If None, uses the default self.k.
         include_self: bool, default True
             Whether to include the sample itself in the returned neighbors.
+        return_distance: bool, default False
+            Whether to return distances along with indices.
 
         Returns:
-        np.ndarray
-            The indices of nearest neighbors.
+        np.ndarray (or tuple of np.ndarray)
+            The indices of nearest neighbors (and distances, if return_distance is True).
         """
         if k is None:
             k = self.k
@@ -121,18 +124,22 @@ class Neighborhood:
             n_neighbors += 1  # Retrieve an extra neighbor to exclude self later
 
         if self.use_faiss and self.index is not None:
-            _, indices = self.index.search(emb_samples.astype(np.float32), n_neighbors)
+            distances, indices = self.index.search(emb_samples.astype(np.float32), n_neighbors)
         else:
-            _, indices = self.nbrs.kneighbors(emb_samples, n_neighbors=n_neighbors)
+            distances, indices = self.nbrs.kneighbors(emb_samples, n_neighbors=n_neighbors)
 
         if not include_self:
             # Exclude the sample itself from the neighbors
             core_samples_expanded = core_samples.reshape(-1, 1)
             mask = indices != core_samples_expanded
             indices_excl_self = indices[mask].reshape(len(core_samples), -1)
+            distances_excl_self = distances[mask].reshape(len(core_samples), -1)
             # Return only the top k neighbors excluding the sample itself
             indices = indices_excl_self[:, :k]
+            distances = distances_excl_self[:, :k]
 
+        if return_distance:
+            return indices, distances
         return indices
 
     
@@ -172,7 +179,7 @@ class Neighborhood:
         assert(self.emb.shape[0] == mtx.shape[0])
 
         # Get the indices of k nearest neighbors for the core samples
-        indices = self.get_knn_indices(core_samples, k=k, include_self=False)
+        indices = self.get_knn(core_samples, k=k, include_self=False)
 
         # Compute the Euclidean distance
         if distance_metric == 'euclidean':
@@ -198,4 +205,24 @@ class Neighborhood:
         else:
             raise ValueError(f"Unknown distance metric: {distance_metric}")
 
+    def compute_knn_graph(self, k=None):
+        from scipy.sparse import csr_matrix
+        if k is None:
+            k = self.k
+        # Retrieve k-NN indices and distances
+        core_samples = np.arange(self.emb.shape[0])
+        indices, distances = self.get_knn(core_samples, k=k, include_self=False, return_distance=True)
 
+        rows = np.repeat(np.arange(self.emb.shape[0]), k)
+        cols = indices.flatten()
+        weights = distances.flatten()
+
+        # Build the adjacency matrix
+        self.graph = csr_matrix((weights, (rows, cols)), shape=(self.emb.shape[0], self.emb.shape[0]))
+
+    def get_knn_graph(self):
+        if self.graph is None:
+            logger.warning("K-NN graph is not computed. Computing now.")
+            self.compute_knn_graph()
+        return self.graph
+        

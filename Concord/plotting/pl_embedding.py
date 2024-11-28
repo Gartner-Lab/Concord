@@ -61,29 +61,55 @@ def plot_embedding(adata, basis, color_by=None,
                 text.set_alpha(text_alpha)
 
         # Highlight selected points
+        # Highlight selected points
         if highlight_indices is not None:
-            highlight_data = adata[highlight_indices, :]
+            # Extract the coordinates for highlighting
+            embedding = adata.obsm[basis]
+
             if col is None:
-                sc.pl.embedding(highlight_data, basis=basis, ax=ax, show=False,
-                                legend_loc=None, legend_fontsize=font_size,
-                                size=highlight_size, alpha=1.0)
-                for collection in ax.collections:
-                    collection.set_color(highlight_color)
+                # Highlight without color-by
+                ax.scatter(
+                    embedding[highlight_indices, 0],
+                    embedding[highlight_indices, 1],
+                    s=highlight_size,
+                    color=highlight_color,
+                    alpha=1.0,
+                    zorder=3,  # Ensure points are on top
+                )
             elif pd.api.types.is_numeric_dtype(data_col):
-                sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc=None, legend_fontsize=font_size,
-                                size=highlight_size, alpha=1.0, cmap=cmap, colorbar_loc=None)
+                # Highlight with numeric color mapping
+                colors = data_col.iloc[highlight_indices]
+                norm = plt.Normalize(vmin=data_col.min(), vmax=data_col.max())
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                highlight_colors = sm.to_rgba(colors)
+                ax.scatter(
+                    embedding[highlight_indices, 0],
+                    embedding[highlight_indices, 1],
+                    s=highlight_size,
+                    color=highlight_colors,
+                    alpha=1.0,
+                    zorder=3,
+                )
             else:
-                sc.pl.embedding(highlight_data, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc=None, legend_fontsize=font_size,
-                                size=highlight_size, alpha=1.0, palette=palette)
+                # Highlight with categorical color mapping
+                colors = data_col.iloc[highlight_indices].map(palette)
+                ax.scatter(
+                    embedding[highlight_indices, 0],
+                    embedding[highlight_indices, 1],
+                    s=highlight_size,
+                    color=colors,
+                    alpha=1.0,
+                    zorder=3,
+                )
 
             if draw_path:
-                embedding = adata.obsm[basis]
-                if not isinstance(embedding, np.ndarray):
-                    embedding = np.array(embedding)
+                # Draw path through highlighted points
                 path_coords = embedding[highlight_indices, :]
-                ax.plot(path_coords[:, 0], path_coords[:, 1], 'r-', linewidth=path_width)  # Red line for the path
+                ax.plot(
+                    path_coords[:, 0],
+                    path_coords[:, 1],
+                    'r-', linewidth=path_width, alpha=alpha, zorder=2
+                )
 
         ax.set_title(ax.get_title() if title is None else title, fontsize=font_size)
         ax.set_xlabel('' if xlabel is None else xlabel, fontsize=font_size-2)
