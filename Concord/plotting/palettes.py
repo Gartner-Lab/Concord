@@ -45,11 +45,15 @@ def extend_palette(base_colors, num_colors):
     return [mcolors.rgb2hex(color) for color in extended_colors]
 
 def get_factor_color(labels, pal='Set1', permute=True):
+    from natsort import natsorted
     # Convert labels to strings and replace 'nan' with 'NaN'
     labels = pd.Series(labels).astype(str)
     labels[labels == 'nan'] = 'NaN'
 
     unique_labels = labels.unique()
+    # Sort unique labels to ensure consistent color assignment
+    unique_labels = natsorted(unique_labels)
+    
     has_nan = 'NaN' in unique_labels
 
     if has_nan:

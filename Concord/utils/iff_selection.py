@@ -71,7 +71,7 @@ def iff_select(adata,
         with Timer() as timer:
             neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf)
             core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
-            knn_indices = neighborhood.get_knn_indices(core_samples)
+            knn_indices = neighborhood.get_knn(core_samples)
             expr_clus_frac = pd.DataFrame({
                 f'knn_{i}': (adata[knn, :].X > 0).mean(axis=0).A1
                 for i, knn in enumerate(knn_indices)

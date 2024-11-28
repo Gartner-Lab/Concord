@@ -23,8 +23,11 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
                              cluster_rows=True, cluster_cols=True, pal=None, add_color_legend=False,
                              value_annot=False, title=None, title_fontsize=16, annot_fontsize=8,
                              yticklabels=True, xticklabels=False, 
-                             use_clustermap=True, ax=None,
-                             figsize=(12, 8), dpi=300, show=True, save_path=None):
+                             use_clustermap=True, 
+                             rasterize=True,
+                             ax=None,
+                             figsize=(12, 8), 
+                             dpi=300, show=True, save_path=None):
     """
     Create a heatmap colored by multiple columns in adata.obs and optionally save the figure.
 
@@ -42,6 +45,7 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
     import matplotlib.pyplot as plt
     import pandas as pd
     import matplotlib.colors as mcolors
+    import matplotlib.collections as mcoll
 
     if not isinstance(pal, dict):
         pal = {col: pal for col in obs_keys}
@@ -125,6 +129,12 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
         cbar.ax.tick_params(labelsize=title_fontsize-2)
         if title:
             ax.set_title(title, fontsize=title_fontsize)
+
+    # Rasterize only the heatmap cells
+    if rasterize:
+        for artist in ax.get_children():
+            if isinstance(artist, mcoll.QuadMesh):
+                artist.set_rasterized(True)
 
     if add_color_legend and legend_data:
         for labels, palette, title in legend_data:

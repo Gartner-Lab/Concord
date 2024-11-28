@@ -151,6 +151,110 @@ def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendall
     return corr_df
 
 
+def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming']):
+    """
+    Compare the graph connectivity of two embeddings by computing their k-NN graphs
+    and comparing their adjacency matrices using specified metrics.
+
+    Parameters:
+    - adata: AnnData
+        AnnData object containing embeddings in `adata.obsm`.
+    - emb1: str
+        Key for the first embedding in `adata.obsm`.
+    - emb2: str
+        Key for the second embedding in `adata.obsm`.
+    - k: int
+        Number of nearest neighbors for the k-NN graph.
+    - use_faiss: bool
+        Whether to use FAISS for nearest neighbor computation.
+    - use_ivf: bool
+        Whether to use IVF FAISS index.
+    - ivf_nprobe: int
+        Number of probes for IVF FAISS index.
+    - metric: list of str
+        List of metrics to use for graph comparison: ['jaccard', 'frobenius', 'hamming'].
+
+    Returns:
+    - graph_distance: dict
+        Dictionary with keys as metric names and values as similarity scores.
+    """
+    from scipy.sparse import csr_matrix
+    import numpy as np
+    from ..model.knn import Neighborhood  # Adjust import based on your directory structure
+
+    # Check if embeddings exist in adata.obsm
+    if emb1 not in adata.obsm or emb2 not in adata.obsm:
+        raise ValueError(f"Embedding keys {emb1} and {emb2} not found in adata.obsm.")
+    
+    emb1 = adata.obsm[emb1]
+    emb2 = adata.obsm[emb2]
+
+    # Initialize Neighborhood objects for both embeddings
+    neighborhood1 = Neighborhood(emb1, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
+    neighborhood2 = Neighborhood(emb2, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
+
+    # Compute k-NN indices for all points
+    core_samples1 = np.arange(emb1.shape[0])
+    core_samples2 = np.arange(emb2.shape[0])
+
+    indices1 = neighborhood1.get_knn(core_samples1, k=k, include_self=False)
+    indices2 = neighborhood2.get_knn(core_samples2, k=k, include_self=False)
+
+    # Create adjacency matrices
+    rows1 = np.repeat(core_samples1, k)
+    cols1 = indices1.flatten()
+    graph1 = csr_matrix((np.ones_like(cols1), (rows1, cols1)), shape=(emb1.shape[0], emb1.shape[0]))
+
+    rows2 = np.repeat(core_samples2, k)
+    cols2 = indices2.flatten()
+    graph2 = csr_matrix((np.ones_like(cols2), (rows2, cols2)), shape=(emb2.shape[0], emb2.shape[0]))
+
+    # Compare graphs based on the chosen metric
+    graph_distance = {}
+    if 'jaccard' in metric:
+        graph1_binary = graph1 > 0
+        graph2_binary = graph2 > 0
+        intersection = graph1_binary.multiply(graph2_binary).sum()
+        union = (graph1_binary + graph2_binary > 0).sum()
+        graph_distance['jaccard'] = intersection / union
+    if 'hamming' in metric:
+        graph1_binary = graph1 > 0
+        graph2_binary = graph2 > 0
+        graph_distance['hamming'] = 1 - (graph1_binary != graph2_binary).sum() / graph1_binary.nnz
+    if 'frobenius' in metric:
+        graph_distance['frobenius'] = np.linalg.norm((graph1 - graph2).toarray())
+
+    return graph_distance
+
+
+def benchmark_graph_connectivity(adata, emb_keys, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'hamming'], 
+                                 groundtruth_keys = {'(nn)': 'PCA_no_noise','(wn)': 'PCA_wt_noise'}):
+
+    connectivity_df = pd.DataFrame()
+    for gname,gemb in groundtruth_keys.items():
+        results = []
+        for key in emb_keys:
+            similarity_scores = compare_graph_connectivity(
+                adata,
+                emb1=key,
+                emb2=gemb,
+                k=k,
+                metric=metric,
+                use_faiss=use_faiss,
+                use_ivf=use_ivf,
+                ivf_nprobe=ivf_nprobe
+            )
+            results.append(similarity_scores)
+
+        df = pd.DataFrame(results, index=emb_keys)
+        # Add a second level index to the column named 'metric'
+        df.columns = pd.MultiIndex.from_tuples([(f'Graph connectivity', col + gname) for col in df.columns])
+        connectivity_df = pd.concat([connectivity_df, df], axis=1)
+    
+    return connectivity_df
+
+
+
 def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, save_dir=None, file_suffix=None):
     import pandas as pd
     from .tda import compute_betti_statistics, summarize_betti_statistics
@@ -186,7 +290,7 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
 
 
 def benchmark_geometry(adata, keys, 
-                       eval_metrics=['pseudotime', 'cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
+                       eval_metrics=['pseudotime', '', 'cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
                        dist_metric='cosine', 
                        groundtruth_key = 'PCA_no_noise', 
                        state_key = 'cluster',
@@ -247,6 +351,8 @@ def benchmark_geometry(adata, keys,
             'pseudotime': time_dict,
             'correlation': pseudotime_result
         }
+
+    
 
     # Global distance correlation
     if 'cell_distance_corr' in eval_metrics:

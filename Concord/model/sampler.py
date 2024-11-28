@@ -62,7 +62,7 @@ class ConcordSampler(Sampler):
                 batch_global_out_domain_count = self.batch_size - batch_global_in_domain_count
             else:
                 core_samples = domain_indices[torch.randperm(len(domain_indices))[:num_batches_domain]]
-                knn_around_core = self.neighborhood.get_knn_indices(core_samples) # (core_samples, k), contains core + knn around the core samples
+                knn_around_core = self.neighborhood.get_knn(core_samples) # (core_samples, k), contains core + knn around the core samples
                 knn_around_core = torch.tensor(knn_around_core).to(self.device)
                 knn_domain_ids = self.domain_ids[knn_around_core] # (core_samples, k), shows domain of each knn sample
                 domain_mask = knn_domain_ids == domain # mask indicate if sample is in current domain
@@ -136,7 +136,7 @@ class ConcordMatchNNSampler(Sampler):
         for batch in self.base_sampler:
             batch = batch.to(self.device)
             # Get the first nearest neighbor for each sample, excluding the sample itself
-            nn_indices = self.neighborhood.get_knn_indices(batch, k=1, include_self=False)
+            nn_indices = self.neighborhood.get_knn(batch, k=1, include_self=False)
             nn_indices = torch.tensor(nn_indices.squeeze(1), device=self.device)
             # Concatenate batch and nn_indices to form the full batch
             full_batch = torch.cat([batch, nn_indices], dim=0)

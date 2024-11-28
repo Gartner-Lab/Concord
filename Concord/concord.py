@@ -94,7 +94,7 @@ class Concord:
             sampler_knn=None,
             p_intra_knn=0.5,
             p_intra_domain=None,
-            min_p_intra_domain=1.0,
+            min_p_intra_domain=0.95,
             max_p_intra_domain=1.0,
             pca_n_comps=50,
             use_faiss=True,
@@ -112,8 +112,8 @@ class Concord:
         set_seed(self.config.seed)
 
         if self.config.sampler_knn is None:
-            self.config.sampler_knn = self.adata.n_obs // 50 
-            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/50 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+            self.config.sampler_knn = self.adata.n_obs // 10 
+            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:

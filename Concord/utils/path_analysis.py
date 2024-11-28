@@ -9,40 +9,19 @@ try:
 except ImportError:
     faiss_available = False
 
+    
 
-def shortest_path_on_knn_graph(adata, emb_key='encoded', k=10, point_a=None, point_b=None, use_faiss=True, ):
-    """
-    Finds the shortest path between point_a and point_b on a k-nearest neighbor graph.
-    If point_b is not provided, it finds the furthest point from point_a.
-
-    Parameters:
-    - adata: AnnData object containing the data in adata.obsm[emb_key]
-    - point_a: Starting point index
-    - k: Number of nearest neighbors to consider for the graph
-    - point_b: Optional ending point index. If None, the furthest point from point_a is used.
-    - use_faiss: Boolean to use faiss for nearest neighbor search if available
-    - emb_key: Key to access the embeddings in adata.obsm
-
-    Returns:
-    - path: List of indices representing the shortest path from point_a to point_b
-    """
+def shortest_path_on_knn_graph(neighborhood=None, adata=None, basis='encoded', k=10, point_a=None, point_b=None, use_faiss=True, use_ivf=False, ivf_nprobe=10):
+    from scipy.sparse import csr_matrix
+    from ..model.knn import Neighborhood
     from scipy.sparse.csgraph import dijkstra
-    X = adata.obsm[emb_key]
-    d = X.shape[1]
 
-    if use_faiss and faiss_available:
-        index = faiss.IndexFlatL2(d)  # L2 distance index
-        index.add(X)
-        distances, indices = index.search(X, k + 1)
-    else:
-        nbrs = NearestNeighbors(n_neighbors=k + 1, algorithm='auto').fit(X)
-        distances, indices = nbrs.kneighbors(X)
+    # Initialize the Neighborhood class
+    if neighborhood is None:
+        neighborhood = Neighborhood(adata.obsm[basis], k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
 
-    rows = np.repeat(np.arange(X.shape[0]), k)
-    cols = indices[:, 1:].flatten()  # Exclude self-loops
-    weights = distances[:, 1:].flatten()
-
-    graph = csr_matrix((weights, (rows, cols)), shape=(X.shape[0], X.shape[0]))
+    # Build the adjacency matrix
+    graph = neighborhood.get_knn_graph()
 
     # Compute the shortest path
     dist_matrix, predecessors = dijkstra(csgraph=graph, directed=False, indices=[point_a], return_predecessors=True)
@@ -64,7 +43,6 @@ def shortest_path_on_knn_graph(adata, emb_key='encoded', k=10, point_a=None, poi
     path = path[::-1]
 
     return path, dist_matrix
-
 
 
 def smooth_matrix(matrix, sigma=2):
@@ -97,9 +75,9 @@ def sort_and_smooth_signal_along_path(adata, signal_key=None, path=None, sigma=2
     return sorted_data, sorted_smoothed_data, smoothed_peak_locs, sorted_columns
 
 
-def geodesic_distance_along_path(adata, emb_key=None, path=None):
+def geodesic_distance_along_path(adata, basis=None, path=None):
     gd_distances = []
-    data = adata.obsm[emb_key][path]
+    data = adata.obsm[basis][path]
     for i in range(len(path) - 1):
         vec1 = data[i]
         vec2 = data[i + 1]
@@ -108,6 +86,68 @@ def geodesic_distance_along_path(adata, emb_key=None, path=None):
 
     geodesic_distances = np.cumsum([0] + gd_distances)
     return geodesic_distances
+
+
+def euclidian_distance_across_path(adata, basis=None, path=None):
+    data = adata.obsm[basis][path]
+    # Compute distance between start and end points
+    start_point = data[0]
+    end_point = data[-1]
+    euclidian_distance = np.linalg.norm(start_point - end_point)
+    return euclidian_distance
+
+
+def curvature_along_path(adata, basis=None, path=None):
+    data = adata.obsm[basis][path]
+    # Compute distance between start and end points
+    start_point = data[0]
+    end_point = data[-1]
+    euclidian_distance = np.linalg.norm(start_point - end_point)
+    # Compute geodesic distance
+    geodesic_distances = geodesic_distance_along_path(adata, basis=basis, path=path)
+    # Compute curvature
+    curvature = geodesic_distances[-1] / euclidian_distance
+    return curvature
+
+
+def curvatures_across_time(adata, basis=None, k=30, time_key=None, time_interval_frac=0.05):
+    from ..model.knn import Neighborhood
+    import pandas as pd
+
+    if time_key is None:
+        time_key = "time"
+
+    time_vec = adata.obs[time_key]
+    time_interval = time_interval_frac * (time_vec.max() - time_vec.min())
+    time_points = np.arange(time_vec.min(), time_vec.max(), time_interval)
+
+    logger.info(f"Computing curvatures at time points: {time_points}")
+    neighborhood = Neighborhood(adata.obsm[basis], k=k)
+
+    result_df = pd.DataFrame()
+    for t in time_points:
+        start_point_index = np.argmin(np.abs(time_vec - t))
+        end_point_index = np.argmin(np.abs(time_vec - (t + time_interval)))
+        shortest_path, _ = shortest_path_on_knn_graph(neighborhood, point_a=start_point_index, point_b=end_point_index)
+        if len(shortest_path) == 0:
+            continue
+
+        curvature = curvature_along_path(adata, basis=basis, path=shortest_path)
+        # Record start, end points, corresponding time and curvature
+        start_time = time_vec[start_point_index]
+        end_time = time_vec[end_point_index]
+        mid_time = (start_time + end_time) / 2
+        result_df = pd.concat([result_df, pd.DataFrame([{
+            "start_point": start_point_index, 
+            "end_point": end_point_index,
+            "start_time": start_time,
+            "end_time": end_time,
+            "mid_time": mid_time,
+            "curvature": curvature
+        }])])
+    
+    return result_df
+
 
 
 # Function to project a point onto a line segment

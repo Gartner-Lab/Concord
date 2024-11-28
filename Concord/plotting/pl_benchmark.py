@@ -31,7 +31,7 @@ def add_metric_row(df):
     return result_df
 
 
-def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', agg_name='Aggregate score', dpi=300, save_path=None, figsize=None):
+def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', cmap_padding=0.05, agg_name='Aggregate score', dpi=300, save_path=None, figsize=None):
     # Plot the geometry results using plotable
     from plottable import ColumnDefinition, Table
     from plottable.plots import bar
@@ -53,6 +53,11 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', a
     elif cmap_method == 'minmax':
         cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
             norm=mpl.colors.Normalize(vmin=col_data.min(), vmax=col_data.max()),
+            cmap=cmap
+        ).to_rgba
+    elif cmap_method == 'minmax_padded':
+        cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
+            norm=mpl.colors.Normalize(vmin=col_data.min()-cmap_padding*(col_data.max()-col_data.min()), vmax=col_data.max()+cmap_padding*(col_data.max()-col_data.min())),
             cmap=cmap
         ).to_rgba
     elif cmap_method == '0_to_1':
