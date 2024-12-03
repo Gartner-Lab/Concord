@@ -1,7 +1,7 @@
 from .palettes import get_color_mapping
 from matplotlib.patches import Patch
 
-def add_legend(ax, labels, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
+def add_legend(ax, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
     """
     Adds a color legend directly to the plot for categorical data.
     
@@ -13,7 +13,8 @@ def add_legend(ax, labels, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
     - fontsize: Font size for the legend.
     - bbox_anchor: Location of the legend box.
     """
-    handles = [Patch(facecolor=color, edgecolor='none') for color in palette]
+    handles = [Patch(facecolor=color, edgecolor='none') for color in palette.values()]
+    labels = [key for key in palette]
     ax.legend(handles, labels, title=title, loc='upper left', fontsize=fontsize,
               title_fontsize=fontsize, bbox_to_anchor=bbox_anchor, borderaxespad=0)
 
@@ -83,8 +84,7 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
             else:
                 use_colors[col] = data_col.map(palette).to_numpy()       
                 if add_color_legend:
-                    unique_labels = data_col.unique()
-                    legend_data.append((unique_labels, palette, col))
+                    legend_data.append((palette, col))
 
         use_colors.reset_index(drop=True, inplace=True)
     else:
@@ -137,8 +137,8 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
                 artist.set_rasterized(True)
 
     if add_color_legend and legend_data:
-        for labels, palette, title in legend_data:
-            add_legend(ax, labels, palette, title=title, bbox_anchor=(1, 1))
+        for palette, title in legend_data:
+            add_legend(ax, palette, title=title, bbox_anchor=(1, 1))
 
     if save_path:
         plt.savefig(save_path, dpi=dpi)
