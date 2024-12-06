@@ -329,19 +329,22 @@ def plot_all_embeddings(
                 elif basis_type == 'PAGA':
                     sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed) 
                     sc.tl.leiden(adata, key_added=leiden_key, resolution=leiden_resolution, random_state=seed)   
-                    sc.tl.paga(adata, groups=leiden_key, use_rna_velocity=False)
-                    if pd.api.types.is_numeric_dtype(data_col):
-                        sc.pl.paga(
-                            adata, threshold=threshold, color=color_by, ax=ax, show=False,
-                            layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
-                            edge_width_scale=edge_width_scale, colorbar=False
-                        )
-                    else:
-                        sc.pl.paga(
-                            adata, threshold=threshold, color=color_by, ax=ax, show=False,
-                            layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
-                            edge_width_scale=edge_width_scale
-                        )
+                    try:
+                        sc.tl.paga(adata, groups=leiden_key, use_rna_velocity=False)
+                        if pd.api.types.is_numeric_dtype(data_col):
+                            sc.pl.paga(
+                                adata, threshold=threshold, color=color_by, ax=ax, show=False,
+                                layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
+                                edge_width_scale=edge_width_scale, colorbar=False
+                            )
+                        else:
+                            sc.pl.paga(
+                                adata, threshold=threshold, color=color_by, ax=ax, show=False,
+                                layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
+                                edge_width_scale=edge_width_scale
+                            )
+                    except Exception as e:
+                        logger.error(f"Error plotting PAGA for {key}: {e}")
 
                 if 'PCA' in key:
                     key = key.replace('PCA_', '')

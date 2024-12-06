@@ -132,6 +132,29 @@ class Neighborhood:
             # Exclude the sample itself from the neighbors
             core_samples_expanded = core_samples.reshape(-1, 1)
             mask = indices != core_samples_expanded
+
+            # # Ensure consistency in excluding exactly one "self" element per row
+            mask_sum = mask.sum(axis=1)
+
+            # Check if sum equals the expected number of neighbors after exclusion
+            expected_sum = n_neighbors - 1
+            if np.any(mask_sum < expected_sum):
+                raise ValueError("Mask inconsistency: less than expected neighbors found in one or more rows.")
+
+            if np.any(mask_sum > expected_sum):
+                # Randomly set one `True` to `False` for rows with all `True` in mask
+                logger.warning("Mask inconsistency: more than expected neighbors found in one or more rows.")
+                rows_to_fix = np.where(mask_sum > expected_sum)[0]
+                for row in rows_to_fix:
+                    # Randomly choose one element to set to False, or choose the first element for consistency
+                    self_pos = np.where(indices[row] == core_samples[row])[0]
+                    if len(self_pos) > 0:
+                        # Set the self position to False in the mask
+                        mask[row, self_pos[0]] = False
+                    else:
+                        # Just in case, if no self position is found, set a random element to False
+                        mask[row, np.random.choice(n_neighbors)] = False
+
             indices_excl_self = indices[mask].reshape(len(core_samples), -1)
             distances_excl_self = distances[mask].reshape(len(core_samples), -1)
             # Return only the top k neighbors excluding the sample itself

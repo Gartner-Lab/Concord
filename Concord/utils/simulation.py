@@ -435,15 +435,20 @@ class Simulation:
         transition_end = cell_start if "decreasing" in structure else min(cell_start + program_transition_time, cell_end)
         on_end = min(transition_end + program_on_time, cell_end) 
 
+        #print("program_on_time", program_on_time, "program_transition_time", program_transition_time)
+        #print("cell_start", cell_start, "transition_end", transition_end, "on_end", on_end, "cell_end", cell_end)
+
         if "linear" in structure:
             expression_matrix[cell_start:transition_end, gene_idx] = np.linspace(min_expression, mean_expression, transition_end-cell_start).reshape(-1, 1)
             expression_matrix[transition_end:on_end, gene_idx] = mean_expression
             expression_matrix[on_end:cell_end, gene_idx] = np.linspace(mean_expression, min_expression, cell_end-on_end).reshape(-1, 1)
         elif "dimension_increase" in structure:
-            gap_size = max(ncells // len(gene_idx), 1)
+            gap_size = max((ncells - program_on_time) // len(gene_idx), 1)
+            #print("ncells", ncells, "len(gene_idx)", len(gene_idx), "gap_size", gap_size)
             # Simulate a gene program that has each of its genes gradually turning on
             for i, gene in enumerate(gene_idx):
                 cur_gene_start = min(cell_start + i * gap_size, cell_end)
+                #print("cur_gene_start", cur_gene_start, "transition_end", transition_end, "cell_end", cell_end, "gene", gene)
                 expression_matrix[cur_gene_start:transition_end, gene] = np.linspace(min_expression, mean_expression, transition_end-cur_gene_start)
                 expression_matrix[transition_end:cell_end, gene] = mean_expression
         elif structure == "uniform":
@@ -478,7 +483,7 @@ class Simulation:
             logger.warning("Total number of genes will not be equal to n_genes due to program_decay < 1.")
 
         # Recursive function to simulate gene expression for each branch
-        def simulate_branch(depth, branch_path, inherited_genes=None):
+        def simulate_branch(depth, branch_path, inherited_genes=None, start_time=0):
             nonlocal cell_counter, gene_counter
             branch_str = '_'.join(map(str, branch_path)) if branch_path else 'root'
             #print("Simulating depth:", depth, "branch:", branch_str)
@@ -494,6 +499,7 @@ class Simulation:
             cell_counter += cur_n_cells
 
             #print("depth", depth, "branch_path", branch_path, "gene_counter", gene_counter, "cell_counter", cell_counter)
+            #print("cur_n_genes", cur_n_genes, "cur_n_cells", cur_n_cells)
             # Simulate linear increasing gene expression for branch-specific genes
             cur_branch_expression = self.simulate_expression_block(
                 np.zeros((cur_n_cells, cur_n_genes)), 
@@ -519,6 +525,8 @@ class Simulation:
             adata.var_names = cur_branch_genes
             adata.obs['branch'] = branch_str
             adata.obs['depth'] = depth
+            adata.obs['time'] = np.arange(cur_n_cells) + start_time
+            end_time = start_time + cur_n_cells
             adata.layers['no_noise'] = cur_branch_expression
 
             # Base case: if depth is 0, return the adata
@@ -529,7 +537,7 @@ class Simulation:
             # Recursively simulate sub-branches
             for i in range(branching_factor):
                 new_branch_path = branch_path + [i]
-                new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes)
+                new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes, start_time=end_time)
                 adata = sc.concat([adata, new_adata], join='outer')
 
             return adata
@@ -649,7 +657,7 @@ class Simulation:
         dropout_indicator_flat = np.random.binomial(n=1, p=flat_prob)
         dropout_indicator = dropout_indicator_flat.reshape(mtx.shape)
 
-        print(f"Percent 0s: {np.mean(dropout_indicator):.2f}")
+        logger.info(f"Percent 0s: {np.mean(dropout_indicator):.2f}")
         # Apply dropout to the UMI counts
         final_umi_mtx = mtx * (1 - dropout_indicator)
         

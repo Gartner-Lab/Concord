@@ -118,7 +118,7 @@ ccd.pl.plot_embedding(
 For complex structures, 3D UMAP may provide better insights:
 
 ```python
-ccd.ul.run_umap(adata, source_key='Concord', umap_key='Concord_UMAP_3D', n_components=3, n_neighbors=15, min_dist=0.1, metric='euclidean')
+ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=15, min_dist=0.1, metric='euclidean')
 
 # Plot the 3D UMAP embeddings
 col = 'louvain'
