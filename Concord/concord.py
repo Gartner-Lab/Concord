@@ -76,7 +76,7 @@ class Concord:
             class_key=None,
             domain_embedding_dim=8,
             covariate_embedding_dims={},
-            use_decoder=False, # Default decoder usage
+            use_decoder=True, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
