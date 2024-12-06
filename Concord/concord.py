@@ -92,7 +92,7 @@ class Concord:
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
             sampler_knn=None,
-            p_intra_knn=0.5,
+            p_intra_knn=0.3,
             p_intra_domain=None,
             min_p_intra_domain=0.95,
             max_p_intra_domain=1.0,
