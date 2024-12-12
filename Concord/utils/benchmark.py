@@ -503,3 +503,45 @@ def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=Fals
     return df
 
 
+
+
+# Recompute nmi and ari using the approach described in paper, with resolution range from 0.1 to 1.0 step 0.1
+def compute_nmi_ari(adata, emb_key, label_key, resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
+    import scanpy as sc
+    import scib
+    if verbose:
+        logger.setLevel(logging.INFO)
+
+    sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=emb_key, metric=metric)
+    cluster_key = f'leiden_{emb_key}'
+    nmi_vals = []
+    ari_vals = []
+    for resolution in resolution_range:
+        logger.info(f"Computing NMI and ARI for resolution {resolution}")
+        sc.tl.leiden(adata, resolution=resolution, key_added=cluster_key)
+        nmi_vals.append(scib.metrics.nmi(adata, cluster_key, label_key))
+        ari_vals.append(scib.metrics.ari(adata, cluster_key, label_key))
+    
+    return nmi_vals, ari_vals
+
+
+
+def benchmark_nmi_ari(adata, emb_keys, label_key='cell_type', resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
+    import pandas as pd
+    if verbose:
+        logger.setLevel(logging.INFO)
+    nmi_vals = {}
+    ari_vals = {}
+    for key in emb_keys:
+        logger.info(f"Computing NMI and ARI for {key}")
+        nmi_vals[key], ari_vals[key] = compute_nmi_ari(adata, key, label_key, resolution_range=resolution_range, n_neighbors=n_neighbors, metric=metric, verbose=verbose)
+    
+    nmi_df = pd.DataFrame(nmi_vals, index=resolution_range)
+    ari_df = pd.DataFrame(ari_vals, index=resolution_range)
+
+    return nmi_df, ari_df
+
+
+
+
+
