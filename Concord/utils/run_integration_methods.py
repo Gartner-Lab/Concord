@@ -118,3 +118,7 @@ def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels
     # Store the SCANVI latent representation in the specified obsm key
     adata.obsm[output_key] = lvae.get_latent_representation()
     
+
+
+
+

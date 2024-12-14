@@ -119,10 +119,21 @@ class Simulation:
             adata.X = adata.X.astype(int)
             adata_pre.X = adata_pre.X.astype(int)
 
-        adata.layers['wt_noise'] = adata.X
         adata_pre.layers['wt_noise'] = adata_pre.X
         adata.layers['counts'] = adata.X.copy()
+
+        adata.layers['no_noise'] = np.zeros_like(adata.X)
+        adata.layers['wt_noise'] = np.zeros_like(adata.X)
+        common_genes = adata.var_names.intersection(adata_pre.var_names)
+        adata_indices = adata.var_names.get_indexer(common_genes)
+        adata_pre_indices = adata_pre.var_names.get_indexer(common_genes)
+
+        # Copy data from `adata_pre` to `adata` for these common genes
+        adata.layers['no_noise'][:, adata_indices] = adata_pre.layers['no_noise'][:, adata_pre_indices].copy()
+        adata.layers['wt_noise'][:, adata_indices] = adata_pre.layers['wt_noise'][:, adata_pre_indices].copy()
+
         return adata, adata_pre
+
 
     def simulate_state(self):
         if self.state_type == 'cluster':
