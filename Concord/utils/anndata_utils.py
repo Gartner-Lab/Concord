@@ -191,7 +191,6 @@ def subset_adata_to_obsm_indices(adata, obsm):
 def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
     import numpy as np
     if basis in adata.obsm:
-        logger.info(f"Using existing embedding '{basis}' from adata.obsm")
         emb = adata.obsm[basis].astype(np.float32)
     elif basis == 'X':
         emb = adata.X.astype(np.float32)

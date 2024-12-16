@@ -93,6 +93,7 @@ class Simulation:
                 distribution = self.batch_distribution[i],
                 level=self.batch_level[i], dispersion=self.batch_dispersion[i], 
                 batch_feature_frac=self.batch_feature_frac[i], seed=self.seed+i)
+
             batch_list.append(batch_adata)
             state_list.append(batch_adata_pre)
 
@@ -112,25 +113,10 @@ class Simulation:
         adata.obs['batch'] = adata.obs['batch'].astype('category')
         adata_pre.obs['batch'] = adata_pre.obs['batch'].astype('category')
 
-        if self.non_neg:
-            adata.X[adata.X < 0] = 0
-            adata_pre.X[adata_pre.X < 0] = 0
-        if self.to_int:
-            adata.X = adata.X.astype(int)
-            adata_pre.X = adata_pre.X.astype(int)
-
-        adata_pre.layers['wt_noise'] = adata_pre.X
+        adata.X = np.nan_to_num(adata.X, nan=0.0)
+        adata.layers['no_noise'] = np.nan_to_num(adata.layers['no_noise'], nan=0.0)
+        adata.layers['wt_noise'] = np.nan_to_num(adata.layers['wt_noise'], nan=0.0)
         adata.layers['counts'] = adata.X.copy()
-
-        adata.layers['no_noise'] = np.zeros_like(adata.X)
-        adata.layers['wt_noise'] = np.zeros_like(adata.X)
-        common_genes = adata.var_names.intersection(adata_pre.var_names)
-        adata_indices = adata.var_names.get_indexer(common_genes)
-        adata_pre_indices = adata_pre.var_names.get_indexer(common_genes)
-
-        # Copy data from `adata_pre` to `adata` for these common genes
-        adata.layers['no_noise'][:, adata_indices] = adata_pre.layers['no_noise'][:, adata_pre_indices].copy()
-        adata.layers['wt_noise'][:, adata_indices] = adata_pre.layers['wt_noise'][:, adata_pre_indices].copy()
 
         return adata, adata_pre
 
@@ -204,7 +190,15 @@ class Simulation:
         
         # Fill in na values with 0
         adata.X = np.nan_to_num(adata.X, nan=0.0)
+
+        if self.non_neg:
+            adata.X[adata.X < 0] = 0
+        if self.to_int:
+            adata.X = adata.X.astype(int)
+        
+        adata.layers['wt_noise'] = adata.X
         return adata
+
 
     def simulate_batch(self, adata, cell_indices=None, cell_proportion=0.3, batch_name='batch_1', effect_type='batch_specific_features', distribution='normal', 
                        level=1.0, dispersion = 0.1,batch_feature_frac=0.1, seed=42):
@@ -254,9 +248,18 @@ class Simulation:
             num_new_features = int(batch_feature_frac * batch_adata.n_vars)
             batch_expr = Simulation.simulate_distribution(distribution, level, dispersion, (batch_adata.n_obs, num_new_features))
             new_vars = pd.DataFrame(index=[f"{batch_name}_Gene_{i+1}" for i in range(num_new_features)])
+            no_noise_layer = np.hstack([batch_adata.layers['no_noise'], np.zeros_like(batch_expr)])
+            wt_noise_layer = np.hstack([batch_adata.layers['wt_noise'], np.zeros_like(batch_expr)])
             batch_adata = ad.AnnData(X=np.hstack([batch_adata.X, batch_expr]), obs=batch_adata.obs, var=pd.concat([batch_adata.var, new_vars]))
+            batch_adata.layers['no_noise'] = no_noise_layer
+            batch_adata.layers['wt_noise'] = wt_noise_layer
         else:
             raise ValueError(f"Unknown batch effect type '{effect_type}'.")
+
+        if self.non_neg:
+            batch_adata.X[batch_adata.X < 0] = 0
+        if self.to_int:
+            batch_adata.X = batch_adata.X.astype(int)
 
         return batch_adata, batch_adata_pre
     

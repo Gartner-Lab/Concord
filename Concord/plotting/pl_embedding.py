@@ -292,9 +292,22 @@ def plot_all_embeddings(
 
             for key, ax in zip(combined_keys, axs):
                 data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
-                basis = f'{key}_{basis_type}' if basis_type not in key else key
+                if basis_type != '':
+                    basis = f'{key}_{basis_type}' if basis_type not in key else key
+                else:
+                    basis = key
 
-                if basis_type in ['PCA', 'UMAP']:
+                if basis_type in ['', 'PCA', 'UMAP']:
+                    if basis not in adata.obsm:
+                        ax.set_xlim(-1, 1)  # Set some default limits for the frame
+                        ax.set_ylim(-1, 1)
+                        ax.set_title(key, fontsize=font_size)
+                        ax.set_xlabel('')
+                        ax.set_ylabel('')
+                        ax.set_xticks([])  # Remove ticks
+                        ax.set_yticks([])
+                        continue  # Skip to the next key
+                    
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.embedding(
                             adata, basis=basis, color=color_by, ax=ax, show=False,

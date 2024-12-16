@@ -158,10 +158,10 @@ def safe_run(method_name, func, **kwargs):
     try:
         with timer:
             func(**kwargs)
-        print(f"{method_name}: Successfully completed in {timer.interval:.2f} seconds.")
+        logger.info(f"{method_name}: Successfully completed in {timer.interval:.2f} seconds.")
         used_time = timer.interval
     except Exception as e:
-        print(f"{method_name}: Failed to run. Error: {str(e)}")
+        logger.warning(f"{method_name}: Failed to run. Error: {str(e)}")
         print(traceback.format_exc())
         used_time = None
     
@@ -276,6 +276,6 @@ def run_dimensionality_reduction_pipeline(
     with open(time_log_path, "w") as f:
         import json
         json.dump(time_log, f, indent=4)
-    print(f"Time log saved to: {time_log_path}")
+    logger.info(f"Time log saved to: {time_log_path}")
 
     return time_log
