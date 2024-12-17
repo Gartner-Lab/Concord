@@ -144,7 +144,7 @@ def get_color_mapping(adata, col, pal):
         cmap = get_numeric_color(current_pal)
         palette = None
     else:
-        data_col = data_col.astype(str)
+        data_col = data_col.copy().astype(str)
         data_col[data_col == 'nan'] = 'NaN'
         adata.obs[col] = data_col
         if current_pal is None:
