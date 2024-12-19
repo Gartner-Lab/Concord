@@ -277,6 +277,7 @@ def plot_all_embeddings(
     colorbar_loc = None,
     rasterized=True,
     save_dir='.',
+    dpi=300,
     save_format='png',
     file_suffix='plot'
 ):
@@ -284,13 +285,12 @@ def plot_all_embeddings(
     nrows = int(np.ceil(len(combined_keys) / ncols))
 
     for basis_type in basis_types:
-        print(f"Plotting {basis_type} embeddings")
         for color_by in color_bys:
-            print(f"Coloring by {color_by}")
-            fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=300, constrained_layout=True)
+            fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
             axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
 
             for key, ax in zip(combined_keys, axs):
+                logger.info(f"Plotting {key} with {color_by} in {basis_type}")
                 data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
                 if basis_type != '':
                     basis = f'{key}_{basis_type}' if basis_type not in key else key
