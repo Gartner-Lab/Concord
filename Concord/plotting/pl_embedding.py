@@ -19,6 +19,7 @@ def plot_embedding(adata, basis, color_by=None,
                    colorbar_loc='right',
                    font_size=8, point_size=10, path_width=1, legend_loc='on data', 
                    rasterized=True,
+                   seed=42,
                    save_path=None):
     warnings.filterwarnings('ignore')
 
@@ -39,7 +40,7 @@ def plot_embedding(adata, basis, color_by=None,
         pal = {col: pal for col in color_by}
 
     for col, ax in zip(color_by, axs):
-        data_col, cmap, palette = get_color_mapping(adata, col, pal)
+        data_col, cmap, palette = get_color_mapping(adata, col, pal, seed=seed)
 
         if col is None:
             sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
@@ -74,7 +75,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     color=highlight_color,
                     alpha=1.0,
-                    zorder=3,  # Ensure points are on top
+                    zorder=1,  # Ensure points are on top
                 )
             elif pd.api.types.is_numeric_dtype(data_col):
                 # Highlight with numeric color mapping
@@ -88,7 +89,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     color=highlight_colors,
                     alpha=1.0,
-                    zorder=3,
+                    zorder=1,
                 )
             else:
                 # Highlight with categorical color mapping
@@ -99,7 +100,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     color=colors,
                     alpha=1.0,
-                    zorder=3,
+                    zorder=1,
                 )
 
             if draw_path:
@@ -140,7 +141,7 @@ def plot_embedding(adata, basis, color_by=None,
 
 def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,  
                       save_path=None, point_size=3,
-                      opacity=0.7, width=800, height=600):
+                      opacity=0.7, seed=42, width=800, height=600):
 
     import plotly.express as px
     
@@ -169,7 +170,8 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
     figs = []
     for col in color_by:
         # Retrieve color mapping using the new get_color_mapping method
-        data_col, cmap, palette = get_color_mapping(adata, col, pal)
+        data_col, cmap, palette = get_color_mapping(adata, col, pal, seed=seed)
+        
         # Plot based on data type: numeric or categorical
         if pd.api.types.is_numeric_dtype(data_col):
             colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
@@ -266,6 +268,7 @@ def plot_all_embeddings(
     node_size_scale=0.1,
     edge_width_scale=0.1,
     font_size=7,
+    legend_font_size=2,
     point_size=2.5,
     alpha=0.8,
     figsize=(9, 0.9),
@@ -291,13 +294,14 @@ def plot_all_embeddings(
 
             for key, ax in zip(combined_keys, axs):
                 logger.info(f"Plotting {key} with {color_by} in {basis_type}")
-                data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
+                data_col, cmap, palette = get_color_mapping(adata, color_by, pal, seed=seed)
                 if basis_type != '':
                     basis = f'{key}_{basis_type}' if basis_type not in key else key
                 else:
                     basis = key
 
-                if basis_type in ['', 'PCA', 'UMAP']:
+                # Check if basis type is '' or basis type contains substring PCA, or UMAP
+                if basis_type == '' or 'PCA' in basis or 'UMAP' in basis:
                     if basis not in adata.obsm:
                         ax.set_xlim(-1, 1)  # Set some default limits for the frame
                         ax.set_ylim(-1, 1)
@@ -311,13 +315,13 @@ def plot_all_embeddings(
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.embedding(
                             adata, basis=basis, color=color_by, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc
                         )
                     else:
                         sc.pl.embedding(
                             adata, basis=basis, color=color_by, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, palette=palette
                         )
 
@@ -327,14 +331,14 @@ def plot_all_embeddings(
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.draw_graph(
                             adata, color=color_by, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, cmap=cmap, edges=True,
                             edges_width=edges_width, edges_color=edges_color, colorbar_loc=colorbar_loc
                         )
                     else:
                         sc.pl.draw_graph(
                             adata, color=color_by, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
+                            legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, palette=palette,
                             edges=True, edges_width=edges_width, edges_color=edges_color
                         )
@@ -389,7 +393,7 @@ def plot_all_embeddings(
 
 def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color_by='batch', save_path='rotation.mp4', pal=None,
                                       point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60,
-                                      legend_itemsize=100, font_size=16):
+                                      legend_itemsize=100, font_size=16, seed=42):
     """
     Visualize a rotating 3D embedding and save it as an MP4 video for presentation purposes.
 
@@ -444,7 +448,7 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
     df['DIM3'] = embedding[:, 2]
 
     # Create initial 3D scatter plot
-    data_col, cmap, palette = get_color_mapping(adata, color_by, pal)
+    data_col, cmap, palette = get_color_mapping(adata, color_by, pal, seed=seed)
         
     # Plot based on data type: numeric or categorical
     if pd.api.types.is_numeric_dtype(data_col):

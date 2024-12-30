@@ -207,3 +207,43 @@ def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
             raise ValueError(f"Embedding '{basis}' not found in adata.obsm or adata.layers.")
     
     return emb
+
+
+
+
+def compute_meta_attributes(adata, groupby_key, attribute_key, method='majority_vote', meta_label_name=None):
+    """
+    Compute meta attributes for clusters.
+
+    Parameters:
+    - adata: AnnData object
+    - groupby_key: str, column in adata.obs used to group cells (e.g., 'leiden_Concord')
+    - attribute_key: str, column in adata.obs for which to compute meta attributes (e.g., 'lineage_ctype')
+    - method: str, 'majority_vote' (for categorical) or 'average' (for numeric)
+    - meta_label_name: str, name for the new meta attribute column (e.g., 'meta_lineage')
+
+    Returns:
+    - Updates adata.obs with the new meta attribute column
+    """
+    import pandas as pd
+    if meta_label_name is None:
+        meta_label_name = f"meta_{attribute_key}"
+    
+    # Step 1: Compute meta attributes
+    df = pd.DataFrame({attribute_key: adata.obs[attribute_key], groupby_key: adata.obs[groupby_key]})
+    
+    if method == 'majority_vote':
+        # Categorical: compute most frequent value per group
+        meta_attribute = df.groupby(groupby_key)[attribute_key].agg(lambda x: x.value_counts().idxmax())
+    elif method == 'average':
+        # Numeric: compute average per group
+        meta_attribute = df.groupby(groupby_key)[attribute_key].mean()
+    else:
+        raise ValueError("Invalid method. Choose 'majority_vote' or 'average'.")
+    
+    # Map the meta attributes back to adata.obs
+    adata.obs[meta_label_name] = adata.obs[groupby_key].map(meta_attribute)
+
+    print(f"Added '{meta_label_name}' to adata.obs")
+    return meta_label_name
+

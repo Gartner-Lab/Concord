@@ -393,3 +393,111 @@ def plot_paga(adata, basis,
 
     if save_path is not None:
         fig.savefig(save_path, dpi=dpi)
+
+
+
+
+
+def compute_paga_layout(adata, groupby_key, weight_threshold=0.3, spring_k=None, seed=42):
+    """
+    Precompute the PAGA graph layout positions with filtered edges.
+
+    Parameters:
+    - adata: AnnData object
+    - groupby_key: str, column in adata.obs used to group cells (e.g., 'leiden_Concord')
+    - weight_threshold: float, minimum weight for edges to be included in the graph
+    - spring_k: float, spring constant for layout positioning
+    - seed: int, random seed for reproducibility
+
+    Returns:
+    - filtered_graph: NetworkX graph object
+    - pos: Dictionary of positions for the nodes
+    """
+    import networkx as nx
+
+    # Extract the PAGA adjacency matrix
+    paga_connectivities = adata.uns['paga']['connectivities']
+
+    # Convert to list of edges with weights
+    edges = [
+        (i, j, w)
+        for i, j, w in zip(*paga_connectivities.nonzero(), paga_connectivities.data)
+    ]
+
+    # Filter edges by weight threshold
+    filtered_edges = [(i, j, w) for i, j, w in edges if w >= weight_threshold]
+
+    # Build the filtered graph
+    filtered_graph = nx.Graph()
+    filtered_graph.add_weighted_edges_from(filtered_edges)
+
+    # Relabel nodes to use group labels
+    label_mapping = {i: str(label) for i, label in enumerate(adata.obs[groupby_key].cat.categories)}
+    filtered_graph = nx.relabel_nodes(filtered_graph, label_mapping)
+
+    # Precompute layout positions
+    pos = nx.spring_layout(filtered_graph, weight='weight', k=spring_k, seed=seed)
+    return filtered_graph, pos
+
+
+def plot_paga_custom(adata, filtered_graph, pos, meta_attribute_key, groupby_key, node_size=500, with_labels=True, figsize=(10, 10), pal=None, save_path=None):
+    """
+    Plot a PAGA graph using a shared layout and colored based on a meta attribute.
+
+    Parameters:
+    - adata: AnnData object
+    - filtered_graph: Precomputed NetworkX graph
+    - pos: Dictionary of shared node positions
+    - meta_attribute_key: str, column in adata.obs for node coloring
+    - groupby_key: str, column in adata.obs used to group cells
+    - node_size: int, size of the nodes in the plot
+    - with_labels: bool, whether to display node labels
+    - figsize: tuple, size of the figure
+    - save_path: str, optional path to save the figure
+    """    
+    import pandas as pd
+    import networkx as nx
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import Normalize, to_hex
+    from . import get_color_mapping
+    # Step 1: Assign the meta attribute as a node attribute
+    meta_attribute = adata.obs.groupby(groupby_key)[meta_attribute_key].first()
+    meta_attribute_dict = meta_attribute.to_dict()
+    nx.set_node_attributes(filtered_graph, {node: meta_attribute_dict.get(node, 'Unknown') for node in filtered_graph.nodes}, name=meta_attribute_key)
+
+    # Step 2: Handle color mapping
+    if pd.api.types.is_numeric_dtype(adata.obs[meta_attribute_key]):
+        # Continuous colormap for numeric values
+        values = [meta_attribute_dict[node] for node in filtered_graph.nodes]
+        norm = Normalize(vmin=min(values), vmax=max(values))
+        data_col, cmap, palette = get_color_mapping(adata, meta_attribute_key, pal=pal)
+        node_colors = [to_hex(cmap(norm(meta_attribute_dict[node]))) for node in filtered_graph.nodes]
+    else:
+        # Discrete colormap for categorical values
+        unique_values = meta_attribute.unique()
+        data_col, cmap, palette = get_color_mapping(adata, meta_attribute_key, pal=pal)
+        node_colors = [palette[filtered_graph.nodes[node][meta_attribute_key]] for node in filtered_graph.nodes]
+
+    # Step 3: Plot the graph
+    plt.figure(figsize=figsize)
+
+    # Node labels are the meta attributes
+    node_labels = {node: filtered_graph.nodes[node][meta_attribute_key] for node in filtered_graph.nodes} if with_labels else None
+
+    nx.draw(
+        filtered_graph,
+        pos,
+        with_labels=with_labels,
+        labels=node_labels,
+        node_color=node_colors,
+        edge_color='gray',
+        node_size=node_size,
+        font_size=10
+    )
+
+    plt.title(f"PAGA Graph Colored by '{meta_attribute_key}'")
+    if save_path:
+        plt.savefig(save_path)
+    
+    plt.show()
+
