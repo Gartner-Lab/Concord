@@ -151,3 +151,97 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     ro.r['saveRDS'](clist, file=clist_file)
 
     print(f"VisCello project created at {output_dir}")
+
+
+
+
+def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir):
+    """
+    Updates an existing viscello clist by adding subset results from adata_subsets.
+
+    Parameters:
+    - global_adata: The full AnnData object.
+    - adata_subsets: A dictionary where keys are subset names and values are subset AnnData objects.
+    - viscello_dir: Path to the existing viscello directory.
+    - output_file: Path to save the updated clist. Defaults to overwriting the original clist_file.
+    """
+    import os
+    import pandas as pd
+    import rpy2.robjects as ro
+    from rpy2.robjects import pandas2ri, ListVector
+    from rpy2.robjects.packages import importr
+    pandas2ri.activate()
+
+    # Define the Cello class in R from Python
+    ro.r('''
+        setClass("Cello",
+                slots = c(
+                    name = "character",   # The name of the cello object
+                    idx = "numeric",      # The index of the global cds object
+                    proj = "list",        # The projections as a list of data frames
+                    pmeta = "data.frame", # The local meta data
+                    notes = "character"   # Other information to display to the user
+                )
+        )
+    ''')
+
+    # Load R packages
+    base = importr('base')
+    methods = importr('methods')
+
+    # Load the existing clist
+    clist_file = os.path.join(viscello_dir, "clist.rds")
+    print(f"Loading existing clist from: {viscello_dir}")
+    existing_clist = ro.r['readRDS'](str(clist_file))  # Convert pathlib.Path to str
+
+    # Prepare updated clist
+    clist_objects = dict(existing_clist.items())  # Convert R ListVector to a Python dictionary
+
+    # Process each subset and add to clist
+    for subset_name, adata_subset in adata_subsets.items():
+        print(f"Processing subset: {subset_name}")
+
+        # Get the global indices of the subset cells
+        global_indices = global_adata.obs.index.get_indexer(adata_subset.obs.index) + 1  # R uses 1-based indexing
+
+        # Prepare proj slot (latent spaces)
+        proj_list = {}
+        for key in adata_subset.obsm.keys():
+            proj_df = pd.DataFrame(
+                adata_subset.obsm[key],
+                index=adata_subset.obs.index,
+                columns=[f"{key}_{i+1}" for i in range(adata_subset.obsm[key].shape[1])]
+            )
+            proj_r_df = ro.conversion.py2rpy(proj_df)
+            proj_r_df.colnames = base.make_names(proj_r_df.colnames)  # Ensure valid R column names
+            proj_list[key] = proj_r_df
+
+        # Convert proj_list to an R ListVector
+        proj_list_r = ListVector(proj_list)
+
+        # Prepare pmeta slot (clustering results)
+        clustering_results = adata_subset.obs[['leiden_Concord_sub']]
+        pmeta_r = ro.conversion.py2rpy(clustering_results)
+
+        # Create Cello object for the subset
+        cello = methods.new(
+            "Cello",
+            name=subset_name,
+            idx=ro.IntVector(global_indices),  # Global indices
+            proj=proj_list_r,  # Projections
+            pmeta=pmeta_r,  # Clustering metadata
+            notes=f"Subset: {subset_name}"
+        )
+
+        # Add the new Cello object to the clist
+        clist_objects[subset_name] = cello
+
+    # Convert updated clist_objects to an R ListVector
+    updated_clist = ListVector(clist_objects)
+
+    # Save the updated clist
+    output_file = os.path.join(viscello_dir, "clist.rds")
+    ro.r['saveRDS'](updated_clist, file=str(output_file))  # Convert pathlib.Path to str
+    print(f"Updated clist saved to: {output_file}")
+
+
