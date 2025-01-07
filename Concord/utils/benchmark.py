@@ -290,7 +290,7 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
 
 
 def benchmark_geometry(adata, keys, 
-                       eval_metrics=['pseudotime', '', 'cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
+                       eval_metrics=['pseudotime', 'cell_distance_corr', 'local_distal_corr', 'trustworthiness', 'state_distance_corr', 'state_dispersion_corr', 'state_batch_distance_ratio'],
                        dist_metric='cosine', 
                        groundtruth_key = 'PCA_no_noise', 
                        state_key = 'cluster',

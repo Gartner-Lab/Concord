@@ -44,7 +44,7 @@ def extend_palette(base_colors, num_colors):
 
     return [mcolors.rgb2hex(color) for color in extended_colors]
 
-def get_factor_color(labels, pal='Set1', permute=True):
+def get_factor_color(labels, pal='Set1', permute=True, seed=42):
     from natsort import natsorted
     # Convert labels to strings and replace 'nan' with 'NaN'
     labels = pd.Series(labels).astype(str)
@@ -95,7 +95,7 @@ def get_factor_color(labels, pal='Set1', permute=True):
                 colors = colors_hex
 
     if permute:
-        np.random.seed(1)
+        np.random.seed(seed)
         np.random.shuffle(colors)
 
     # Map colors to non-NaN labels
@@ -122,21 +122,20 @@ def get_numeric_color(pal='RdYlBu'):
 
 
 
-def get_color_mapping(adata, col, pal):
+def get_color_mapping(adata, col, pal, seed=42):
     """Generate color map or palette based on column data type in adata.obs or adata.var."""
     if col is None:
         return None, None, None  # No coloring
 
-    if col not in adata.obs:
-        if col in adata.var_names:
-            data_col = adata[:, col].X
-        else:
-            raise KeyError(f"Column '{col}' not found in adata.obs or adata.var")
-    else:
-        data_col = adata.obs[col]
+    data_col = adata.obs[col] if col in adata.obs else adata[:, col].X
+    current_pal = pal.get(col, None) if isinstance(pal, dict) else pal
 
-    # Determine palette
-    current_pal = pal.get(col, None)
+    # If 'current_pal' is already a dict, just return it:
+    if isinstance(current_pal, dict):
+        # Make sure data_col is string/categorical
+        data_col = pd.Series(data_col).astype(str).replace('nan', 'NaN')
+        adata.obs[col] = data_col
+        return data_col, None, current_pal
 
     if pd.api.types.is_numeric_dtype(data_col):
         if current_pal is None:
@@ -144,12 +143,12 @@ def get_color_mapping(adata, col, pal):
         cmap = get_numeric_color(current_pal)
         palette = None
     else:
-        data_col = data_col.astype(str)
+        data_col = data_col.copy().astype(str)
         data_col[data_col == 'nan'] = 'NaN'
         adata.obs[col] = data_col
         if current_pal is None:
             current_pal = 'Set1'
-        color_map = get_factor_color(data_col, current_pal)
+        color_map = get_factor_color(data_col, current_pal, seed=seed)
         categories = data_col.astype('category').cat.categories
         #palette = [color_map[cat] for cat in categories]
         # return a dict
@@ -157,3 +156,4 @@ def get_color_mapping(adata, col, pal):
         cmap = None
 
     return data_col, cmap, palette
+

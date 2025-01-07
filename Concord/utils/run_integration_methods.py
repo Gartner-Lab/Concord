@@ -1,13 +1,13 @@
 
 
-def run_scanorama(adata, batch_key="batch", output_key="Scanorama", return_corrected=False):
+def run_scanorama(adata, batch_key="batch", output_key="Scanorama", dimred=100, return_corrected=False):
     import scanorama
     import numpy as np
 
     batch_cats = adata.obs[batch_key].cat.categories
     adata_list = [adata[adata.obs[batch_key] == b].copy() for b in batch_cats]
 
-    scanorama.integrate_scanpy(adata_list)
+    scanorama.integrate_scanpy(adata_list, dimred=dimred)
     adata.obsm[output_key] = np.zeros((adata.shape[0], adata_list[0].obsm["X_scanorama"].shape[1]))
 
     if return_corrected:
@@ -118,3 +118,7 @@ def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels
     # Store the SCANVI latent representation in the specified obsm key
     adata.obsm[output_key] = lvae.get_latent_representation()
     
+
+
+
+

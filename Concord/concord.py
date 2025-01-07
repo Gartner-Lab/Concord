@@ -364,10 +364,12 @@ class Concord:
             logger.info("Best model state loaded into the model before final save.")
 
         if save_model:
-            model_save_path = self.save_dir / "final_model.pth"
+            import time
+            file_suffix = f"{time.strftime('%b%d-%H%M')}"
+            model_save_path = self.save_dir / f"final_model_{file_suffix}.pt"
             self.save_model(self.model, model_save_path)
             # Save the configuration
-            config_save_path = self.save_dir / "config.json"
+            config_save_path = self.save_dir / f"config_{file_suffix}.json"
             with open(config_save_path, 'w') as f:
                 json.dump(self.config.to_dict(), f, indent=4)
             
