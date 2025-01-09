@@ -139,10 +139,34 @@ def plot_embedding(adata, basis, color_by=None,
         plt.show()
 
 
-def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,  
-                      save_path=None, point_size=3,
-                      opacity=0.7, seed=42, width=800, height=600):
+# Portal method to choose either plot_embedding_3d_plotly or plot_embedding_3d_matplotlib, given the engine parameter
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, point_size=3, opacity=0.7, seed=42, width=800, height=600, engine='plotly', static=False, static_format='png'):
+    if engine == 'plotly':
+        return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, static, static_format)
+    elif engine == 'matplotlib':
+        return plot_embedding_3d_matplotlib(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, static_format=static_format)
+    else:
+        raise ValueError(f"Unknown engine '{engine}' for 3D embedding plot. Use 'plotly' or 'matplotlib'.")
 
+
+def plot_embedding_3d_plotly(
+        adata, 
+        basis='encoded_UMAP', 
+        color_by='batch', 
+        pal=None,
+        save_path=None, 
+        point_size=3,
+        opacity=0.7, 
+        seed=42, 
+        width=800, 
+        height=600,
+        static=False,                 # <--- New parameter
+        static_format='png'          # <--- New parameter
+    ):
+
+    import numpy as np
+    import pandas as pd
+    import matplotlib.colors as mcolors
     import plotly.express as px
     
     if basis not in adata.obsm:
@@ -164,39 +188,291 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None,
     if isinstance(color_by, str):
         color_by = [color_by]
 
+    # Ensure pal is a dict keyed by each color column
     if not isinstance(pal, dict):
         pal = {col: pal for col in color_by}
 
     figs = []
     for col in color_by:
-        # Retrieve color mapping using the new get_color_mapping method
+        # Retrieve color mapping
         data_col, cmap, palette = get_color_mapping(adata, col, pal, seed=seed)
         
         # Plot based on data type: numeric or categorical
         if pd.api.types.is_numeric_dtype(data_col):
             colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
             colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
-            fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
-                                title=f'3D Embedding colored by {col}',
-                                labels={'color': col}, opacity=opacity,
-                                color_continuous_scale=colorscale)
+            fig = px.scatter_3d(
+                df, 
+                x='DIM1', 
+                y='DIM2', 
+                z='DIM3', 
+                color=col,
+                title=f'3D Embedding colored by {col}',
+                labels={'color': col}, 
+                opacity=opacity,
+                color_continuous_scale=colorscale
+            )
         else:
-            fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=col,
-                                title=f'3D Embedding colored by {col}',
-                                labels={'color': col}, opacity=opacity,
-                                color_discrete_map=palette)
+            fig = px.scatter_3d(
+                df, 
+                x='DIM1', 
+                y='DIM2', 
+                z='DIM3', 
+                color=col,
+                title=f'3D Embedding colored by {col}',
+                labels={'color': col}, 
+                opacity=opacity,
+                color_discrete_map=palette
+            )
 
         fig.update_traces(marker=dict(size=point_size))
         fig.update_layout(width=width, height=height)
 
+        # Save interactive plot if save_path is provided
         if save_path:
             save_path_str = str(save_path)
+            # e.g., "my_plot.html" -> "my_plot_color_col.html"
             col_save_path = save_path_str.replace('.html', f'_{col}.html')
             fig.write_html(col_save_path)
             logger.info(f"3D plot saved to {col_save_path}")
 
+            # Save static image if requested
+            if static:
+                col_save_path_static = save_path_str.replace('.html', f'_{col}.{static_format}')
+                print(col_save_path_static)
+                fig.write_image(col_save_path_static)
+                logger.info(f"Static 3D plot saved to {col_save_path_static}")
+
         figs.append(fig)
-        fig.show()
+        
+        # Show the interactive plot if not saving statically
+        # (Or you could show it regardless, depending on your needs)
+        if not static:
+            fig.show()
+
+    return figs
+
+
+
+def plot_embedding_3d_matplotlib(
+    adata, 
+    basis='encoded_UMAP', 
+    color_by='batch', 
+    pal=None,
+    save_path=None, 
+    point_size=3,
+    alpha=0.7, 
+    marker_style='o',          
+    edge_color='none',         
+    edge_width=0,              
+    seed=42, 
+    width=6, 
+    height=6,
+    dpi=300,
+    show_legend=True,
+
+    # Appearance toggles
+    title=None,
+    show_title=True,
+    title_font_size=10,
+    show_axis_labels=True,
+    axis_label_font_size=8,
+    show_ticks=True,
+    show_tick_labels=True,
+    tick_label_font_size=8,
+    show_grid=False,
+
+    # View angle
+    elev=30,    
+    azim=45,
+    box_aspect_ratio=None,
+
+    # New parameter to rasterize points
+    rasterized=False,
+
+    # If you want to plot into an existing axis
+    ax=None
+):
+    """
+    Plot a 3D embedding (stored in adata.obsm[basis]) colored by one or more columns/gene expressions 
+    (given in color_by) using matplotlib, with controls for marker style, axis elements, and view angle.
+
+    This function relies on an externally defined `get_color_mapping(adata, col, pal, seed)`.
+    If `ax` is provided, the plot is drawn on that axis; otherwise, a new figure/axis is created.
+    
+    Parameters
+    ----------
+    adata : AnnData
+        An AnnData object containing the 3D embedding in `adata.obsm[basis]`.
+    basis : str
+        Key in adata.obsm pointing to the embedding, e.g. 'X_umap_3d' or 'encoded_UMAP'.
+    color_by : str
+        Column in adata.obs or a gene in adata.var_names to color the cells by.
+    pal : dict or None
+        A dictionary specifying color palettes. e.g. {'batch': {'A': '#FF0000', 'B': '#00FF00'}}
+        or {'time': 'viridis'}. If None, defaults/fallback in `get_color_mapping` are used.
+    save_path : str or Path or None
+        If provided and `ax` is None (meaning a new figure is created), saves the figure to this path.
+    point_size : float
+        Marker area in points^2 for the scatter plot. 
+    alpha : float
+        Marker opacity (0 to 1).
+    marker_style : str
+        Marker style used by matplotlib (e.g. '.', 'o', 's', '^', etc.).
+    edge_color : str
+        Color for the marker edges (e.g. 'black', 'none'). 
+    edge_width : float
+        Line width for the marker edges.
+    seed : int
+        Random seed used by `get_color_mapping`, if it randomizes palettes.
+    width : float
+        Width of the figure (in inches) if creating a new figure.
+    height : float
+        Height of the figure (in inches) if creating a new figure.
+    dpi : int
+        Dots per inch (resolution) for the saved figure (if saving).
+    show_legend : bool
+        Whether to display a legend for categorical colorings.
+    title : str or None
+        Custom title string for the plot. If None, defaults to "3D Embedding colored by '{color_by}'".
+    show_title : bool
+        Whether to show the plot title.
+    title_font_size : int
+        Font size for the plot title.
+    show_axis_labels : bool
+        Whether to display axis labels (DIM1, DIM2, DIM3).
+    axis_label_font_size : int
+        Font size for axis labels.
+    show_ticks : bool
+        Whether to show tick marks on the axes.
+    show_tick_labels : bool
+        Whether to show the numerical labels next to ticks.
+    tick_label_font_size : int
+        Font size for the tick labels and legend text.
+    show_grid : bool
+        Whether to show grid lines.
+    elev : float
+        Elevation angle in the z-plane for the 3D view (in degrees).
+    azim : float
+        Azimuth angle in the x-y plane for the 3D view (in degrees).
+    rasterized : bool
+        If True, points will be rasterized for smaller file sizes in e.g. PDF/SVG.
+    ax : matplotlib.axes._subplots.Axes3DSubplot or None
+        If provided, draw on this axis instead of creating a new figure.
+
+    Returns
+    -------
+    fig : matplotlib Figure
+    ax : matplotlib 3D axis
+    """
+    if basis not in adata.obsm:
+        raise KeyError(f"Embedding key '{basis}' not found in adata.obsm")
+
+    embedding = adata.obsm[basis]
+    if not isinstance(embedding, np.ndarray):
+        embedding = np.array(embedding)
+    if embedding.shape[1] < 3:
+        raise ValueError(f"Embedding '{basis}' must have at least 3 dimensions")
+
+    df = adata.obs.copy()
+    df['DIM1'] = embedding[:, 0]
+    df['DIM2'] = embedding[:, 1]
+    df['DIM3'] = embedding[:, 2]
+
+    # We'll assume color_by is a single string here
+    data_col, cmap, palette_dict = get_color_mapping(adata, color_by, pal, seed=seed)
+
+    # Create fig/ax only if not provided
+    created_new_fig = False
+    if ax is None:
+        fig = plt.figure(figsize=(width, height), dpi=dpi)
+        ax = fig.add_subplot(111, projection='3d')
+        created_new_fig = True
+    else:
+        fig = ax.figure
+
+    ax.view_init(elev=elev, azim=azim)
+    if box_aspect_ratio is not None:
+        ax.set_box_aspect(box_aspect_ratio)
+
+    # Title
+    if show_title:
+        title_str = title if title else f"3D Embedding colored by '{color_by}'"
+        ax.set_title(title_str, fontsize=title_font_size)
+
+    # Numeric vs categorical
+    if pd.api.types.is_numeric_dtype(data_col):
+        sc = ax.scatter(
+            df['DIM1'], df['DIM2'], df['DIM3'],
+            c=data_col,
+            cmap=cmap,
+            alpha=alpha,
+            s=point_size,
+            marker=marker_style,
+            edgecolors=edge_color,
+            linewidths=edge_width,
+            rasterized=rasterized
+        )
+        if created_new_fig:
+            cbar = fig.colorbar(sc, ax=ax)
+            cbar.ax.set_ylabel(str(color_by), fontsize=axis_label_font_size)
+            cbar.ax.tick_params(labelsize=tick_label_font_size)
+    else:
+        data_col = data_col.astype('category')
+        categories = data_col.cat.categories
+        mapped_colors = [palette_dict[val] for val in data_col]
+
+        ax.scatter(
+            df['DIM1'], df['DIM2'], df['DIM3'],
+            c=mapped_colors,
+            alpha=alpha,
+            s=point_size,
+            marker=marker_style,
+            edgecolors=edge_color,
+            linewidths=edge_width,
+            rasterized=rasterized
+        )
+        if show_legend:
+            for cat in categories:
+                ax.scatter([], [], [], c=palette_dict[cat], label=str(cat),
+                           marker=marker_style, edgecolors=edge_color, linewidths=edge_width)
+            ax.legend(title=str(color_by), loc='best', fontsize=tick_label_font_size)
+
+    # Axis labels
+    if show_axis_labels:
+        ax.set_xlabel("DIM1", fontsize=axis_label_font_size)
+        ax.set_ylabel("DIM2", fontsize=axis_label_font_size)
+        ax.set_zlabel("DIM3", fontsize=axis_label_font_size)
+    else:
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.set_zlabel("")
+
+    # Grid
+    ax.grid(show_grid)
+
+    # Ticks
+    if not show_ticks:
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_zticks([])
+
+    # Tick labels
+    if not show_tick_labels:
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_zticklabels([])
+    else:
+        ax.tick_params(labelsize=tick_label_font_size)
+
+    if created_new_fig:
+        plt.tight_layout()
+        if save_path is not None:
+            plt.savefig(save_path, bbox_inches='tight')
+            logger.info(f"Saved 3D matplotlib plot for '{color_by}' to {save_path}")
+        plt.show()
+
+    return fig, ax
 
 
 
@@ -253,13 +529,13 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
 
 
 
-
 def plot_all_embeddings(
     adata,
     combined_keys,
     color_bys=['time', 'batch'],
     basis_types=['PAGA', 'KNN', 'PCA', 'UMAP'],
     pal={'time': 'viridis', 'batch': 'Set1'},
+    vmax_quantile=None,  # New parameter for quantile-based vmax calculation
     k=15,
     edges_color='grey',
     edges_width=0.05,
@@ -276,15 +552,14 @@ def plot_all_embeddings(
     seed=42,
     leiden_key='leiden',
     leiden_resolution=1.0,
-    legend_loc = None,
-    colorbar_loc = None,
+    legend_loc=None,
+    colorbar_loc=None,
     rasterized=True,
     save_dir='.',
     dpi=300,
     save_format='png',
     file_suffix='plot'
 ):
-    
     nrows = int(np.ceil(len(combined_keys) / ncols))
 
     for basis_type in basis_types:
@@ -295,6 +570,19 @@ def plot_all_embeddings(
             for key, ax in zip(combined_keys, axs):
                 logger.info(f"Plotting {key} with {color_by} in {basis_type}")
                 data_col, cmap, palette = get_color_mapping(adata, color_by, pal, seed=seed)
+
+                # Compute vmax based on the quantile if vmax_quantile is provided and color_by is numeric
+                vmax = None
+                if vmax_quantile is not None and pd.api.types.is_numeric_dtype(data_col):
+                    import scipy.sparse as sp
+                    if color_by in adata.var_names:  # If color_by is a gene
+                        expression_values = adata[:, color_by].X
+                        if sp.issparse(expression_values):
+                            expression_values = expression_values.toarray().flatten()
+                        vmax = np.percentile(expression_values, vmax_quantile * 100)
+                    elif color_by in adata.obs:  # If color_by is in adata.obs
+                        vmax = np.percentile(data_col, vmax_quantile * 100)
+
                 if basis_type != '':
                     basis = f'{key}_{basis_type}' if basis_type not in key else key
                 else:
@@ -316,7 +604,8 @@ def plot_all_embeddings(
                         sc.pl.embedding(
                             adata, basis=basis, color=color_by, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=legend_font_size,
-                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc
+                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                            vmax=vmax  # Use the computed vmax
                         )
                     else:
                         sc.pl.embedding(
@@ -333,7 +622,8 @@ def plot_all_embeddings(
                             adata, color=color_by, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, cmap=cmap, edges=True,
-                            edges_width=edges_width, edges_color=edges_color, colorbar_loc=colorbar_loc
+                            edges_width=edges_width, edges_color=edges_color, colorbar_loc=colorbar_loc,
+                            vmax=vmax  # Use the computed vmax
                         )
                     else:
                         sc.pl.draw_graph(
@@ -386,6 +676,181 @@ def plot_all_embeddings(
             # Save the figure
             plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}", bbox_inches=None)
             plt.show()
+
+
+
+def plot_all_embeddings_3d(
+    adata,
+    combined_keys,
+    color_bys=('time', 'batch'),
+    basis_types=('UMAP_3D',),
+    pal=None,
+    vmax_quantile=None,
+    point_size=2.5,
+    alpha=0.8,
+    figsize=(10, 5),
+    ncols=4,
+    seed=42,
+    legend_font_size=5,
+    rasterized=False,
+    save_dir='.',
+    dpi=300,
+    save_format='png',
+    file_suffix='3d_plot',
+    # Additional default 3D plot aesthetics
+    elev=30,
+    azim=45,
+    # **kwargs to forward to plot_embedding_3d_matplotlib
+    **kwargs
+):
+    """
+    Plots multiple 3D embeddings (stored in adata.obsm) with coloring by different obs/var columns.
+    For each combination of basis_type and color_by, we create a multi-panel figure of size (nrows, ncols).
+
+    Parameters
+    ----------
+    adata : AnnData
+        Contains the data and obsm embeddings.
+    combined_keys : list
+        A list of 'keys' for which we have e.g. 'key_UMAP_3D' in adata.obsm.
+    color_bys : tuple or list of str
+        The obs/var columns or gene names to color by.
+    basis_types : tuple or list of str
+        The suffix or full name of the 3D embedding in adata.obsm, e.g. 'UMAP_3D', 'TSNE_3D'.
+    pal : dict or None
+        Color palette dictionary or fallback.
+    vmax_quantile : float or None
+        If set, percentile to clamp numeric data at (e.g. 0.99 for 99th percentile).
+    point_size : float
+        Marker area (points^2) for scatter.
+    alpha : float
+        Marker opacity.
+    figsize : tuple
+        Figure size in inches (width, height).
+    ncols : int
+        Number of columns in the subplot layout.
+    seed : int
+        Random seed for color mapping.
+    legend_font_size : int
+        Font size for legend (if categorical data).
+    rasterized : bool
+        If True, points will be rasterized in the subplots.
+    save_dir : str
+        Directory to save the figures.
+    dpi : int
+        Resolution (dots per inch) for saved figures.
+    save_format : str
+        Output image format, e.g. 'png', 'pdf', 'svg'.
+    file_suffix : str
+        Suffix added to the saved file name.
+    elev : float
+        Elevation angle for 3D view.
+    azim : float
+        Azimuth angle for 3D view.
+    **kwargs : 
+        Additional parameters passed directly to `plot_embedding_3d_matplotlib`, 
+        allowing customization (e.g. show_axis_labels, show_ticks, etc.).
+
+    Returns
+    -------
+    None
+        Saves one figure per (basis_type, color_by) combination.
+    """
+    import math
+    import numpy as np
+
+    if pal is None:
+        pal = {'time': 'viridis', 'batch': 'Set1'}
+
+    nrows = math.ceil(len(combined_keys) / ncols)
+
+    for basis_type in basis_types:
+        for color_by in color_bys:
+            fig = plt.figure(figsize=figsize, dpi=dpi, constrained_layout=True)
+            axs = []
+
+            # Create subplots
+            for i in range(len(combined_keys)):
+                ax = fig.add_subplot(nrows, ncols, i+1, projection='3d')
+                axs.append(ax)
+
+            # For each key, we have one subplot (ax)
+            for key, ax in zip(combined_keys, axs):
+                logger.info(f"Plotting 3D: {key}, color by {color_by}, basis: {basis_type}")
+
+                # Figure out the adata.obsm key
+                if basis_type not in key:
+                    basis = f"{key}_{basis_type}"
+                else:
+                    basis = key
+
+                if basis not in adata.obsm:
+                    ax.set_title(f"{key} (missing {basis_type})", fontsize=legend_font_size)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    ax.set_zticks([])
+                    continue
+
+                embedding_3d = adata.obsm[basis]
+                if embedding_3d.shape[1] < 3:
+                    ax.set_title(f"{basis} is not 3D", fontsize=legend_font_size)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    ax.set_zticks([])
+                    continue
+
+                # Optional: handle vmax quantile for numeric data
+                data_col, *_ = get_color_mapping(adata, color_by, pal, seed=seed)
+                vmax = None
+                if (vmax_quantile is not None) and pd.api.types.is_numeric_dtype(data_col):
+                    if color_by in adata.var_names:
+                        # Gene expression
+                        import scipy.sparse as sp
+                        expr = adata[:, color_by].X
+                        if sp.issparse(expr):
+                            expr = expr.toarray().ravel()
+                        vmax = np.percentile(expr, vmax_quantile * 100)
+                    elif color_by in adata.obs:
+                        vmax = np.percentile(data_col, vmax_quantile * 100)
+
+                # Call plot_embedding_3d_matplotlib, passing the existing ax and the additional kwargs
+                # Notice we pass in `rasterized=rasterized` and any user extras via **kwargs
+                plot_embedding_3d_matplotlib(
+                    adata=adata,
+                    basis=basis,
+                    color_by=color_by,
+                    pal=pal,
+                    point_size=point_size,
+                    alpha=alpha,
+                    seed=seed,
+                    title=None,              # We'll override the subplot title ourselves
+                    show_title=False,        # We do not want the default title
+                    marker_style='.',
+                    edge_color='none',
+                    edge_width=0,
+                    elev=elev,
+                    azim=azim,
+                    rasterized=rasterized,
+                    ax=ax,
+                    **kwargs  # pass all other custom aesthetics
+                )
+
+                ax.set_title(key, fontsize=legend_font_size)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.set_zticks([])
+
+            # Hide leftover axes if we don't fill the grid
+            leftover = len(axs) - len(combined_keys)
+            if leftover > 0:
+                for ax in axs[-leftover:]:
+                    ax.set_visible(False)
+
+            # Save figure
+            out_fn = f"{save_dir}/all_latent_3D_{color_by}_{basis_type}_{file_suffix}.{save_format}"
+            plt.savefig(out_fn, bbox_inches='tight')
+            plt.show()
+            logger.info(f"Saved multi-panel 3D figure: {out_fn}")
 
 
 
