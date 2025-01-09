@@ -123,37 +123,53 @@ def get_numeric_color(pal='RdYlBu'):
 
 
 def get_color_mapping(adata, col, pal, seed=42):
+    import scipy.sparse as sp
     """Generate color map or palette based on column data type in adata.obs or adata.var."""
     if col is None:
         return None, None, None  # No coloring
 
-    data_col = adata.obs[col] if col in adata.obs else adata[:, col].X
+    # Check if `col` is in adata.obs
+    if col in adata.obs:
+        data_col = adata.obs[col]
+    # Check if `col` is a gene in adata.var_names
+    elif col in adata.var_names:
+        # Extract gene expression values
+        data_col = adata[:, col].X
+        if sp.issparse(data_col):  # Convert sparse matrix to dense array if necessary
+            data_col = data_col.toarray().flatten()
+    else:
+        raise ValueError(f"'{col}' is neither a column in adata.obs nor a gene in adata.var_names.")
+    
+    # Get the current palette
     current_pal = pal.get(col, None) if isinstance(pal, dict) else pal
 
-    # If 'current_pal' is already a dict, just return it:
+    # If `current_pal` is already a dict, just return it
     if isinstance(current_pal, dict):
-        # Make sure data_col is string/categorical
+        if pd.api.types.is_numeric_dtype(data_col):
+            raise ValueError("A numeric column cannot use a dict palette. Please provide a colormap instead.")
         data_col = pd.Series(data_col).astype(str).replace('nan', 'NaN')
         adata.obs[col] = data_col
         return data_col, None, current_pal
 
+    # Handle numeric data
     if pd.api.types.is_numeric_dtype(data_col):
         if current_pal is None:
-            current_pal = 'viridis'
+            current_pal = 'viridis'  # Default colormap for numeric data
         cmap = get_numeric_color(current_pal)
         palette = None
+    # Handle categorical data
     else:
         data_col = data_col.copy().astype(str)
         data_col[data_col == 'nan'] = 'NaN'
         adata.obs[col] = data_col
         if current_pal is None:
-            current_pal = 'Set1'
+            current_pal = 'Set1'  # Default palette for categorical data
         color_map = get_factor_color(data_col, current_pal, seed=seed)
         categories = data_col.astype('category').cat.categories
-        #palette = [color_map[cat] for cat in categories]
-        # return a dict
+        # Create a dictionary palette mapping categories to colors
         palette = {cat: color_map[cat] for cat in categories}
         cmap = None
 
     return data_col, cmap, palette
+
 
