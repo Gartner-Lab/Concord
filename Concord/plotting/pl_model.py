@@ -104,49 +104,59 @@ def plot_importance_heatmap(importance_matrix, input_feature=None, figsize=(20, 
         plt.show()
 
 
-
-def plot_top_genes_per_neuron(importance_matrix, adata, top_n=10, ncols=4, figsize=(4, 4), save_path=None):
+def plot_top_genes_per_neuron(ranked_gene_lists, show_neurons=None, top_n=10, ncols=4, figsize=(4, 4), save_path=None):
     """
-    Plots bar charts of the top contributing genes for each neuron in a compact grid layout.
+    Plots bar charts of the top contributing genes for each neuron in a compact grid layout using pre-ranked lists.
 
     Parameters:
-    - importance_matrix (torch.Tensor): The importance matrix with shape (n_input_features, n_encoded_neurons).
-    - adata (anndata.AnnData): The AnnData object containing the input features.
+    - ranked_gene_lists (dict): A dictionary where keys are neuron names and values are DataFrames containing ranked genes.
+    - show_neurons (list): List of neurons to plot. If None, plots all neurons in the dictionary.
     - top_n (int): Number of top contributing genes to display for each neuron.
     - ncols (int): Number of columns in the grid layout.
+    - figsize (tuple): Size of each subplot (width, height).
+    - save_path (str): File path to save the plot. If None, displays the plot.
     """
 
-    # Extract input feature names from adata
-    input_feature_names = adata.var.index.tolist()
-    encoded_neuron_names = [f'Neuron {i}' for i in range(importance_matrix.shape[1])]
-
-    # Create a DataFrame for the importance matrix
-    df_importance = pd.DataFrame(importance_matrix, index=input_feature_names, columns=encoded_neuron_names)
+    # If `show_neurons` is None, use all available neurons
+    if show_neurons is None:
+        show_neurons = list(ranked_gene_lists.keys())
+    else:
+        # Filter the provided neurons to only those in `ranked_gene_lists`
+        show_neurons = [neuron for neuron in show_neurons if neuron in ranked_gene_lists]
 
     # Determine the number of rows needed
-    nrows = math.ceil(len(encoded_neuron_names) / ncols)
+    nrows = math.ceil(len(show_neurons) / ncols)
 
     # Create subplots
-    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * figsize[0], nrows * figsize[1]), constrained_layout=True)
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(ncols * figsize[0], nrows * figsize[1]),
+        constrained_layout=True,
+    )
     axes = axes.flatten()  # Flatten the 2D array of axes for easy iteration
 
     # Plot top genes for each neuron
-    for idx, neuron in enumerate(df_importance.columns):
-        top_genes = df_importance[neuron].nlargest(top_n)
-        sns.barplot(x=top_genes.values, y=top_genes.index, palette="viridis_r", ax=axes[idx])
-        axes[idx].set_title(f'Top {top_n} Contributing Genes for {neuron}')
-        axes[idx].set_xlabel('Importance')
-        axes[idx].set_ylabel('Genes')
+    for idx, neuron in enumerate(show_neurons):
+        if neuron in ranked_gene_lists:
+            top_genes = ranked_gene_lists[neuron].head(top_n)
+            sns.barplot(
+                x=top_genes["Importance"].values,
+                y=top_genes["Gene"].values,
+                palette="viridis_r",
+                ax=axes[idx],
+            )
+            axes[idx].set_title(f"Top {top_n} Contributing Genes for {neuron}")
+            axes[idx].set_xlabel("Importance")
+            axes[idx].set_ylabel("Genes")
 
     # Remove empty subplots
-    for i in range(len(encoded_neuron_names), len(axes)):
+    for i in range(len(show_neurons), len(axes)):
         fig.delaxes(axes[i])
 
+    # Save or display the plot
     if save_path:
-        file_suffix = f"{time.strftime('%b%d-%H%M')}"
-        save_path = f"{save_path}_{file_suffix}.png"
         plt.savefig(save_path)
     else:
         plt.show()
-
 

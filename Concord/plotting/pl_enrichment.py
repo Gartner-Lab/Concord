@@ -25,9 +25,7 @@ def plot_go_enrichment(gp_results, top_n=10, qval_correct=1e-10, color_palette='
         plt.yticks(fontsize=font_size)
         plt.tight_layout()
         if save_path:
-            file_suffix = f"{time.strftime('%b%d-%H%M')}"
-            plt.savefig(f"{save_path}iff_top_enriched_terms_{file_suffix}.png")
-        else:
+            plt.savefig(save_path)
             plt.show()
         plt.close()
 

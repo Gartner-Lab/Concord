@@ -17,6 +17,7 @@ def plot_embedding(adata, basis, color_by=None,
                    figsize=(9, 3), dpi=300, ncols=1, ax = None,
                    title=None, xlabel = None, ylabel = None, xticks=True, yticks=True,
                    colorbar_loc='right',
+                   vmax_quantile=None, vmax=None,
                    font_size=8, point_size=10, path_width=1, legend_loc='on data', 
                    rasterized=True,
                    seed=42,
@@ -42,6 +43,24 @@ def plot_embedding(adata, basis, color_by=None,
     for col, ax in zip(color_by, axs):
         data_col, cmap, palette = get_color_mapping(adata, col, pal, seed=seed)
 
+        # Compute vmax based on the quantile if vmax_quantile is provided and color_by is numeric
+        if pd.api.types.is_numeric_dtype(data_col):
+            if vmax is not None:
+                pass  # Use the provided vmax
+            elif vmax_quantile is not None:
+                import scipy.sparse as sp
+                if col in adata.var_names:  # If color_by is a gene
+                    expression_values = adata[:, col].X
+                    if sp.issparse(expression_values):
+                        expression_values = expression_values.toarray().flatten()
+                    vmax = np.percentile(expression_values, vmax_quantile * 100)
+                elif col in adata.obs:  # If color_by is in adata.obs
+                    vmax = np.percentile(data_col, vmax_quantile * 100)
+                else:
+                    raise ValueError(f"Unknown column '{col}' in adata")
+            else:
+                vmax = data_col.max()            
+
         if col is None:
             sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
                                  legend_loc='right margin', legend_fontsize=font_size,
@@ -51,7 +70,9 @@ def plot_embedding(adata, basis, color_by=None,
         elif pd.api.types.is_numeric_dtype(data_col):
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc)
+                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                            vmax=vmax  # Use the computed vmax if provided
+                            )
         else:
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=font_size,
@@ -61,7 +82,6 @@ def plot_embedding(adata, basis, color_by=None,
             for text in ax.texts:
                 text.set_alpha(text_alpha)
 
-        # Highlight selected points
         # Highlight selected points
         if highlight_indices is not None:
             # Extract the coordinates for highlighting
@@ -477,7 +497,8 @@ def plot_embedding_3d_matplotlib(
 
 
 def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.2),
-                             dpi=300, font_size=3, point_size=5, legend_loc='on data', save_path=None):
+                             dpi=300, font_size=3, point_size=5, legend_loc='on data', colorbar_loc='right', 
+                             vmax_quantile=None, save_path=None):
     """
     Plot the expression of top x genes for each neuron on the embedding in a compact way.
 
@@ -500,11 +521,11 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
     for neuron_name, ranked_list in ranked_lists.items():
         color_by = list(ranked_list['Gene'][0:top_x])
         neuron_title = f"Top {top_x} genes for {neuron_name}"
-
+        print(f"Plotting {neuron_title} on {basis}")
         # Generate a unique file suffix if saving
         if save_path:
             file_suffix = f"{neuron_name}_{time.strftime('%b%d-%H%M')}"
-            neuron_save_path = f"{save_path}_{file_suffix}.png"
+            neuron_save_path = f"{save_path}_{file_suffix}.pdf"
         else:
             neuron_save_path = None
 
@@ -519,7 +540,11 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
             font_size=font_size,
             point_size=point_size,
             legend_loc=legend_loc,
-            save_path=neuron_save_path
+            vmax_quantile=vmax_quantile,
+            save_path=neuron_save_path, 
+            xticks=False, yticks=False,
+            xlabel=None, ylabel=None,
+            colorbar_loc=colorbar_loc
         )
 
         # Show the plot title with neuron name

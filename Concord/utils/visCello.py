@@ -155,7 +155,7 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
 
 
 
-def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir):
+def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster_key = None):
     """
     Updates an existing viscello clist by adding subset results from adata_subsets.
 
@@ -220,9 +220,13 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir):
         proj_list_r = ListVector(proj_list)
 
         # Prepare pmeta slot (clustering results)
-        clustering_results = adata_subset.obs[['leiden_Concord_sub']]
-        pmeta_r = ro.conversion.py2rpy(clustering_results)
-
+        if cluster_key:
+            clustering_results = adata_subset.obs[[cluster_key]]
+            pmeta_r = ro.conversion.py2rpy(clustering_results)
+        else:
+            # Make empty data frame with same rownames as adata_subset.obs
+            pmeta_r = ro.r['data.frame'](rownames=ro.StrVector(adata_subset.obs.index))
+            
         # Create Cello object for the subset
         cello = methods.new(
             "Cello",
