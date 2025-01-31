@@ -25,9 +25,11 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
                              value_annot=False, title=None, title_fontsize=16, annot_fontsize=8,
                              yticklabels=True, xticklabels=False, 
                              use_clustermap=True, 
+                             cluster_method='ward',        
+                             cluster_metric='euclidean',
                              rasterize=True,
                              ax=None,
-                             figsize=(12, 8), 
+                             figsize=(12, 8), seed=42,
                              dpi=300, show=True, save_path=None):
     """
     Create a heatmap colored by multiple columns in adata.obs and optionally save the figure.
@@ -48,6 +50,7 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
     import matplotlib.colors as mcolors
     import matplotlib.collections as mcoll
 
+    np.random.seed(seed)
     if not isinstance(pal, dict):
         pal = {col: pal for col in obs_keys}
 
@@ -107,7 +110,9 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
             row_cluster=cluster_rows,
             col_cluster=cluster_cols,
             yticklabels=yticklabels,
-            xticklabels=xticklabels
+            xticklabels=xticklabels,
+            method=cluster_method,
+            metric=cluster_metric,
         )
         ax = g.ax_heatmap
         if title:

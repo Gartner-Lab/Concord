@@ -198,7 +198,7 @@ def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
         emb = adata.layers[basis].astype(np.float32)
     else:
         if basis == 'X_pca':
-            pca_n_comps = pca_n_comps if pca_n_comps < min(adata.n_vars, adata.n_obs) else min(adata.n_vars, adata.n_obs)
+            pca_n_comps = pca_n_comps if pca_n_comps < min(adata.n_vars, adata.n_obs) else min(adata.n_vars, adata.n_obs) - 1
             logger.info("PCA embedding not found in adata.obsm. Running PCA...")
             sc.tl.pca(adata, svd_solver='arpack', n_comps=pca_n_comps)
             logger.info("PCA completed.")

@@ -151,7 +151,7 @@ def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendall
     return corr_df
 
 
-def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming']):
+def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming'], dist_metric='euclidean'):
     """
     Compare the graph connectivity of two embeddings by computing their k-NN graphs
     and comparing their adjacency matrices using specified metrics.
@@ -190,8 +190,8 @@ def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=
     emb2 = adata.obsm[emb2]
 
     # Initialize Neighborhood objects for both embeddings
-    neighborhood1 = Neighborhood(emb1, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
-    neighborhood2 = Neighborhood(emb2, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
+    neighborhood1 = Neighborhood(emb1, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe, metric=dist_metric)
+    neighborhood2 = Neighborhood(emb2, k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe, metric=dist_metric)
 
     # Compute k-NN indices for all points
     core_samples1 = np.arange(emb1.shape[0])

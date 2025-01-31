@@ -49,7 +49,7 @@ def compute_feature_importance(model, input_tensors, layer_index):
 
 
 
-def prepare_ranked_list(importance_matrix, input_features=None):
+def prepare_ranked_list(importance_matrix, adata, expr_level=False):
     """
     Prepare a ranked list of genes based on their importance weights for each neuron.
 
@@ -62,13 +62,22 @@ def prepare_ranked_list(importance_matrix, input_features=None):
     """
     # Convert the importance matrix to a DataFrame
     encoded_neuron_names = [f'Neuron {i}' for i in range(importance_matrix.shape[1])]
+    input_features = adata.var_names
     df_importance = pd.DataFrame(importance_matrix, index=input_features, columns=encoded_neuron_names)
-
+    if expr_level:
+        # Compute expression level of each gene
+        expr_levels = adata.X.mean(axis=0).A1
+        nonzero_levels = (adata.X > 0).mean(axis=0).A1
+        df_importance['Expression Level'] = expr_levels
+        df_importance['Nonzero Fraction'] = nonzero_levels
+    
     # Prepare ranked lists
     ranked_lists = {}
-    for neuron in df_importance.columns:
+    for neuron in encoded_neuron_names:
         ranked_list = df_importance[neuron].sort_values(ascending=False).reset_index()
         ranked_list.columns = ['Gene', 'Importance']
+        if expr_level:
+            ranked_list = ranked_list.merge(df_importance[['Expression Level', 'Nonzero Fraction']], left_on='Gene', right_index=True)
         ranked_lists[neuron] = ranked_list
 
     return ranked_lists

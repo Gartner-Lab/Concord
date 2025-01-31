@@ -25,6 +25,7 @@ def iff_select(adata,
                cluster_min_cell_num=100,
                min_cluster_expr_fraction=0.1,
                emb_key='X_pca',
+               metric='euclidean',
                k=512,
                knn_samples=100,
                use_faiss=True,
@@ -69,7 +70,7 @@ def iff_select(adata,
     if isinstance(grouping, str) and grouping == 'knn':
         emb = adata.obsm[emb_key]
         with Timer() as timer:
-            neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf)
+            neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf, metric=metric)
             core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
             knn_indices = neighborhood.get_knn(core_samples)
             expr_clus_frac = pd.DataFrame({

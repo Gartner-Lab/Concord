@@ -1,7 +1,7 @@
 import numpy as np
 from .. import logger
 
-def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, basis='X_pca', pca_n_comps=50):
+def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, basis='X_pca', pca_n_comps=50, metric='euclidean'):
 
     if neighborhood is None:
         from ..model.knn import Neighborhood
@@ -9,7 +9,7 @@ def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, 
         # Compute neighborhood
         logger.info(f"Computing neighborhood graph for coverage estimation using {basis}.")
         emb = get_adata_basis(adata, basis=basis, pca_n_comps=pca_n_comps)
-        neighborhood = Neighborhood(emb=emb, k=k)
+        neighborhood = Neighborhood(emb=emb, k=k, metric=metric)
 
     domain_labels = adata.obs[domain_key]
     unique_domains = domain_labels.unique()

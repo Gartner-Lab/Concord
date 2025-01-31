@@ -75,6 +75,8 @@ class ConcordSampler(Sampler):
                 batch_global_in_domain_count = int(p_intra_domain * (self.batch_size - batch_knn_count))
                 batch_global_out_domain_count = self.batch_size - batch_knn_count - batch_global_in_domain_count
 
+                #print(f"batch_knn_count: {batch_knn_count}, batch_knn_in_domain_count: {batch_knn_in_domain_count}, batch_knn_out_domain_count: {batch_knn_out_domain_count}, batch_global_in_domain_count: {batch_global_in_domain_count}, batch_global_out_domain_count: {batch_global_out_domain_count}")
+
                 batch_knn_in_domain = ConcordSampler.permute_nonneg_and_fill(knn_in_domain, batch_knn_in_domain_count)
                 batch_knn_out_domain = ConcordSampler.permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
                 batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
@@ -97,10 +99,16 @@ class ConcordSampler(Sampler):
                     num_batches_domain, batch_global_out_domain_count)
 
             batch_global = torch.cat((batch_global_in_domain, batch_global_out_domain), dim=1)
+            # print shape of batch_knn and batch_global, also print the number of non -1s in each batch/row (sum of non -1s in each row)
+            # print(f"batch_knn.shape: {batch_knn.shape}, batch_global.shape: {batch_global.shape}")
+            # print(f"batch_knn non -1s: {torch.sum(batch_knn != -1, dim=1)}, batch_global non -1s: {torch.sum(batch_global != -1, dim=1)}")
+
             sample_mtx = torch.cat((batch_knn, batch_global), dim=1) if self.p_intra_knn > 0 else batch_global
 
             for _,batch in enumerate(sample_mtx):
                 valid_batch = batch[batch >= 0]
+                # print length of valid_batch
+                # print(f"valid_batch length: {len(valid_batch)}")
                 all_batches.append(valid_batch)
 
 
@@ -121,28 +129,28 @@ class ConcordSampler(Sampler):
 
 
 
-class ConcordMatchNNSampler(Sampler):
-    def __init__(self, batch_size, indices, domain_ids, 
-                 neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, 
-                 min_batch_size=4, device=None):
-        # Use half the batch size for the base sampler
-        self.base_sampler = ConcordSampler(
-            batch_size // 2, indices, domain_ids, neighborhood, 
-            p_intra_knn, p_intra_domain_dict, min_batch_size=min_batch_size, device=device)
-        self.neighborhood = neighborhood
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# class ConcordMatchNNSampler(Sampler):
+#     def __init__(self, batch_size, indices, domain_ids, 
+#                  neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, 
+#                  min_batch_size=4, device=None):
+#         # Use half the batch size for the base sampler
+#         self.base_sampler = ConcordSampler(
+#             batch_size // 2, indices, domain_ids, neighborhood, 
+#             p_intra_knn, p_intra_domain_dict, min_batch_size=min_batch_size, device=device)
+#         self.neighborhood = neighborhood
+#         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    def __iter__(self):
-        for batch in self.base_sampler:
-            batch = batch.to(self.device)
-            # Get the first nearest neighbor for each sample, excluding the sample itself
-            nn_indices = self.neighborhood.get_knn(batch, k=1, include_self=False)
-            nn_indices = torch.tensor(nn_indices.squeeze(1), device=self.device)
-            # Concatenate batch and nn_indices to form the full batch
-            full_batch = torch.cat([batch, nn_indices], dim=0)
-            yield full_batch
+#     def __iter__(self):
+#         for batch in self.base_sampler:
+#             batch = batch.to(self.device)
+#             # Get the first nearest neighbor for each sample, excluding the sample itself
+#             nn_indices = self.neighborhood.get_knn(batch, k=1, include_self=False)
+#             nn_indices = torch.tensor(nn_indices.squeeze(1), device=self.device)
+#             # Concatenate batch and nn_indices to form the full batch
+#             full_batch = torch.cat([batch, nn_indices], dim=0)
+#             yield full_batch
 
 
-    def __len__(self):
-        return len(self.base_sampler)
+#     def __len__(self):
+#         return len(self.base_sampler)
 
