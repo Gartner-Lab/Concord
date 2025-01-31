@@ -91,10 +91,11 @@ class Concord:
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
-            sampler_knn=300,
-            p_intra_knn=0.3,
+            sampler_knn=None,
+            dist_metric='euclidean',
+            p_intra_knn=0.2,
             p_intra_domain=None,
-            min_p_intra_domain=0.95,
+            min_p_intra_domain=0.9,
             max_p_intra_domain=1.0,
             pca_n_comps=50,
             use_faiss=True,
@@ -112,8 +113,8 @@ class Concord:
         set_seed(self.config.seed)
 
         if self.config.sampler_knn is None:
-            self.config.sampler_knn = self.adata.n_obs // 10 
-            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+            self.config.sampler_knn = self.adata.n_obs // 50 
+            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/50 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:
@@ -145,6 +146,15 @@ class Concord:
         if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
             logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
             self.config.p_intra_knn = 0
+
+        # Check if batch_size conflicts with p_intra_knn
+        batch_knn_count = int(self.config.p_intra_knn * self.config.batch_size)
+        if self.config.p_intra_knn > 0 and batch_knn_count > self.config.sampler_knn:
+            logger.warning(f"p_intra_knn * batch_size ({batch_knn_count}) is greater than sampler_knn ({self.config.sampler_knn}). This will cause actual sampling ratio not matching specified p_intra_knn.")
+            logger.warning(f"You should either set batch_size to be smaller than sampler_knn/p_intra_knn ({int(self.config.sampler_knn/self.config.p_intra_knn)})")
+            logger.warning(f"or set sampler_knn to be greater than p_intra_knn * batch_size ({batch_knn_count}).")
+            self.config.p_intra_knn = 0
+
 
         if self.config.use_classifier:
             if self.config.class_key is None:
@@ -286,13 +296,14 @@ class Concord:
     def init_dataloader(self, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
         if train_frac < 1.0 and self.config.clr_mode == 'nn':
             raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
-        data_manager = DataLoaderManager(
+        self.data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
             sampler_emb=self.config.sampler_emb, 
-            sampler_knn=self.config.sampler_knn, 
+            sampler_knn=self.config.sampler_knn,
+            dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
             min_p_intra_domain=self.config.min_p_intra_domain,
@@ -311,11 +322,11 @@ class Concord:
             self.loader = ChunkLoader(
                 adata=self.adata,
                 chunk_size=self.config.chunk_size,
-                data_manager=data_manager
+                data_manager=self.data_manager
             )
             self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
-            train_dataloader, val_dataloader, self.data_structure = data_manager.anndata_to_dataloader(self.adata)
+            train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(self.adata)
             self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
 
 

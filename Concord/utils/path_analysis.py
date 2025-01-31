@@ -11,14 +11,14 @@ except ImportError:
 
     
 
-def shortest_path_on_knn_graph(neighborhood=None, adata=None, basis='encoded', k=10, point_a=None, point_b=None, use_faiss=True, use_ivf=False, ivf_nprobe=10):
+def shortest_path_on_knn_graph(neighborhood=None, adata=None, basis='encoded', k=10, point_a=None, point_b=None, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric='euclidean'):
     from scipy.sparse import csr_matrix
     from ..model.knn import Neighborhood
     from scipy.sparse.csgraph import dijkstra
 
     # Initialize the Neighborhood class
     if neighborhood is None:
-        neighborhood = Neighborhood(adata.obsm[basis], k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe)
+        neighborhood = Neighborhood(adata.obsm[basis], k=k, use_faiss=use_faiss, use_ivf=use_ivf, ivf_nprobe=ivf_nprobe, metric=metric)
 
     # Build the adjacency matrix
     graph = neighborhood.get_knn_graph()
@@ -110,7 +110,7 @@ def curvature_along_path(adata, basis=None, path=None):
     return curvature
 
 
-def curvatures_across_time(adata, basis=None, k=30, time_key=None, time_interval_frac=0.05):
+def curvatures_across_time(adata, basis=None, k=30, time_key=None, time_interval_frac=0.05, metric='euclidean'):
     from ..model.knn import Neighborhood
     import pandas as pd
 
@@ -122,7 +122,7 @@ def curvatures_across_time(adata, basis=None, k=30, time_key=None, time_interval
     time_points = np.arange(time_vec.min(), time_vec.max(), time_interval)
 
     logger.info(f"Computing curvatures at time points: {time_points}")
-    neighborhood = Neighborhood(adata.obsm[basis], k=k)
+    neighborhood = Neighborhood(adata.obsm[basis], k=k, metric=metric)
 
     result_df = pd.DataFrame()
     for t in time_points:

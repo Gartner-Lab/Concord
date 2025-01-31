@@ -93,31 +93,40 @@ def plot_embedding(adata, basis, color_by=None,
                     embedding[highlight_indices, 0],
                     embedding[highlight_indices, 1],
                     s=highlight_size,
+                    linewidths=0,
                     color=highlight_color,
                     alpha=1.0,
                     zorder=1,  # Ensure points are on top
                 )
             elif pd.api.types.is_numeric_dtype(data_col):
                 # Highlight with numeric color mapping
-                colors = data_col.iloc[highlight_indices]
-                norm = plt.Normalize(vmin=data_col.min(), vmax=data_col.max())
-                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-                highlight_colors = sm.to_rgba(colors)
+                if highlight_color is None:
+                    colors = data_col.iloc[highlight_indices]
+                    norm = plt.Normalize(vmin=data_col.min(), vmax=data_col.max())
+                    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+                    highlight_colors = sm.to_rgba(colors)
+                else:
+                    highlight_colors = highlight_color
                 ax.scatter(
                     embedding[highlight_indices, 0],
                     embedding[highlight_indices, 1],
                     s=highlight_size,
+                    linewidths=0,
                     color=highlight_colors,
                     alpha=1.0,
                     zorder=1,
                 )
             else:
                 # Highlight with categorical color mapping
-                colors = data_col.iloc[highlight_indices].map(palette)
+                if highlight_color is None:
+                    colors = data_col.iloc[highlight_indices].map(palette)
+                else:
+                    colors = highlight_color
                 ax.scatter(
                     embedding[highlight_indices, 0],
                     embedding[highlight_indices, 1],
                     s=highlight_size,
+                    linewidths=0,
                     color=colors,
                     alpha=1.0,
                     zorder=1,
@@ -553,6 +562,16 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
 
 
 
+import numpy as np
+import pandas as pd
+import logging
+import math
+import warnings
+import matplotlib.pyplot as plt
+import scanpy as sc
+from matplotlib.collections import PathCollection, LineCollection
+
+logger = logging.getLogger(__name__)
 
 def plot_all_embeddings(
     adata,
@@ -583,54 +602,135 @@ def plot_all_embeddings(
     save_dir='.',
     dpi=300,
     save_format='png',
-    file_suffix='plot'
+    file_suffix='plot',
+    # ------------------------
+    # Highlight parameters
+    highlight_indices=None,
+    highlight_color='black',
+    highlight_size=20,
+    draw_path=False,
+    path_width=1
 ):
+    """
+    Plot multiple embeddings (PAGA, KNN, PCA, UMAP) for given keys and colorings.
+    Optionally highlight a subset of points (indices). If highlight_color is None,
+    highlighted points will use the same color mapping as the rest (numeric or categorical).
+    """
+    def highlight_points(ax, adata, basis_key, data_col, cmap, palette,
+                         highlight_indices, highlight_color, highlight_size,
+                         alpha=1.0, path_width=1, draw_path=False):
+        """
+        Helper to scatter and optionally connect highlight_indices on top of an existing plot.
+        If highlight_color is None, use the same color mapping (numeric or categorical).
+        """
+        if basis_key not in adata.obsm:
+            return  # If there's no embedding to highlight, just return
+
+        embedding = adata.obsm[basis_key]
+        if len(highlight_indices) == 0:
+            return  # Nothing to highlight
+
+        # Decide the colors for highlight points
+        if highlight_color is None:
+            # Use the same colormap/palette as the main scatter
+            if pd.api.types.is_numeric_dtype(data_col):
+                # numeric => map highlight points to the same numeric colormap
+                import matplotlib as mpl
+                norm = mpl.colors.Normalize(vmin=data_col.min(), vmax=data_col.max())
+                sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+
+                # If data_col is a pd.Series, get the relevant subset
+                highlight_values = data_col.iloc[highlight_indices]
+                highlight_colors = sm.to_rgba(highlight_values)
+            else:
+                # categorical => map highlight points with the same palette
+                if isinstance(palette, dict):
+                    # If palette is a dictionary mapping category -> color
+                    highlight_values = data_col.iloc[highlight_indices]
+                    highlight_colors = highlight_values.map(palette)
+                else:
+                    # If palette is just a list or None, fallback to black or some default
+                    highlight_colors = 'black'
+        else:
+            # Use a fixed color
+            highlight_colors = highlight_color
+
+        # Plot highlight points
+        ax.scatter(
+            embedding[highlight_indices, 0],
+            embedding[highlight_indices, 1],
+            s=highlight_size,
+            linewidths=0,
+            color=highlight_colors,
+            alpha=1.0,
+            zorder=5,  # bring to front
+            label='highlighted'
+        )
+
+        if draw_path and len(highlight_indices) > 1:
+            # Connect the highlighted points with a path (optional)
+            path_coords = embedding[highlight_indices]
+            ax.plot(
+                path_coords[:, 0],
+                path_coords[:, 1],
+                color=highlight_colors[0] if isinstance(highlight_colors, np.ndarray) else highlight_colors,
+                linewidth=path_width,
+                alpha=alpha,
+                zorder=6
+            )
+
+    import scipy.sparse as sp
+
     nrows = int(np.ceil(len(combined_keys) / ncols))
 
     for basis_type in basis_types:
         for color_by in color_bys:
             fig, axs = plt.subplots(nrows, ncols, figsize=figsize, dpi=dpi, constrained_layout=True)
-            axs = np.atleast_2d(axs).flatten()  # Ensure axs is a 1D array for easy iteration
+            axs = np.atleast_2d(axs).flatten()  # Flatten for easy iteration
 
             for key, ax in zip(combined_keys, axs):
                 logger.info(f"Plotting {key} with {color_by} in {basis_type}")
                 data_col, cmap, palette = get_color_mapping(adata, color_by, pal, seed=seed)
 
-                # Compute vmax based on the quantile if vmax_quantile is provided and color_by is numeric
+                # Compute vmax based on quantile if numeric
                 vmax = None
                 if vmax_quantile is not None and pd.api.types.is_numeric_dtype(data_col):
-                    import scipy.sparse as sp
                     if color_by in adata.var_names:  # If color_by is a gene
                         expression_values = adata[:, color_by].X
                         if sp.issparse(expression_values):
                             expression_values = expression_values.toarray().flatten()
                         vmax = np.percentile(expression_values, vmax_quantile * 100)
-                    elif color_by in adata.obs:  # If color_by is in adata.obs
+                    elif color_by in adata.obs:  # numeric column in obs
                         vmax = np.percentile(data_col, vmax_quantile * 100)
 
+                # Determine the embedding/basis name
                 if basis_type != '':
+                    # e.g. key="latent", basis_type="UMAP" => "latent_UMAP"
+                    # if basis_type already in key, use key as-is
                     basis = f'{key}_{basis_type}' if basis_type not in key else key
                 else:
                     basis = key
 
-                # Check if basis type is '' or basis type contains substring PCA, or UMAP
+                # ============ PCA or UMAP or direct obsm-based embeddings ============ #
                 if basis_type == '' or 'PCA' in basis or 'UMAP' in basis:
                     if basis not in adata.obsm:
-                        ax.set_xlim(-1, 1)  # Set some default limits for the frame
+                        # If this basis doesn't exist, show empty axis
+                        ax.set_xlim(-1, 1)
                         ax.set_ylim(-1, 1)
                         ax.set_title(key, fontsize=font_size)
                         ax.set_xlabel('')
                         ax.set_ylabel('')
-                        ax.set_xticks([])  # Remove ticks
+                        ax.set_xticks([])
                         ax.set_yticks([])
-                        continue  # Skip to the next key
-                    
+                        continue
+
+                    # Main scatter with sc.pl.embedding
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.embedding(
                             adata, basis=basis, color=color_by, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                            vmax=vmax  # Use the computed vmax
+                            vmax=vmax
                         )
                     else:
                         sc.pl.embedding(
@@ -639,16 +739,27 @@ def plot_all_embeddings(
                             size=point_size, alpha=alpha, palette=palette
                         )
 
+                    # Highlight indices on top
+                    if highlight_indices is not None:
+                        highlight_points(
+                            ax, adata, basis, data_col, cmap, palette,
+                            highlight_indices, highlight_color,
+                            highlight_size, alpha=alpha, path_width=path_width, draw_path=draw_path
+                        )
+
+                # ============ KNN ============ #
                 elif basis_type == 'KNN':
-                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)    
+                    # Recompute neighbors => can overwrite existing info, be mindful
+                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)
                     sc.tl.draw_graph(adata, layout=layout, random_state=seed)
+
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.draw_graph(
                             adata, color=color_by, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=legend_font_size,
                             size=point_size, alpha=alpha, cmap=cmap, edges=True,
-                            edges_width=edges_width, edges_color=edges_color, colorbar_loc=colorbar_loc,
-                            vmax=vmax  # Use the computed vmax
+                            edges_width=edges_width, edges_color=edges_color,
+                            colorbar_loc=colorbar_loc, vmax=vmax
                         )
                     else:
                         sc.pl.draw_graph(
@@ -658,49 +769,69 @@ def plot_all_embeddings(
                             edges=True, edges_width=edges_width, edges_color=edges_color
                         )
 
+                    # If we want to highlight the same cells, we use the layout in adata.obsm['X_draw_graph_{layout}']
+                    draw_key = f'X_draw_graph_{layout}'
+                    if highlight_indices is not None and draw_key in adata.obsm:
+                        highlight_points(
+                            ax, adata, draw_key, data_col, cmap, palette,
+                            highlight_indices, highlight_color,
+                            highlight_size, alpha=alpha, path_width=path_width, draw_path=draw_path
+                        )
+
+                # ============ PAGA ============ #
                 elif basis_type == 'PAGA':
-                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed) 
-                    sc.tl.leiden(adata, key_added=leiden_key, resolution=leiden_resolution, random_state=seed)   
+                    sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)
+                    sc.tl.leiden(adata, key_added=leiden_key, resolution=leiden_resolution, random_state=seed)
                     try:
                         sc.tl.paga(adata, groups=leiden_key, use_rna_velocity=False)
                         if pd.api.types.is_numeric_dtype(data_col):
                             sc.pl.paga(
                                 adata, threshold=threshold, color=color_by, ax=ax, show=False,
-                                layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
-                                edge_width_scale=edge_width_scale, colorbar=False
+                                layout=layout, fontsize=2, cmap=cmap,
+                                node_size_scale=node_size_scale, edge_width_scale=edge_width_scale,
+                                colorbar=False
                             )
                         else:
                             sc.pl.paga(
                                 adata, threshold=threshold, color=color_by, ax=ax, show=False,
-                                layout=layout, fontsize=2, cmap=cmap, node_size_scale=node_size_scale,
-                                edge_width_scale=edge_width_scale
+                                layout=layout, fontsize=2, cmap=cmap,
+                                node_size_scale=node_size_scale, edge_width_scale=edge_width_scale
                             )
+                        # Note: PAGA is cluster-level, so highlighting single cells is non-trivial.
+                        # If you need cell-level coords, see sc.pl.paga_compare or custom embedding.
+
                     except Exception as e:
                         logger.error(f"Error plotting PAGA for {key}: {e}")
 
+                # Simplify title
                 if 'PCA' in key:
-                    key = key.replace('PCA_', '')
-                ax.set_title(key, fontsize=font_size)
+                    plot_title = key.replace('PCA_', '')
+                else:
+                    plot_title = key
+
+                ax.set_title(plot_title, fontsize=font_size)
                 ax.set_xlabel('')
                 ax.set_ylabel('')
                 ax.set_xticks([])
                 ax.set_yticks([])
 
+                # Rasterize
                 if rasterized:
-                    import matplotlib.collections as mcoll
                     for artist in ax.get_children():
-                        if isinstance(artist, mcoll.PathCollection):
+                        if isinstance(artist, PathCollection):
                             artist.set_rasterized(True)
-                        if isinstance(artist, mcoll.LineCollection):  # Find the edges
+                        if isinstance(artist, LineCollection):
                             artist.set_rasterized(True)
 
-            # Hide any remaining empty axes
+            # Hide any leftover axes (if combined_keys < nrows*ncols)
             for ax in axs[len(combined_keys):]:
                 ax.set_visible(False)
 
-            # Save the figure
-            plt.savefig(f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}", bbox_inches=None)
+            # Save figure
+            output_path = f"{save_dir}/all_latent_{color_by}_{basis_type}_{file_suffix}.{save_format}"
+            plt.savefig(output_path, bbox_inches=None)
             plt.show()
+
 
 
 

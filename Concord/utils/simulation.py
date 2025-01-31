@@ -24,6 +24,7 @@ class Simulation:
                  tree_branching_factor=2,
                  tree_depth=3,
                  tree_program_decay=0.5,
+                 tree_cellcount_decay=1.0,
                  batch_distribution='normal',
                  batch_level=1.0, 
                  batch_dispersion=0.1, 
@@ -54,6 +55,7 @@ class Simulation:
         self.tree_branching_factor = tree_branching_factor
         self.tree_depth = tree_depth
         self.tree_program_decay = tree_program_decay
+        self.tree_cellcount_decay = tree_cellcount_decay
 
         # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
         self.batch_type = batch_type if isinstance(batch_type, list) else [batch_type] * n_batches
@@ -150,6 +152,7 @@ class Simulation:
                                       program_structure=self.program_structure,
                                       program_on_time_fraction=self.program_on_time_fraction,
                                       program_decay=self.tree_program_decay,
+                                      cellcount_decay=self.tree_cellcount_decay,
                                       distribution=self.state_distribution,
                                       mean_expression=self.state_level, min_expression=self.state_min_level,
                                       dispersion=self.state_dispersion, seed=self.seed)
@@ -479,32 +482,39 @@ class Simulation:
                         program_structure="linear_increasing",
                         program_on_time_fraction=0.3,
                         program_decay=0.5,
+                        cellcount_decay=1.0,
                         distribution='normal',
                         mean_expression=10, min_expression=0, 
                         dispersion=1.0, seed=42):
         np.random.seed(seed)
         
-        # Simulate a tree-like gene program
-        n_cells_per_branch = n_cells // (branching_factor ** (depth+1))
-        n_genes_per_branch = n_genes // (branching_factor ** (depth+1))
+        # Check if branching faactor is a list or integer
+        if isinstance(branching_factor, list):
+            if len(branching_factor) != depth:
+                raise ValueError("Length of branching_factor list must match depth.")
+        else:
+            branching_factor = [branching_factor] * depth
+
+        n_cells_per_branch = n_cells // (branching_factor[0] ** depth)
+        n_genes_per_branch = n_genes // (branching_factor[0] ** depth)
         
         # Keep track of the cell and gene indices
         cell_counter = 0
         gene_counter = 0
         total_depth = depth
 
-        if(program_decay != 1):
+        if(program_decay != 1) | (cellcount_decay != 1):
             logger.warning("Total number of genes will not be equal to n_genes due to program_decay < 1.")
 
         # Recursive function to simulate gene expression for each branch
         def simulate_branch(depth, branch_path, inherited_genes=None, start_time=0):
-            nonlocal cell_counter, gene_counter
+            nonlocal cell_counter, gene_counter, branching_factor
             branch_str = '_'.join(map(str, branch_path)) if branch_path else 'root'
             #print("Simulating depth:", depth, "branch:", branch_str)
 
             # Determine the number of genes and cells for this branch
             cur_n_genes = max(int(n_genes_per_branch * program_decay ** (total_depth-depth)),1)
-            cur_n_cells = n_cells_per_branch
+            cur_n_cells = max(int(n_cells_per_branch * cellcount_decay ** (total_depth-depth)),1)
             
             cur_branch_genes = [f"gene_{gene_counter + i}" for i in range(cur_n_genes)]
             cur_branch_cells = [f"cell_{cell_counter + i}" for i in range(cur_n_cells)]
@@ -547,9 +557,11 @@ class Simulation:
             if depth == 0:
                 return adata
             
+            # Given current depth, get branching factor
+            cur_branching_factor = branching_factor[total_depth-depth]
             #expression_matrix[cell_idx, gene_idx] = np.random.normal(mean_expression, dispersion, (n_cells_per_branch, num_gene_per_branch))[0]
             # Recursively simulate sub-branches
-            for i in range(branching_factor):
+            for i in range(cur_branching_factor):
                 new_branch_path = branch_path + [i]
                 new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes, start_time=end_time)
                 adata = sc.concat([adata, new_adata], join='outer')

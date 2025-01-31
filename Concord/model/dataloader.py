@@ -1,5 +1,5 @@
 import torch
-from .sampler import ConcordSampler, ConcordMatchNNSampler
+from .sampler import ConcordSampler
 from .anndataset import AnnDataset
 from .knn import Neighborhood
 from ..utils.value_check import validate_probability, validate_probability_dict_compatible
@@ -23,6 +23,7 @@ class DataLoaderManager:
                     p_intra_knn=0.3, p_intra_domain=None,
                     min_p_intra_domain=1.0, max_p_intra_domain=1.0,
                     clr_mode='aug', 
+                    dist_metric='euclidean',
                     pca_n_comps=50, 
                     use_faiss=True, 
                     use_ivf=False,
@@ -53,6 +54,7 @@ class DataLoaderManager:
         self.preprocess = preprocess
         self.num_cores = num_cores
         self.device = device
+        self.dist_metric = dist_metric
 
         # Dynamically set based on adata
         self.adata = None
@@ -68,7 +70,7 @@ class DataLoaderManager:
         from ..utils.anndata_utils import get_adata_basis
         self.emb = get_adata_basis(self.adata, basis=emb_key, pca_n_comps=self.pca_n_comps)
         # Initialize KNN
-        self.neighborhood = Neighborhood(emb=self.emb, k=self.sampler_knn, use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe)
+        self.neighborhood = Neighborhood(emb=self.emb, k=self.sampler_knn, use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe, metric=self.dist_metric)
 
 
     def compute_p_intra_domain(self):
@@ -142,7 +144,7 @@ class DataLoaderManager:
         if self.use_sampler:
             self.compute_embedding_and_knn(self.sampler_emb)
             self.compute_p_intra_domain()
-            SamplerClass = ConcordMatchNNSampler if self.clr_mode == 'nn' else ConcordSampler
+            SamplerClass = ConcordSampler
         else:
             SamplerClass = None
 
