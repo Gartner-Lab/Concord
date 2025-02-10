@@ -101,7 +101,7 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
     plt.show()
 
 
-def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', s=1, c=None, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), rasterized=True, dpi=300, save_path=None):
+def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', linear_fit = False, s=1, c=None, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), rasterized=True, dpi=300, save_path=None):
     import matplotlib.pyplot as plt
     import numpy as np
 
@@ -130,8 +130,16 @@ def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_nois
             latent_val = data_dict[key]
 
         ax.scatter(ground_val, latent_val, s=s, c=c, alpha=alpha, edgecolors='none', rasterized=rasterized)
+        # Perform linear regression
+        if linear_fit:
+            from sklearn.linear_model import LinearRegression
+            reg = LinearRegression().fit(ground_val.reshape(-1, 1), latent_val)
+            ax.plot(ground_val, reg.predict(ground_val.reshape(-1, 1)), color='red', linewidth=1)
+
         if correlation is not None:
-            corr_text = '\n' + '\n'.join([f'{col}:{correlation.loc[key, col]:.2f}' for col in correlation.columns])
+            # Compute avearge correlation across columns
+            corr_val = correlation.loc[key, :].mean()
+            corr_text = '\n' + f'Corr: {corr_val:.2f}'
         else:
             corr_text = ''
         ax.set_title(f'{key}{corr_text}', fontsize=fontsize)
