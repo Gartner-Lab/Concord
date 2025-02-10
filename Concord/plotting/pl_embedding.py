@@ -712,7 +712,7 @@ def plot_all_embeddings(
                     basis = key
 
                 # ============ PCA or UMAP or direct obsm-based embeddings ============ #
-                if basis_type == '' or 'PCA' in basis or 'UMAP' in basis:
+                if basis_type == '' or basis_type=='PCA' or 'UMAP' in basis:
                     if basis not in adata.obsm:
                         # If this basis doesn't exist, show empty axis
                         ax.set_xlim(-1, 1)
@@ -752,7 +752,6 @@ def plot_all_embeddings(
                     # Recompute neighbors => can overwrite existing info, be mindful
                     sc.pp.neighbors(adata, n_neighbors=k, use_rep=key, random_state=seed)
                     sc.tl.draw_graph(adata, layout=layout, random_state=seed)
-
                     if pd.api.types.is_numeric_dtype(data_col):
                         sc.pl.draw_graph(
                             adata, color=color_by, ax=ax, show=False,

@@ -18,6 +18,8 @@ class Simulation:
                  state_dispersion=0.1, 
                  program_structure="linear",
                  program_on_time_fraction=0.3,
+                 program_gap_size=1,
+                 program_noise_in_block=True,
                  trajectory_program_num=3,
                  trajectory_cell_block_size_ratio=0.3,
                  trajectory_loop_to = None,
@@ -47,6 +49,8 @@ class Simulation:
         self.state_dispersion = state_dispersion
         self.program_structure = program_structure
         self.program_on_time_fraction = program_on_time_fraction
+        self.program_gap_size = program_gap_size
+        self.program_noise_in_block = program_noise_in_block
 
         self.trajectory_program_num = trajectory_program_num
         self.trajectory_cell_block_size_ratio = trajectory_cell_block_size_ratio
@@ -152,10 +156,11 @@ class Simulation:
                                       program_structure=self.program_structure,
                                       program_on_time_fraction=self.program_on_time_fraction,
                                       program_decay=self.tree_program_decay,
+                                      program_gap_size=self.program_gap_size,
                                       cellcount_decay=self.tree_cellcount_decay,
                                       distribution=self.state_distribution,
                                       mean_expression=self.state_level, min_expression=self.state_min_level,
-                                      dispersion=self.state_dispersion, seed=self.seed)
+                                      dispersion=self.state_dispersion, noise_in_block=self.program_noise_in_block, seed=self.seed)
         elif self.state_type == 'gatto':
             logger.info(f"Simulating dataset in Gatto et al. 2023 with distribution: {self.state_distribution} with background expression {self.state_level} and dispersion {self.state_dispersion}.")
             adata = self.simulate_gatto(n_genes=self.n_genes, n_cells=self.n_cells, 
@@ -198,8 +203,9 @@ class Simulation:
             adata.X[adata.X < 0] = 0
         if self.to_int:
             adata.X = adata.X.astype(int)
+
+        adata.layers['wt_noise'] = adata.X.copy()
         
-        adata.layers['wt_noise'] = adata.X
         return adata
 
 
@@ -439,7 +445,7 @@ class Simulation:
         return adata
     
 
-    def simulate_expression_block(self, expression_matrix, structure, gene_idx, cell_idx, mean_expression, min_expression, on_time_fraction = 0.3):
+    def simulate_expression_block(self, expression_matrix, structure, gene_idx, cell_idx, mean_expression, min_expression, on_time_fraction = 0.3, gap_size=None):
         ncells = len(cell_idx)
         assert(on_time_fraction <= 1), "on_time_fraction should be less than or equal to 1"
 
@@ -450,6 +456,7 @@ class Simulation:
         program_transition_time = int(ncells - program_on_time) // 2 if "bidirectional" in structure else int(ncells - program_on_time)
 
         transition_end = cell_start if "decreasing" in structure else min(cell_start + program_transition_time, cell_end)
+
         on_end = min(transition_end + program_on_time, cell_end) 
 
         #print("program_on_time", program_on_time, "program_transition_time", program_transition_time)
@@ -460,13 +467,15 @@ class Simulation:
             expression_matrix[transition_end:on_end, gene_idx] = mean_expression
             expression_matrix[on_end:cell_end, gene_idx] = np.linspace(mean_expression, min_expression, cell_end-on_end).reshape(-1, 1)
         elif "dimension_increase" in structure:
-            gap_size = max((ncells - program_on_time) // len(gene_idx), 1)
+            if gap_size is None:
+                gap_size = max((ncells - program_on_time) // len(gene_idx), 1)
             #print("ncells", ncells, "len(gene_idx)", len(gene_idx), "gap_size", gap_size)
             # Simulate a gene program that has each of its genes gradually turning on
             for i, gene in enumerate(gene_idx):
                 cur_gene_start = min(cell_start + i * gap_size, cell_end)
                 #print("cur_gene_start", cur_gene_start, "transition_end", transition_end, "cell_end", cell_end, "gene", gene)
-                expression_matrix[cur_gene_start:transition_end, gene] = np.linspace(min_expression, mean_expression, transition_end-cur_gene_start)
+                if cur_gene_start < transition_end:
+                    expression_matrix[cur_gene_start:transition_end, gene] = np.linspace(min_expression, mean_expression, transition_end-cur_gene_start)
                 expression_matrix[transition_end:cell_end, gene] = mean_expression
         elif structure == "uniform":
             expression_matrix[cell_start:cell_end, gene_idx] = mean_expression
@@ -481,11 +490,12 @@ class Simulation:
                         branching_factor=2, depth=3, 
                         program_structure="linear_increasing",
                         program_on_time_fraction=0.3,
+                        program_gap_size=1,
                         program_decay=0.5,
                         cellcount_decay=1.0,
                         distribution='normal',
                         mean_expression=10, min_expression=0, 
-                        dispersion=1.0, seed=42):
+                        dispersion=1.0, seed=42, noise_in_block=True):
         np.random.seed(seed)
         
         # Check if branching faactor is a list or integer
@@ -494,27 +504,52 @@ class Simulation:
                 raise ValueError("Length of branching_factor list must match depth.")
         else:
             branching_factor = [branching_factor] * depth
-
-        n_cells_per_branch = n_cells // (branching_factor[0] ** depth)
-        n_genes_per_branch = n_genes // (branching_factor[0] ** depth)
         
         # Keep track of the cell and gene indices
         cell_counter = 0
         gene_counter = 0
         total_depth = depth
 
-        if(program_decay != 1) | (cellcount_decay != 1):
+        if(program_decay != 1):
             logger.warning("Total number of genes will not be equal to n_genes due to program_decay < 1.")
+        if(cellcount_decay != 1):
+            logger.warning("Total number of cells will not be equal to n_cells due to cellcount_decay < 1.")
+
+        # If n_cells or n_genes is a list, check if the length matches the depth + 1
+        if isinstance(n_cells, list):
+            if len(n_cells) != depth + 1:
+                raise ValueError("Length of n_cells list must match depth + 1.")
+            n_cells_per_branch = n_cells
+        else:
+            # Compute the number of cells for each depth level
+            n_cells_per_branch_base = n_cells // (branching_factor[0] ** depth)
+            n_cells_per_branch = []
+            for i in range(depth+1):
+                n_cells_per_branch.append(max(int(n_cells_per_branch_base * cellcount_decay ** i), 1))
+        
+        if isinstance(n_genes, list):
+            if len(n_genes) != depth + 1:
+                raise ValueError("Length of n_genes list must match depth + 1.")
+            n_genes_per_branch = n_genes
+        else:
+            # Compute the number of genes for each depth level
+            n_genes_per_branch_base = n_genes // (branching_factor[0] ** depth)
+            n_genes_per_branch = []
+            for i in range(depth+1):
+                n_genes_per_branch.append(max(int(n_genes_per_branch_base * program_decay ** i), 1))
+
 
         # Recursive function to simulate gene expression for each branch
         def simulate_branch(depth, branch_path, inherited_genes=None, start_time=0):
-            nonlocal cell_counter, gene_counter, branching_factor
+            nonlocal cell_counter, gene_counter, branching_factor, n_cells_per_branch, n_genes_per_branch
             branch_str = '_'.join(map(str, branch_path)) if branch_path else 'root'
             #print("Simulating depth:", depth, "branch:", branch_str)
 
             # Determine the number of genes and cells for this branch
-            cur_n_genes = max(int(n_genes_per_branch * program_decay ** (total_depth-depth)),1)
-            cur_n_cells = max(int(n_cells_per_branch * cellcount_decay ** (total_depth-depth)),1)
+            #cur_n_genes = max(int(n_genes_per_branch * program_decay ** (total_depth-depth)),1)
+            #cur_n_cells = max(int(n_cells_per_branch * cellcount_decay ** (total_depth-depth)),1)
+            cur_n_genes = n_genes_per_branch[total_depth-depth]
+            cur_n_cells = n_cells_per_branch[total_depth-depth]
             
             cur_branch_genes = [f"gene_{gene_counter + i}" for i in range(cur_n_genes)]
             cur_branch_cells = [f"cell_{cell_counter + i}" for i in range(cur_n_cells)]
@@ -532,7 +567,8 @@ class Simulation:
                 np.arange(cur_n_cells), 
                 mean_expression, 
                 min_expression, 
-                on_time_fraction=program_on_time_fraction
+                on_time_fraction=program_on_time_fraction,
+                gap_size=program_gap_size
             )
             
             if inherited_genes is not None:
@@ -543,8 +579,7 @@ class Simulation:
                 cur_branch_genes = inherited_genes + cur_branch_genes
 
             # Create an AnnData object for the current branch
-            cur_branch_expression_wt_noise = Simulation.simulate_distribution(distribution, cur_branch_expression, dispersion)
-            adata = sc.AnnData(cur_branch_expression_wt_noise)
+            adata = sc.AnnData(cur_branch_expression)
             adata.obs_names = cur_branch_cells
             adata.var_names = cur_branch_genes
             adata.obs['branch'] = branch_str
@@ -552,6 +587,9 @@ class Simulation:
             adata.obs['time'] = np.arange(cur_n_cells) + start_time
             end_time = start_time + cur_n_cells
             adata.layers['no_noise'] = cur_branch_expression
+
+            if noise_in_block:
+                adata.X = Simulation.simulate_distribution(distribution, cur_branch_expression, dispersion)
 
             # Base case: if depth is 0, return the adata
             if depth == 0:
@@ -569,10 +607,10 @@ class Simulation:
             return adata
             
         adata = simulate_branch(depth, branch_path=[])
-
-        adata.X = np.nan_to_num(adata.X, nan=0.0)
         for key in adata.layers.keys():
             adata.layers[key] = np.nan_to_num(adata.layers[key], nan=0.0)
+        if not noise_in_block:
+            adata.X = Simulation.simulate_distribution(distribution, adata.layers['no_noise'], dispersion)
         return adata
 
 
@@ -759,8 +797,8 @@ class Simulation:
         dat = dat + background_shift
     
         # add additional expression block)
-        print(dat.shape)
-        print(np.random.normal(0, 1, (n_genes//5, n)).shape)
+        #print(dat.shape)
+        #print(np.random.normal(0, 1, (n_genes//5, n)).shape)
         dat = np.vstack([dat, np.random.normal(20, 1, (n_genes//5, n))])
         dat = np.vstack([dat, np.repeat(np.linspace(100, 0, n).reshape(1, -1), n_genes//5, axis=0)])
 
