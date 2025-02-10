@@ -76,7 +76,7 @@ class Concord:
             class_key=None,
             domain_embedding_dim=8,
             covariate_embedding_dims={},
-            use_decoder=True, # Default decoder usage
+            use_decoder=False, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
@@ -93,7 +93,7 @@ class Concord:
             sampler_emb="X_pca",
             sampler_knn=None,
             dist_metric='euclidean',
-            p_intra_knn=0.2,
+            p_intra_knn=0.3,
             p_intra_domain=None,
             min_p_intra_domain=0.9,
             max_p_intra_domain=1.0,
@@ -153,8 +153,7 @@ class Concord:
             logger.warning(f"p_intra_knn * batch_size ({batch_knn_count}) is greater than sampler_knn ({self.config.sampler_knn}). This will cause actual sampling ratio not matching specified p_intra_knn.")
             logger.warning(f"You should either set batch_size to be smaller than sampler_knn/p_intra_knn ({int(self.config.sampler_knn/self.config.p_intra_knn)})")
             logger.warning(f"or set sampler_knn to be greater than p_intra_knn * batch_size ({batch_knn_count}).")
-            self.config.p_intra_knn = 0
-
+            #self.config.p_intra_knn = 0
 
         if self.config.use_classifier:
             if self.config.class_key is None:

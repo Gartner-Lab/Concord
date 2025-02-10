@@ -173,7 +173,7 @@ def run_dimensionality_reduction_pipeline(
     source_key="X",
     methods=["PCA", "UMAP", "t-SNE", "DiffusionMap", "NMF", "SparsePCA", 
              "FactorAnalysis", "FastICA", "LDA", "ZIFA", "scVI", "PHATE", 
-             "Concord", "Concord-decoder"],
+             "Concord", "Concord-decoder", "Concord-pknn0"],
     n_components=10,
     random_state=42,
     device="cpu",
@@ -271,6 +271,8 @@ def run_dimensionality_reduction_pipeline(
     if "Concord-decoder" in methods:
         time_log['Concord-decoder'] = safe_run("Concord-decoder", Concord(use_decoder=True, **concord_args).encode_adata, input_layer_key=source_key, output_key='Concord-decoder', preprocess=False)
 
+    if "Concord-pknn0" in methods:
+        time_log['Concord-pknn0'] = safe_run("Concord-pknn0", Concord(use_decoder=False, p_intra_knn=0.0, **concord_args).encode_adata, input_layer_key=source_key, output_key='Concord-pknn0', preprocess=True)
     # Save the time log
     time_log_path = os.path.join(save_dir, "dimensionality_reduction_timelog.json")
     with open(time_log_path, "w") as f:

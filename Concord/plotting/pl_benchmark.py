@@ -79,11 +79,11 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
     column_definitions += [
         ColumnDefinition(
             col,
-            title=col.replace(" ", "\n", 1),
+            title=col.replace(" ", "\n"),
             width=1,
             textprops={
                 "ha": "center",
-                "bbox": {"boxstyle": "circle", "pad": 0.25},
+                "bbox": {"boxstyle": "circle", "pad": 0.1},
             },
             cmap=cmap_fn(plot_df[col]),
             group=df.loc['Metric', col],
@@ -104,6 +104,8 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
                 "annotate": True,
                 "height": 0.9,
                 "formatter": "{:.2f}",
+                # font size
+                "textprops": {"fontsize": 12},
             },
             group=df.loc['Metric', col],
             border="left" if i == 0 else None,
@@ -127,8 +129,8 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
             ax=ax,
             row_dividers=True,
             footer_divider=True,
-            textprops={"fontsize": 10, "ha": "center"},
-            row_divider_kw={"linewidth": 1, "linestyle": (0, (1, 5))},
+            textprops={"fontsize": 11, "ha": "center"},
+            row_divider_kw={"linewidth": 1, "linestyle": (0, (0.5, 2))},
             col_label_divider_kw={"linewidth": 1, "linestyle": "-"},
             column_border_kw={"linewidth": 1, "linestyle": "-"},
             index_col="Method"

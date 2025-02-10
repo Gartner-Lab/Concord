@@ -151,7 +151,7 @@ def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendall
     return corr_df
 
 
-def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming'], dist_metric='euclidean'):
+def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=False, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming'], dist_metric='euclidean'):
     """
     Compare the graph connectivity of two embeddings by computing their k-NN graphs
     and comparing their adjacency matrices using specified metrics.
@@ -227,8 +227,8 @@ def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=True, use_ivf=
     return graph_distance
 
 
-def benchmark_graph_connectivity(adata, emb_keys, k=30, use_faiss=True, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'hamming'], 
-                                 groundtruth_keys = {'(nn)': 'PCA_no_noise','(wn)': 'PCA_wt_noise'}):
+def benchmark_graph_connectivity(adata, emb_keys, k=30, use_faiss=False, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'hamming'], 
+                                 groundtruth_keys = {'(nn)': 'PCA_no_noise','(wn)': 'PCA_wt_noise'}, dist_metric='cosine'):
 
     connectivity_df = pd.DataFrame()
     for gname,gemb in groundtruth_keys.items():
@@ -240,6 +240,7 @@ def benchmark_graph_connectivity(adata, emb_keys, k=30, use_faiss=True, use_ivf=
                 emb2=gemb,
                 k=k,
                 metric=metric,
+                dist_metric=dist_metric,
                 use_faiss=use_faiss,
                 use_ivf=use_ivf,
                 ivf_nprobe=ivf_nprobe
@@ -296,6 +297,7 @@ def benchmark_geometry(adata, keys,
                        state_key = 'cluster',
                        batch_key = 'batch',
                        groundtruth_dispersion = None,
+                       ground_truth_dispersion_key = 'wt_noise',
                        corr_types = ['pearsonr', 'spearmanr', 'kendalltau'], 
                        trustworthiness_n_neighbors = np.arange(10, 101, 10),
                        dispersion_metric='var',
@@ -399,7 +401,7 @@ def benchmark_geometry(adata, keys,
             cluster_centroid_distances[key] = compute_centroid_distance(adata, key, state_key)
             
         corr_dist_result = compute_correlation(cluster_centroid_distances, corr_types=corr_types, groundtruth_key=groundtruth_key)
-        corr_dist_result.columns = [f'{col}(st)' for col in corr_dist_result.columns]
+        corr_dist_result.columns = [f'{col}(sd)' for col in corr_dist_result.columns]
         results_df['state_distance_corr'] = corr_dist_result
         results_full['state_distance_corr'] = {
             'distance': cluster_centroid_distances,
@@ -415,8 +417,8 @@ def benchmark_geometry(adata, keys,
         if groundtruth_dispersion is not None:
             state_dispersion['Groundtruth'] = groundtruth_dispersion
 
-        corr_dispersion_result = compute_correlation(state_dispersion, corr_types=corr_types, groundtruth_key='Groundtruth' if groundtruth_dispersion is not None else groundtruth_key)
-        corr_dispersion_result.columns = [f'{col}(sd)' for col in corr_dispersion_result.columns]
+        corr_dispersion_result = compute_correlation(state_dispersion, corr_types=corr_types, groundtruth_key='Groundtruth' if groundtruth_dispersion is not None else ground_truth_dispersion_key)
+        corr_dispersion_result.columns = [f'{col}(sv)' for col in corr_dispersion_result.columns]
         results_df['state_dispersion_corr'] = corr_dispersion_result
         results_full['state_dispersion_corr'] = {
             'dispersion': state_dispersion,
@@ -463,6 +465,62 @@ def benchmark_geometry(adata, keys,
     else :
         return combined_results_df
     
+
+def simplify_geometry_benchmark_table(df):
+    # Simplify the dataframe by computing average for each metric
+    if "Cell distance correlation" in df.columns.get_level_values(0):
+        df[("Geometric metrics", "Cell distance correlation")] = df["Cell distance correlation"][
+            ["pearsonr(cd)", "spearmanr(cd)", "kendalltau(cd)"]
+        ].mean(axis=1)
+
+        df.drop(
+            columns=[
+                ("Cell distance correlation", "pearsonr(cd)"),
+                ("Cell distance correlation", "spearmanr(cd)"),
+                ("Cell distance correlation", "kendalltau(cd)"),
+                ("Cell distance correlation", "Local spearmanr"),
+                ("Cell distance correlation", "Distal spearmanr")
+            ],
+            inplace=True
+        )
+
+    if "Trustworthiness" in df.columns.get_level_values(0):
+        df[("Geometric metrics", "Trustworthiness")] = df["Trustworthiness"][["Mean"]]
+        df.drop(
+            columns=[
+                ("Trustworthiness", "Decay"),
+                ("Trustworthiness", "Mean")
+            ],
+            inplace=True
+        )
+
+    if "State distance" in df.columns.get_level_values(0):
+        df[("Geometric metrics", "State distance correlation")] = df["State distance"][
+            ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
+        ].mean(axis=1)
+        df.drop(
+            columns=[
+                ("State distance", "pearsonr(sd)"),
+                ("State distance", "spearmanr(sd)"),
+                ("State distance", "kendalltau(sd)"),
+            ],
+            inplace=True
+        )
+
+    if "Dispersion" in df.columns.get_level_values(0):
+        df[("Geometric metrics", "State dispersion correlation")] = df["Dispersion"][
+            ["pearsonr(sv)", "spearmanr(sv)", "kendalltau(sv)"]
+        ].mean(axis=1)
+        df.drop(
+            columns=[
+                ("Dispersion", "pearsonr(sv)"),
+                ("Dispersion", "spearmanr(sv)"),
+                ("Dispersion", "kendalltau(sv)"),
+            ],
+            inplace=True
+        )
+    return df
+
 
 # Convert benchmark table to scores
 def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name1 = 'Aggregate score', aggregate_score_name2='', name_exact=False, rank=False, rank_col=None):
