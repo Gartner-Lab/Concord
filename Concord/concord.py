@@ -91,7 +91,7 @@ class Concord:
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
-            sampler_knn=None,
+            sampler_knn=300, # Default neighborhood size, can be adjusted
             dist_metric='euclidean',
             p_intra_knn=0.3,
             p_intra_domain=1.0,

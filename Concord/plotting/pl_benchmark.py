@@ -50,20 +50,34 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
     cmap_agg = mpl.cm.get_cmap(pal_agg)
     if cmap_method == 'norm':
         cmap_fn = lambda col_data: normed_cmap(col_data, cmap=cmap, num_stds=2.5)
+        cmap_agg_fn = lambda col_data: normed_cmap(col_data, cmap=cmap_agg, num_stds=2.5)
     elif cmap_method == 'minmax':
         cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
             norm=mpl.colors.Normalize(vmin=col_data.min(), vmax=col_data.max()),
             cmap=cmap
         ).to_rgba
+        cmap_agg_fn = lambda col_data: mpl.cm.ScalarMappable(
+            norm=mpl.colors.Normalize(vmin=col_data.min(), vmax=col_data.max()),
+            cmap=cmap_agg
+        ).to_rgba
+
     elif cmap_method == 'minmax_padded':
         cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
             norm=mpl.colors.Normalize(vmin=col_data.min()-cmap_padding*(col_data.max()-col_data.min()), vmax=col_data.max()+cmap_padding*(col_data.max()-col_data.min())),
             cmap=cmap
         ).to_rgba
+        cmap_agg_fn = lambda col_data: mpl.cm.ScalarMappable(
+            norm=mpl.colors.Normalize(vmin=col_data.min()-cmap_padding*(col_data.max()-col_data.min()), vmax=col_data.max()+cmap_padding*(col_data.max()-col_data.min())),
+            cmap=cmap_agg
+        ).to_rgba
     elif cmap_method == '0_to_1':
         cmap_fn = lambda col_data: mpl.cm.ScalarMappable(
             norm=mpl.colors.Normalize(vmin=0, vmax=1),
             cmap=cmap
+        ).to_rgba
+        cmap_agg_fn = lambda col_data: mpl.cm.ScalarMappable(
+            norm=mpl.colors.Normalize(vmin=0, vmax=1),
+            cmap=cmap_agg
         ).to_rgba
     else:
         raise ValueError(f"Invalid cmap_method: {cmap_method}, choose 'norm' or 'minmax'")
@@ -99,7 +113,7 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
             title=col.replace(" ", "\n", 1),
             plot_fn=bar,
             plot_kw={
-                "cmap": cmap_agg,
+                "cmap": cmap_agg_fn(plot_df[col]),
                 "plot_bg_bar": False,
                 "annotate": True,
                 "height": 0.9,

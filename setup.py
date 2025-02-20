@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='Concord',
-    version='0.8.3',
+    version='0.9.0',
     description='CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery',
     packages=find_packages(include=['Concord','Concord.*']),
     author='Qin Zhu',
