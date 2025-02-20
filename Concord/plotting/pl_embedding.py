@@ -282,7 +282,6 @@ def plot_embedding_3d_plotly(
     return figs
 
 
-
 def plot_embedding_3d_matplotlib(
     adata, 
     basis='encoded_UMAP', 
@@ -314,86 +313,24 @@ def plot_embedding_3d_matplotlib(
     # View angle
     elev=30,    
     azim=45,
+    zoom_factor=0.5,
     box_aspect_ratio=None,
+
+    # Highlight indices
+    highlight_indices=None,
+    highlight_color='black',
+    highlight_size=20,
+    highlight_alpha=1.0,
+
+    # Quantile color for vmax
+    vmax_quantile=None,
 
     # New parameter to rasterize points
     rasterized=False,
 
     # If you want to plot into an existing axis
     ax=None
-):
-    """
-    Plot a 3D embedding (stored in adata.obsm[basis]) colored by one or more columns/gene expressions 
-    (given in color_by) using matplotlib, with controls for marker style, axis elements, and view angle.
-
-    This function relies on an externally defined `get_color_mapping(adata, col, pal, seed)`.
-    If `ax` is provided, the plot is drawn on that axis; otherwise, a new figure/axis is created.
-    
-    Parameters
-    ----------
-    adata : AnnData
-        An AnnData object containing the 3D embedding in `adata.obsm[basis]`.
-    basis : str
-        Key in adata.obsm pointing to the embedding, e.g. 'X_umap_3d' or 'encoded_UMAP'.
-    color_by : str
-        Column in adata.obs or a gene in adata.var_names to color the cells by.
-    pal : dict or None
-        A dictionary specifying color palettes. e.g. {'batch': {'A': '#FF0000', 'B': '#00FF00'}}
-        or {'time': 'viridis'}. If None, defaults/fallback in `get_color_mapping` are used.
-    save_path : str or Path or None
-        If provided and `ax` is None (meaning a new figure is created), saves the figure to this path.
-    point_size : float
-        Marker area in points^2 for the scatter plot. 
-    alpha : float
-        Marker opacity (0 to 1).
-    marker_style : str
-        Marker style used by matplotlib (e.g. '.', 'o', 's', '^', etc.).
-    edge_color : str
-        Color for the marker edges (e.g. 'black', 'none'). 
-    edge_width : float
-        Line width for the marker edges.
-    seed : int
-        Random seed used by `get_color_mapping`, if it randomizes palettes.
-    width : float
-        Width of the figure (in inches) if creating a new figure.
-    height : float
-        Height of the figure (in inches) if creating a new figure.
-    dpi : int
-        Dots per inch (resolution) for the saved figure (if saving).
-    show_legend : bool
-        Whether to display a legend for categorical colorings.
-    title : str or None
-        Custom title string for the plot. If None, defaults to "3D Embedding colored by '{color_by}'".
-    show_title : bool
-        Whether to show the plot title.
-    title_font_size : int
-        Font size for the plot title.
-    show_axis_labels : bool
-        Whether to display axis labels (DIM1, DIM2, DIM3).
-    axis_label_font_size : int
-        Font size for axis labels.
-    show_ticks : bool
-        Whether to show tick marks on the axes.
-    show_tick_labels : bool
-        Whether to show the numerical labels next to ticks.
-    tick_label_font_size : int
-        Font size for the tick labels and legend text.
-    show_grid : bool
-        Whether to show grid lines.
-    elev : float
-        Elevation angle in the z-plane for the 3D view (in degrees).
-    azim : float
-        Azimuth angle in the x-y plane for the 3D view (in degrees).
-    rasterized : bool
-        If True, points will be rasterized for smaller file sizes in e.g. PDF/SVG.
-    ax : matplotlib.axes._subplots.Axes3DSubplot or None
-        If provided, draw on this axis instead of creating a new figure.
-
-    Returns
-    -------
-    fig : matplotlib Figure
-    ax : matplotlib 3D axis
-    """
+    ):
     if basis not in adata.obsm:
         raise KeyError(f"Embedding key '{basis}' not found in adata.obsm")
 
@@ -408,10 +345,10 @@ def plot_embedding_3d_matplotlib(
     df['DIM2'] = embedding[:, 1]
     df['DIM3'] = embedding[:, 2]
 
-    # We'll assume color_by is a single string here
+    # Get color mapping
     data_col, cmap, palette_dict = get_color_mapping(adata, color_by, pal, seed=seed)
 
-    # Create fig/ax only if not provided
+    # Create fig/ax if not provided
     created_new_fig = False
     if ax is None:
         fig = plt.figure(figsize=(width, height), dpi=dpi)
@@ -429,43 +366,65 @@ def plot_embedding_3d_matplotlib(
         title_str = title if title else f"3D Embedding colored by '{color_by}'"
         ax.set_title(title_str, fontsize=title_font_size)
 
-    # Numeric vs categorical
+    # Convert categorical data to colors
     if pd.api.types.is_numeric_dtype(data_col):
-        sc = ax.scatter(
-            df['DIM1'], df['DIM2'], df['DIM3'],
-            c=data_col,
-            cmap=cmap,
-            alpha=alpha,
-            s=point_size,
-            marker=marker_style,
-            edgecolors=edge_color,
-            linewidths=edge_width,
-            rasterized=rasterized
-        )
-        if created_new_fig:
-            cbar = fig.colorbar(sc, ax=ax)
-            cbar.ax.set_ylabel(str(color_by), fontsize=axis_label_font_size)
-            cbar.ax.tick_params(labelsize=tick_label_font_size)
+        print("111")
+        print(vmax_quantile)
+        if vmax_quantile is not None:
+            vmax = np.percentile(data_col, vmax_quantile * 100)
+            print(f"Using vmax={vmax} based on quantile {vmax_quantile}")
+            data_col = np.clip(data_col, 0, vmax)
+        colors = data_col
     else:
-        data_col = data_col.astype('category')
-        categories = data_col.cat.categories
-        mapped_colors = [palette_dict[val] for val in data_col]
+        colors = data_col.astype('category').map(palette_dict)
 
+    # **Step 1: Plot all points as transparent background (establish depth ordering)**
+    ax.scatter(
+        df['DIM1'], df['DIM2'], df['DIM3'],
+        c='none',  # Invisible, but included for depth sorting
+        alpha=0, 
+        s=point_size,
+        marker=marker_style,
+        edgecolors='none',
+        rasterized=rasterized,
+        zorder=1
+    )
+
+    # **Step 2: Plot non-highlighted points**
+    if highlight_indices is not None:
+        non_highlight_mask = ~df.index.isin(highlight_indices)
+    else:
+        non_highlight_mask = np.ones(len(df), dtype=bool)
+
+    ax.scatter(
+        df.loc[non_highlight_mask, 'DIM1'],
+        df.loc[non_highlight_mask, 'DIM2'],
+        df.loc[non_highlight_mask, 'DIM3'],
+        c=colors[non_highlight_mask],
+        alpha=alpha,
+        s=point_size,
+        marker=marker_style,
+        edgecolors=edge_color,
+        linewidths=edge_width,
+        rasterized=rasterized,
+        zorder=2  # Lower than highlights
+    )
+
+    # **Step 3: Plot highlighted points last, ensuring they appear on top**
+    if highlight_indices is not None:
         ax.scatter(
-            df['DIM1'], df['DIM2'], df['DIM3'],
-            c=mapped_colors,
-            alpha=alpha,
-            s=point_size,
+            df.loc[highlight_indices, 'DIM1'],
+            df.loc[highlight_indices, 'DIM2'],
+            df.loc[highlight_indices, 'DIM3'],
+            c=highlight_color,
+            s=highlight_size,
+            alpha=highlight_alpha,
             marker=marker_style,
             edgecolors=edge_color,
             linewidths=edge_width,
-            rasterized=rasterized
+            rasterized=rasterized,  # Ensure no compression artifacts for highlights
+            zorder=3  # Ensures they are plotted last
         )
-        if show_legend:
-            for cat in categories:
-                ax.scatter([], [], [], c=palette_dict[cat], label=str(cat),
-                           marker=marker_style, edgecolors=edge_color, linewidths=edge_width)
-            ax.legend(title=str(color_by), loc='best', fontsize=tick_label_font_size)
 
     # Axis labels
     if show_axis_labels:
@@ -476,6 +435,19 @@ def plot_embedding_3d_matplotlib(
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.set_zlabel("")
+
+    # Zoom in
+    x_min, x_max = df['DIM1'].min(), df['DIM1'].max()
+    y_min, y_max = df['DIM2'].min(), df['DIM2'].max()
+    z_min, z_max = df['DIM3'].min(), df['DIM3'].max()
+
+    x_range = (x_max - x_min) * zoom_factor
+    y_range = (y_max - y_min) * zoom_factor
+    z_range = (z_max - z_min) * zoom_factor
+
+    ax.set_xlim([x_min + x_range, x_max - x_range])
+    ax.set_ylim([y_min + y_range, y_max - y_range])
+    ax.set_zlim([z_min + z_range, z_max - z_range])
 
     # Grid
     ax.grid(show_grid)
@@ -840,7 +812,6 @@ def plot_all_embeddings_3d(
     color_bys=('time', 'batch'),
     basis_types=('UMAP_3D',),
     pal=None,
-    vmax_quantile=None,
     point_size=2.5,
     alpha=0.8,
     figsize=(10, 5),
@@ -855,6 +826,7 @@ def plot_all_embeddings_3d(
     # Additional default 3D plot aesthetics
     elev=30,
     azim=45,
+    zoom_factor=0.0,
     # **kwargs to forward to plot_embedding_3d_matplotlib
     **kwargs
 ):
@@ -954,19 +926,6 @@ def plot_all_embeddings_3d(
                     ax.set_zticks([])
                     continue
 
-                # Optional: handle vmax quantile for numeric data
-                data_col, *_ = get_color_mapping(adata, color_by, pal, seed=seed)
-                vmax = None
-                if (vmax_quantile is not None) and pd.api.types.is_numeric_dtype(data_col):
-                    if color_by in adata.var_names:
-                        # Gene expression
-                        import scipy.sparse as sp
-                        expr = adata[:, color_by].X
-                        if sp.issparse(expr):
-                            expr = expr.toarray().ravel()
-                        vmax = np.percentile(expr, vmax_quantile * 100)
-                    elif color_by in adata.obs:
-                        vmax = np.percentile(data_col, vmax_quantile * 100)
 
                 # Call plot_embedding_3d_matplotlib, passing the existing ax and the additional kwargs
                 # Notice we pass in `rasterized=rasterized` and any user extras via **kwargs
@@ -985,6 +944,7 @@ def plot_all_embeddings_3d(
                     edge_width=0,
                     elev=elev,
                     azim=azim,
+                    zoom_factor=zoom_factor,
                     rasterized=rasterized,
                     ax=ax,
                     **kwargs  # pass all other custom aesthetics
