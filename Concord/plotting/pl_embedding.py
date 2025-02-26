@@ -169,9 +169,9 @@ def plot_embedding(adata, basis, color_by=None,
 
 
 # Portal method to choose either plot_embedding_3d_plotly or plot_embedding_3d_matplotlib, given the engine parameter
-def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, point_size=3, opacity=0.7, seed=42, width=800, height=600, engine='plotly', static=False, static_format='png'):
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, point_size=3, opacity=0.7, seed=42, width=800, height=600, engine='plotly', autosize=True, static=False, static_format='png'):
     if engine == 'plotly':
-        return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, static, static_format)
+        return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, autosize, static, static_format)
     elif engine == 'matplotlib':
         return plot_embedding_3d_matplotlib(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, static_format=static_format)
     else:
@@ -189,8 +189,10 @@ def plot_embedding_3d_plotly(
         seed=42, 
         width=800, 
         height=600,
+        autosize=True,
         static=False,                 # <--- New parameter
-        static_format='png'          # <--- New parameter
+        static_format='png',          # <--- New parameter
+        title=None
     ):
 
     import numpy as np
@@ -236,7 +238,7 @@ def plot_embedding_3d_plotly(
                 y='DIM2', 
                 z='DIM3', 
                 color=col,
-                title=f'3D Embedding colored by {col}',
+                title=title,
                 labels={'color': col}, 
                 opacity=opacity,
                 color_continuous_scale=colorscale
@@ -248,14 +250,17 @@ def plot_embedding_3d_plotly(
                 y='DIM2', 
                 z='DIM3', 
                 color=col,
-                title=f'3D Embedding colored by {col}',
+                title=title,
                 labels={'color': col}, 
                 opacity=opacity,
                 color_discrete_map=palette
             )
 
         fig.update_traces(marker=dict(size=point_size))
-        fig.update_layout(width=width, height=height)
+        if autosize:
+            fig.update_layout(autosize=True,height=height)
+        else:
+            fig.update_layout(width=width, height=height)
 
         # Save interactive plot if save_path is provided
         if save_path:
