@@ -94,7 +94,7 @@ class Concord:
             sampler_knn=300, # Default neighborhood size, can be adjusted
             dist_metric='euclidean',
             p_intra_knn=0.3,
-            p_intra_domain=1.0,
+            p_intra_domain=0.95,
             min_p_intra_domain=0.9,
             max_p_intra_domain=1.0,
             pca_n_comps=50,
