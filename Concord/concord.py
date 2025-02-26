@@ -36,7 +36,35 @@ class Config:
 
 
 class Concord:
+    """
+    A contrastive learning framework for single-cell data analysis.
+
+    CONCORD performs dimensionality reduction, denoising, and batch correction 
+    in an unsupervised manner while preserving local and global topological structures.
+
+    Attributes:
+        adata (AnnData): Input AnnData object.
+        save_dir (Path): Directory to save outputs and logs.
+        config (Config): Configuration object storing hyperparameters.
+        model (ConcordModel): The main contrastive learning model.
+        trainer (Trainer): Handles model training.
+        loader (DataLoaderManager or ChunkLoader): Data loading utilities.
+    """
     def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=False, **kwargs):
+        """
+        Initializes the Concord framework.
+
+        Args:
+            adata (AnnData): Input single-cell data in AnnData format.
+            save_dir (str, optional): Directory to save model outputs. Defaults to 'save/'.
+            inplace (bool, optional): If True, modifies `adata` in place. Defaults to True.
+            use_wandb (bool, optional): Whether to enable Weights & Biases logging. Defaults to False.
+            verbose (bool, optional): Enable verbose logging. Defaults to False.
+            **kwargs: Additional configuration parameters.
+
+        Raises:
+            ValueError: If `inplace` is set to True on a backed AnnData object.
+        """
         set_verbose_mode(verbose)
         if adata.isbacked:
             logger.warning("Input AnnData object is backed. With same amount of epochs, Concord will perform better when adata is loaded into memory.")
@@ -201,14 +229,23 @@ class Concord:
 
     def get_default_params(self):
         """
-        Returns the default parameters as a dictionary.
+        Returns the default hyperparameters used in CONCORD.
+
+        Returns:
+            dict: A dictionary containing default configuration values.
         """
         return self.default_params.copy()
     
 
     def setup_config(self, **kwargs):
         """
-        Setup configuration with default parameters, allowing users to override any value via kwargs.
+        Sets up the configuration for training.
+
+        Args:
+            **kwargs: Key-value pairs to override default parameters.
+
+        Raises:
+            ValueError: If an invalid parameter is provided.
         """
         # Start with the default parameters
         initial_params = self.default_params.copy()
@@ -235,6 +272,12 @@ class Concord:
 
 
     def init_model(self):
+        """
+        Initializes the CONCORD model and loads a pre-trained model if specified.
+
+        Raises:
+            FileNotFoundError: If the specified pre-trained model file is missing.
+        """
         input_dim = len(self.config.input_feature)
         hidden_dim = self.config.latent_dim
 
@@ -272,6 +315,9 @@ class Concord:
             
 
     def init_trainer(self):
+        """
+        Initializes the model trainer, setting up loss functions, optimizer, and learning rate scheduler.
+        """
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
@@ -293,6 +339,18 @@ class Concord:
 
 
     def init_dataloader(self, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
+        """
+        Initializes the data loader for training and evaluation.
+
+        Args:
+            input_layer_key (str, optional): Key in `adata.layers` to use as input. Defaults to 'X_log1p'.
+            preprocess (bool, optional): Whether to apply preprocessing. Defaults to True.
+            train_frac (float, optional): Fraction of data to use for training. Defaults to 1.0.
+            use_sampler (bool, optional): Whether to use the probabilistic sampler. Defaults to True.
+
+        Raises:
+            ValueError: If `train_frac < 1.0` and contrastive loss mode is 'nn'.
+        """
         if train_frac < 1.0 and self.config.clr_mode == 'nn':
             raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
         self.data_manager = DataLoaderManager(
@@ -330,6 +388,13 @@ class Concord:
 
 
     def train(self, save_model=True, patience=2):
+        """
+        Trains the model on the dataset.
+
+        Args:
+            save_model (bool, optional): Whether to save the trained model. Defaults to True.
+            patience (int, optional): Number of epochs to wait for improvement before early stopping. Defaults to 2.
+        """
         best_val_loss = float('inf')
         best_model_state = None
         epochs_without_improvement = 0
@@ -387,6 +452,21 @@ class Concord:
 
 
     def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_latent=False, return_class=True, return_class_prob=True):  
+        """
+        Runs inference on a dataset.
+
+        Args:
+            loader (DataLoader or list): Data loader or chunked loader for batch processing.
+            sort_by_indices (bool, optional): Whether to return results in original cell order. Defaults to False.
+            return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
+            decoder_domain (str, optional): Specifies a domain for decoding. Defaults to None.
+            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
+            return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
+            return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
+
+        Returns:
+            tuple: Encoded embeddings, decoded matrix (if requested), class predictions, class probabilities, true labels, and latent variables.
+        """
         self.model.eval()
         class_preds = []
         class_true = []
@@ -541,6 +621,21 @@ class Concord:
                      return_latent=False, 
                      return_class=True, return_class_prob=True, 
                      save_model=True):
+        """
+        Encodes an AnnData object using the CONCORD model.
+
+        Args:
+            input_layer_key (str, optional): Input layer key. Defaults to 'X_log1p'.
+            output_key (str, optional): Output key for storing results in AnnData. Defaults to 'Concord'.
+            preprocess (bool, optional): Whether to apply preprocessing. Defaults to True.
+            return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
+            decoder_domain (str, optional): Specifies domain for decoding. Defaults to None.
+            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
+            return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
+            return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
+            save_model (bool, optional): Whether to save the model after training. Defaults to True.
+        """
+
         # Initialize the model
         self.init_model()
         # Initialize the dataloader
@@ -577,6 +672,12 @@ class Concord:
                 self.adata.obs[f'class_prob_{col}'] = class_probs[col]
 
     def get_domain_embeddings(self):
+        """
+        Retrieves domain embeddings from the trained model.
+
+        Returns:
+            pd.DataFrame: A dataframe containing domain embeddings.
+        """
         unique_domain_categories = self.adata.obs[self.config.domain_key].cat.categories.values
         domain_labels = torch.tensor(range(len(unique_domain_categories)), dtype=torch.long).to(self.config.device)
         domain_embeddings = self.model.domain_embedding(domain_labels)
@@ -585,6 +686,12 @@ class Concord:
         return domain_df
     
     def get_covariate_embeddings(self):
+        """
+        Retrieves covariate embeddings from the trained model.
+
+        Returns:
+            dict: A dictionary of DataFrames, each containing embeddings for a covariate.
+        """
         covariate_dfs = {}
         for covariate_key in self.config.covariate_embedding_dims.keys():
             if covariate_key in self.model.covariate_embeddings:
@@ -597,6 +704,16 @@ class Concord:
         return covariate_dfs
 
     def save_model(self, model, save_path):
+        """
+        Saves the trained model to a file.
+
+        Args:
+            model (torch.nn.Module): The trained model.
+            save_path (str or Path): Path to save the model file.
+
+        Returns:
+            None
+        """
         torch.save(model.state_dict(), save_path)
         logger.info(f"Model saved to {save_path}")
 

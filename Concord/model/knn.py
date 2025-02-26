@@ -9,6 +9,20 @@ logger = logging.getLogger(__name__)
 
 
 class Neighborhood:
+    """
+    A class for k-nearest neighbor (k-NN) computation using either FAISS or sklearn.
+
+    This class constructs a k-NN index, retrieves neighbors, and computes distances
+    between embeddings.
+
+    Attributes:
+        emb (np.ndarray): The embedding matrix (converted to float32).
+        k (int): Number of nearest neighbors to retrieve.
+        use_faiss (bool): Whether to use FAISS for k-NN computation.
+        use_ivf (bool): Whether to use IVF indexing in FAISS.
+        ivf_nprobe (int): Number of probes for FAISS IVF.
+        metric (str): Distance metric ('euclidean' or 'cosine').
+    """
     def __init__(
         self, 
         emb,
@@ -19,22 +33,18 @@ class Neighborhood:
         metric='euclidean'
     ):
         """
-        Initialize the Neighborhood class.
+        Initializes the Neighborhood class.
 
-        Parameters
-        ----------
-        emb : np.ndarray
-            The embedding matrix.
-        k : int
-            The number of nearest neighbors to retrieve.
-        use_faiss : bool
-            Whether to use FAISS for k-NN computation.
-        use_ivf : bool
-            Whether to use IVF FAISS index.
-        ivf_nprobe : int
-            Number of probes for IVF FAISS index.
-        metric : str
-            Distance metric to use: "euclidean" or "cosine".
+        Args:
+            emb (np.ndarray): The embedding matrix.
+            k (int, optional): Number of nearest neighbors to retrieve. Defaults to 10.
+            use_faiss (bool, optional): Whether to use FAISS for k-NN computation. Defaults to True.
+            use_ivf (bool, optional): Whether to use IVF FAISS index. Defaults to False.
+            ivf_nprobe (int, optional): Number of probes for FAISS IVF. Defaults to 10.
+            metric (str, optional): Distance metric ('euclidean' or 'cosine'). Defaults to 'euclidean'.
+
+        Raises:
+            ValueError: If there are NaN values in the embedding or if the metric is invalid.
         """
         if np.isnan(emb).any():
             raise ValueError("There are NaN values in the emb array.")
@@ -77,7 +87,7 @@ class Neighborhood:
 
     def _build_knn_index(self):
         """
-        Initialize the k-NN index using FAISS or sklearn.
+        Initializes the k-NN index using FAISS or sklearn.
         """
         # If metric is cosine, normalize the embeddings so that
         # L2 distance in normalized space ~ cosine distance
@@ -127,23 +137,16 @@ class Neighborhood:
 
     def get_knn(self, core_samples, k=None, include_self=True, return_distance=False):
         """
-        Retrieve k-NN indices (and optionally distances) for the given samples.
+        Retrieves the k-nearest neighbors for given samples.
 
-        Parameters
-        ----------
-        core_samples : np.ndarray or torch.Tensor
-            The indices of core samples to find k-NN for.
-        k : int, optional
-            Number of neighbors to retrieve. If None, uses the default self.k.
-        include_self : bool, default True
-            Whether to include the sample itself in the returned neighbors.
-        return_distance : bool, default False
-            Whether to return distances along with indices.
+        Args:
+            core_samples (np.ndarray or torch.Tensor): Indices of samples for which k-NN is retrieved.
+            k (int, optional): Number of neighbors. Defaults to self.k.
+            include_self (bool, optional): Whether to include the sample itself. Defaults to True.
+            return_distance (bool, optional): Whether to return distances. Defaults to False.
 
-        Returns
-        -------
-        np.ndarray (or tuple of np.ndarray)
-            The indices of nearest neighbors (and distances, if return_distance is True).
+        Returns:
+            np.ndarray: Indices of nearest neighbors (and distances if return_distance=True).
         """
         if k is None:
             k = self.k
@@ -214,12 +217,10 @@ class Neighborhood:
 
     def update_embedding(self, new_emb):
         """
-        Update the embedding matrix and reinitialize the k-NN index.
+        Updates the embedding matrix and rebuilds the k-NN index.
 
-        Parameters
-        ----------
-        new_emb : np.ndarray
-            The new embedding matrix.
+        Args:
+            new_emb (np.ndarray): The new embedding matrix.
         """
         self.emb = new_emb.astype(np.float32)
         self._build_knn_index()
@@ -288,12 +289,10 @@ class Neighborhood:
 
     def compute_knn_graph(self, k=None):
         """
-        Build a sparse adjacency matrix for the k-NN graph.
+        Constructs a sparse adjacency matrix for the k-NN graph.
 
-        Parameters
-        ----------
-        k : int, optional
-            Number of neighbors to retrieve. If None, uses self.k.
+        Args:
+            k (int, optional): Number of neighbors. Defaults to self.k.
         """
         from scipy.sparse import csr_matrix
 
@@ -313,12 +312,10 @@ class Neighborhood:
 
     def get_knn_graph(self):
         """
-        Return the precomputed K-NN graph. If not computed, compute it.
+        Returns the precomputed k-NN graph. Computes it if not available.
 
-        Returns
-        -------
-        scipy.sparse.csr_matrix
-            Sparse adjacency matrix of shape (n_samples, n_samples).
+        Returns:
+            scipy.sparse.csr_matrix: Sparse adjacency matrix of shape (n_samples, n_samples).
         """
         if self.graph is None:
             logger.warning("K-NN graph is not computed. Computing now.")

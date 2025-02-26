@@ -4,6 +4,24 @@ from .build_layer import get_normalization_layer, build_layers
 from .. import logger
 
 class ConcordModel(nn.Module):
+    """
+    A contrastive learning model for domain-aware and covariate-aware latent representations.
+
+    This model consists of an encoder, decoder, and optional classifier head. It supports 
+    probabilistic augmentation and domain/covariate embeddings.
+
+    Attributes:
+        domain_embedding_dim (int): Dimensionality of domain embeddings.
+        input_dim (int): Input feature dimension.
+        augmentation_mask (nn.Dropout): Dropout layer for augmentation masking.
+        use_classifier (bool): Whether to include a classifier head.
+        use_decoder (bool): Whether to include a decoder head.
+        use_importance_mask (bool): Whether to include an importance mask for feature selection.
+        encoder (nn.Sequential): Encoder layers.
+        decoder (nn.Sequential, optional): Decoder layers.
+        classifier (nn.Sequential, optional): Classifier head.
+        importance_mask (nn.Parameter, optional): Learnable importance mask.
+    """
     def __init__(self, input_dim, hidden_dim, num_domains, num_classes,  
                  domain_embedding_dim=0, 
                  covariate_embedding_dims={},
@@ -13,6 +31,27 @@ class ConcordModel(nn.Module):
                  #encoder_append_cov=False, 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False):
+        """
+        Initializes the Concord model.
+
+        Args:
+            input_dim (int): Number of input features.
+            hidden_dim (int): Latent representation dimensionality.
+            num_domains (int): Number of unique domains for embeddings.
+            num_classes (int): Number of unique classes for classification.
+            domain_embedding_dim (int, optional): Dimensionality of domain embeddings. Defaults to 0.
+            covariate_embedding_dims (dict, optional): Dictionary mapping covariate keys to embedding dimensions.
+            covariate_num_categories (dict, optional): Dictionary mapping covariate keys to category counts.
+            encoder_dims (list, optional): List of encoder layer sizes. Defaults to empty list.
+            decoder_dims (list, optional): List of decoder layer sizes. Defaults to empty list.
+            augmentation_mask_prob (float, optional): Dropout probability for augmentation mask. Defaults to 0.3.
+            dropout_prob (float, optional): Dropout probability for encoder/decoder layers. Defaults to 0.1.
+            norm_type (str, optional): Normalization type ('layer_norm' or 'batch_norm'). Defaults to 'layer_norm'.
+            use_decoder (bool, optional): Whether to include a decoder. Defaults to True.
+            decoder_final_activation (str, optional): Activation function for decoder output. Defaults to 'leaky_relu'.
+            use_classifier (bool, optional): Whether to include a classifier head. Defaults to False.
+            use_importance_mask (bool, optional): Whether to learn an importance mask for input features. Defaults to False.
+        """
         super().__init__()
 
         # Encoder
@@ -86,6 +125,20 @@ class ConcordModel(nn.Module):
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
     def forward(self, x, domain_labels=None, covariate_tensors=None, return_latent=False):
+        """
+        Performs a forward pass through the model.
+
+        Args:
+            x (torch.Tensor): Input data.
+            domain_labels (torch.Tensor, optional): Domain labels for embedding lookup.
+            covariate_tensors (dict, optional): Dictionary of covariate labels.
+            return_latent (bool, optional): Whether to return latent layer outputs.
+
+        Returns:
+            dict: A dictionary with encoded representations, decoded outputs (if enabled), 
+                  classifier predictions (if enabled), and latent activations (if requested).
+        """
+
         out = {}
 
         embeddings = []
@@ -142,6 +195,7 @@ class ConcordModel(nn.Module):
         return out
 
     def _initialize_weights(self):
+        """Initializes model weights using Kaiming normal initialization."""
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight)
@@ -149,10 +203,18 @@ class ConcordModel(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def freeze_encoder(self):
+        """Freezes encoder weights to prevent updates during training."""
         for param in self.encoder.parameters():
             param.requires_grad = False
 
     def load_model(self, path, device):
+        """
+        Loads a pre-trained model state.
+
+        Args:
+            path (str or Path): Path to the saved model checkpoint.
+            device (torch.device): Device to load the model onto.
+        """
         state_dict = torch.load(path, map_location=device)
         model_state_dict = self.state_dict()
 
@@ -163,6 +225,12 @@ class ConcordModel(nn.Module):
         self.load_state_dict(model_state_dict, strict=False)
 
     def get_importance_weights(self):
+        """
+        Retrieves the learned importance weights for input features.
+
+        Returns:
+            torch.Tensor: The importance weights.
+        """
         if self.use_importance_mask:
             #return torch.softmax(self.importance_mask, dim=0) * self.input_dim
             return torch.relu(self.importance_mask)
