@@ -36,26 +36,6 @@ def add_file_handler(logger: logging.Logger, log_file_path: Path):
     logger.addHandler(h)
 
 
-
-def update_wandb_params(params, project_name=None, reinit=True, start_method="thread"):
-    import wandb
-    if reinit:
-        run = wandb.init(
-            config=params,
-            project=project_name,
-            reinit=True,
-            settings=wandb.Settings(start_method=start_method),
-        )
-    else:
-        run = wandb.run
-
-    config = wandb.config
-    config.update(params)
-    return config, run
-
-
-
-
 def natural_key(string_):
     import re
     return [int(s) if s.isdigit() else s for s in re.split(r'(\d+)', string_)]
