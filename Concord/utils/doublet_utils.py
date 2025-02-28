@@ -9,19 +9,19 @@ def generate_synthetic_doublets(adata, doublet_synth_ratio, seed, batch_key, dro
     """
     Generate synthetic doublets from singlet data in an AnnData object within each batch.
 
-    Parameters:
-    - adata: AnnData object containing the singlet data (with maybe unclassified doublets)
-    - doublet_synth_ratio: float, the ratio of synthetic doublets to true singlets
-    - seed: int, random seed for reproducibility
-    - batch_key: str, the key in .obs indicating batch information
-    - droplet_type_key: str, the key in .obs indicating droplet type
-    - mean: float, mean of the normal distribution for generating fractions (default: 0.5)
-    - var: float, variance of the normal distribution for generating fractions (default: 0.1)
-    - clip_range: tuple, range to clip the generated fractions (default: (0.2, 0.8))
-    - plot_histogram: bool, whether to plot the histogram of synthetic doublet fractions
+    Args:
+        adata: AnnData object containing the singlet data (with maybe unclassified doublets)
+        doublet_synth_ratio: float, the ratio of synthetic doublets to true singlets
+        seed: int, random seed for reproducibility
+        batch_key: str, the key in .obs indicating batch information
+        droplet_type_key: str, the key in .obs indicating droplet type
+        mean: float, mean of the normal distribution for generating fractions (default: 0.5)
+        var: float, variance of the normal distribution for generating fractions (default: 0.1)
+        clip_range: tuple, range to clip the generated fractions (default: (0.2, 0.8))
+        plot_histogram: bool, whether to plot the histogram of synthetic doublet fractions
 
     Returns:
-    - adata_synthetic_doublets: AnnData object containing the synthetic doublets
+        adata_synthetic_doublets: AnnData object containing the synthetic doublets
     """
 
     np.random.seed(seed)

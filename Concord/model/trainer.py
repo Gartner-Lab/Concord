@@ -28,14 +28,12 @@ class Trainer:
         clr_weight (float): Weighting factor for contrastive loss.
         importance_penalty_weight (float): Weighting for feature importance penalty.
         importance_penalty_type (str): Type of regularization for importance penalty.
-        use_wandb (bool): Whether to log training metrics to Weights & Biases.
 
     Methods:
         forward_pass: Computes loss components and model outputs.
         train_epoch: Runs one training epoch.
         validate_epoch: Runs one validation epoch.
         _run_epoch: Handles training or validation for one epoch.
-        _log_metrics: Logs training or validation metrics.
         _compute_averages: Computes average losses over an epoch.
     """
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
@@ -44,8 +42,7 @@ class Trainer:
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
                  clr_mode='aug', clr_temperature=0.5, clr_weight=1.0,
-                 importance_penalty_weight=0, importance_penalty_type='L1',
-                 use_wandb=False):
+                 importance_penalty_weight=0, importance_penalty_type='L1'):
         """
         Initializes the Trainer.
 
@@ -67,7 +64,6 @@ class Trainer:
             clr_weight (float, optional): Weight for contrastive loss. Default is 1.0.
             importance_penalty_weight (float, optional): Weight for importance penalty. Default is 0.
             importance_penalty_type (str, optional): Type of penalty ('L1' or 'L2'). Default is 'L1'.
-            use_wandb (bool, optional): Whether to log metrics with Weights & Biases. Default is False.
         """
         self.model = model
         self.data_structure = data_structure
@@ -82,7 +78,6 @@ class Trainer:
         self.clr_mode = clr_mode
         self.use_clr = clr_mode is not None
         self.clr_weight = clr_weight
-        self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
 
@@ -203,8 +198,6 @@ class Trainer:
             if train:
                 loss.backward()
                 self.optimizer.step()
-            # Logging
-            self._log_metrics(loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train)
 
             total_loss += loss.item()
             total_mse += loss_mse.item()
@@ -235,19 +228,6 @@ class Trainer:
 
         return avg_loss
 
-    def _log_metrics(self, loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train=True):
-        if self.use_wandb:
-            import wandb
-            prefix = "train" if train else "val"
-            wandb.log({f"{prefix}/loss": loss.item()})
-            if self.use_classifier:
-                wandb.log({f"{prefix}/classifier": loss_classifier.item()})
-            if self.use_decoder:
-                wandb.log({f"{prefix}/mse": loss_mse.item()})
-            if self.use_clr:
-                wandb.log({f"{prefix}/clr": loss_clr.item()})
-            if self.model.use_importance_mask:
-                wandb.log({f"{prefix}/importance_penalty": loss_penalty.item()})
 
     def _compute_averages(self, total_loss, total_mse, total_clr, total_classifier, total_importance_penalty, dataloader_len):
         avg_loss = total_loss / dataloader_len

@@ -6,7 +6,7 @@ from .utils.preprocessor import Preprocessor
 from .utils.anndata_utils import ensure_categorical
 from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
-from .utils.other_util import add_file_handler, update_wandb_params, set_seed
+from .utils.other_util import add_file_handler, set_seed
 from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
@@ -50,7 +50,7 @@ class Concord:
         trainer (Trainer): Handles model training.
         loader (DataLoaderManager or ChunkLoader): Data loading utilities.
     """
-    def __init__(self, adata, save_dir='save/', inplace=True, use_wandb=False, verbose=False, **kwargs):
+    def __init__(self, adata, save_dir='save/', inplace=True, verbose=False, **kwargs):
         """
         Initializes the Concord framework.
 
@@ -58,7 +58,6 @@ class Concord:
             adata (AnnData): Input single-cell data in AnnData format.
             save_dir (str, optional): Directory to save model outputs. Defaults to 'save/'.
             inplace (bool, optional): If True, modifies `adata` in place. Defaults to True.
-            use_wandb (bool, optional): Whether to enable Weights & Biases logging. Defaults to False.
             verbose (bool, optional): Enable verbose logging. Defaults to False.
             **kwargs: Additional configuration parameters.
 
@@ -78,7 +77,6 @@ class Concord:
         self.config = None
         self.loader = None
         self.model = None
-        self.use_wandb = use_wandb
         self.run = None
         self.sampler_kwargs = {}
 
@@ -258,17 +256,7 @@ class Concord:
         # Update with user-provided values (if any)
         initial_params.update(kwargs)
 
-        if self.use_wandb:
-            try:
-                import wandb
-            except ImportError:
-                logger.warning("wandb is not installed. Disabling wandb.")
-                self.use_wandb = False
-            config, run = update_wandb_params(initial_params, project_name=initial_params['project_name'], reinit=True)
-            self.config = config
-            self.run = run
-        else:
-            self.config = Config(initial_params)
+        self.config = Config(initial_params)
 
 
     def init_model(self):
@@ -301,9 +289,6 @@ class Concord:
         logger.info(f'Model loaded to device: {self.config.device}')
         total_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         logger.info(f'Total number of parameters: {total_params}')
-        if self.use_wandb:
-            import wandb
-            wandb.log({"total_parameters": total_params})
 
         if self.config.pretrained_model is not None:
             pretrained_model_path = Path(self.config.pretrained_model)
@@ -333,7 +318,6 @@ class Concord:
                                clr_mode=self.config.clr_mode, 
                                clr_temperature=self.config.clr_temperature,
                                clr_weight=self.config.clr_weight,
-                               use_wandb=self.use_wandb,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
 

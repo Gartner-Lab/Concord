@@ -5,6 +5,24 @@ from ..plotting.pl_enrichment import plot_go_enrichment
 
 
 def compute_go(feature_list, organism="human", top_n=10, qval_correct=1e-10, color_palette='viridis_r', font_size=12, dpi=300, figsize=(10,3), save_path=None):
+    """
+    Performs Gene Ontology (GO) enrichment analysis using gseapy.enrichr and visualizes the results.
+
+    Args:
+        feature_list (list): List of gene symbols to analyze.
+        organism (str, optional): Organism name (e.g., "human", "mouse"). Defaults to "human".
+        top_n (int, optional): Number of top enriched GO terms to plot. Defaults to 10.
+        qval_correct (float, optional): Maximum adjusted p-value for filtering significant terms. Defaults to 1e-10.
+        color_palette (str, optional): Color palette for the enrichment plot. Defaults to 'viridis_r'.
+        font_size (int, optional): Font size for plot text. Defaults to 12.
+        dpi (int, optional): Resolution of the output plot. Defaults to 300.
+        figsize (tuple, optional): Figure size for the plot (width, height). Defaults to (10,3).
+        save_path (str, optional): Path to save the plot. If None, the plot is not saved. Defaults to None.
+
+    Returns:
+        dict: Enrichment results from `gseapy.enrichr`.
+    """
+
     try:
         import gseapy as gp
     except ImportError:
@@ -17,15 +35,18 @@ def compute_go(feature_list, organism="human", top_n=10, qval_correct=1e-10, col
 def run_gsea_for_all_neurons(ranked_lists, gene_sets='GO_Biological_Process_2021', outdir='GSEA_results',
                              processes = 4, permutation_num=500, seed=0):
     """
-    Run GSEA enrichment analysis for all neurons and save the results.
+    Runs Gene Set Enrichment Analysis (GSEA) for multiple neuron types and saves results.
 
-    Parameters:
-    - ranked_lists (dict): A dictionary with neuron names as keys and ranked gene lists as values.
-    - gene_sets (str): Name of the gene set database to use.
-    - outdir (str): Directory to save the results.
+    Args:
+        ranked_lists (dict): Dictionary where keys are neuron names and values are ranked gene lists.
+        gene_sets (str, optional): Name of the gene set database to use (e.g., 'GO_Biological_Process_2021'). Defaults to 'GO_Biological_Process_2021'.
+        outdir (str, optional): Directory to save GSEA results. Defaults to 'GSEA_results'.
+        processes (int, optional): Number of parallel processes for GSEA computation. Defaults to 4.
+        permutation_num (int, optional): Number of gene set permutations for statistical significance. Defaults to 500.
+        seed (int, optional): Random seed for reproducibility. Defaults to 0.
 
     Returns:
-    - all_gsea_results (dict): A dictionary with neuron names as keys and their GSEA results as values.
+        dict: A dictionary where keys are neuron names and values are their respective GSEA results.
     """
     try:
         import gseapy as gp
@@ -63,13 +84,13 @@ def run_gsea_for_all_neurons(ranked_lists, gene_sets='GO_Biological_Process_2021
 
 def get_gsea_tables(all_gsea_results):
     """
-    Extract the res2d DataFrame from the GSEA results for each neuron.
+    Extracts the GSEA summary tables from the enrichment results.
 
-    Parameters:
-    - all_gsea_results (dict): A dictionary with neuron names as keys and their GSEA results as values.
+    Args:
+        all_gsea_results (dict): Dictionary where keys are neuron names and values are GSEA results.
 
     Returns:
-    - extracted_results (dict): A dictionary with neuron names as keys and their res2d DataFrame as values.
+        dict: A dictionary where keys are neuron names and values are their respective `res2d` DataFrame containing enrichment statistics.
     """
     res_tbls = {}
 

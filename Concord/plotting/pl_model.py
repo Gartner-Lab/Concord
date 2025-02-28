@@ -11,6 +11,45 @@ import time
 from ..utils.importance_analysis import compute_feature_importance
 
 def visualize_importance_weights(model, adata, top_n=20, mode='histogram', fontsize=12, figsize=(5, 3), save_path=None):
+    """
+    Visualizes feature importance weights from a trained model.
+
+    This function plots either a histogram of all importance weights or a bar chart
+    of the top features based on their importance values.
+
+    Args:
+        model (torch.nn.Module): 
+            The trained model containing feature importance weights.
+        adata (AnnData): 
+            The AnnData object containing gene expression data.
+        top_n (int, optional): 
+            Number of top features to plot when `mode` is not 'histogram'. Defaults to `20`.
+        mode (str, optional): 
+            Visualization mode. Options:
+            - `'histogram'`: Plots the distribution of all importance weights.
+            - `'highest'`: Shows top `top_n` features with highest importance.
+            - `'lowest'`: Shows `top_n` features with lowest importance.
+            - `'absolute'`: Shows `top_n` features with highest absolute importance.
+            Defaults to `'histogram'`.
+        fontsize (int, optional): 
+            Font size for axis labels and titles. Defaults to `12`.
+        figsize (tuple, optional): 
+            Figure size `(width, height)`. Defaults to `(5, 3)`.
+        save_path (str, optional): 
+            If provided, saves the figure at the specified path. Defaults to `None`.
+
+    Raises:
+        ValueError: If `mode` is not one of `'histogram'`, `'highest'`, `'lowest'`, `'absolute'`.
+
+    Returns:
+        None
+            Displays or saves the importance weights plot.
+
+    Example:
+        ```python
+        visualize_importance_weights(model, adata, mode='highest', top_n=30)
+        ```
+    """
     if not model.use_importance_mask:
         logger.warning("Importance mask is not used in this model.")
         return
@@ -62,11 +101,29 @@ def visualize_importance_weights(model, adata, top_n=20, mode='histogram', fonts
 
 def plot_importance_heatmap(importance_matrix, input_feature=None, figsize=(20, 15), save_path=None):
     """
-    Plots a heatmap of the importance matrix with adjustments for label readability.
+    Plots a heatmap of feature importance across encoded neurons.
 
-    Parameters:
-    - importance_matrix (torch.Tensor): The importance matrix with shape (n_input_features, n_encoded_neurons).
-    - adata (anndata.AnnData): The AnnData object containing the input features.
+    This function visualizes the importance of each input feature for different
+    encoded neurons using hierarchical clustering.
+
+    Args:
+        importance_matrix (numpy.ndarray or torch.Tensor): 
+            The importance matrix with shape `(n_input_features, n_encoded_neurons)`.
+        input_feature (list of str, optional): 
+            List of input feature names (e.g., gene names). If `None`, generic feature names are used.
+        figsize (tuple, optional): 
+            Figure size `(width, height)`. Defaults to `(20, 15)`.
+        save_path (str, optional): 
+            If provided, saves the heatmap at the specified path. Defaults to `None`.
+
+    Returns:
+        None
+            Displays or saves the importance heatmap.
+
+    Example:
+        ```python
+        plot_importance_heatmap(importance_matrix, input_feature=adata.var_names)
+        ```
     """
 
     # Extract input feature names from adata
@@ -106,15 +163,33 @@ def plot_importance_heatmap(importance_matrix, input_feature=None, figsize=(20, 
 
 def plot_top_genes_per_neuron(ranked_gene_lists, show_neurons=None, top_n=10, ncols=4, figsize=(4, 4), save_path=None):
     """
-    Plots bar charts of the top contributing genes for each neuron in a compact grid layout using pre-ranked lists.
+    Plots bar charts of the top contributing genes for each neuron.
 
-    Parameters:
-    - ranked_gene_lists (dict): A dictionary where keys are neuron names and values are DataFrames containing ranked genes.
-    - show_neurons (list): List of neurons to plot. If None, plots all neurons in the dictionary.
-    - top_n (int): Number of top contributing genes to display for each neuron.
-    - ncols (int): Number of columns in the grid layout.
-    - figsize (tuple): Size of each subplot (width, height).
-    - save_path (str): File path to save the plot. If None, displays the plot.
+    This function generates bar plots showing the most important genes contributing
+    to each encoded neuron in a compact grid layout.
+
+    Args:
+        ranked_gene_lists (dict): 
+            Dictionary where keys are neuron names and values are DataFrames containing ranked genes.
+        show_neurons (list, optional): 
+            List of neurons to plot. If `None`, plots all neurons available in `ranked_gene_lists`. Defaults to `None`.
+        top_n (int, optional): 
+            Number of top contributing genes to display for each neuron. Defaults to `10`.
+        ncols (int, optional): 
+            Number of columns in the subplot grid. Defaults to `4`.
+        figsize (tuple, optional): 
+            Size of each subplot `(width, height)`. Defaults to `(4, 4)`.
+        save_path (str, optional): 
+            If provided, saves the plot at the specified path. Defaults to `None`.
+
+    Returns:
+        None
+            Displays or saves the bar charts.
+
+    Example:
+        ```python
+        plot_top_genes_per_neuron(ranked_gene_lists, top_n=15, ncols=3, save_path="top_genes.png")
+        ```
     """
 
     # If `show_neurons` is None, use all available neurons

@@ -6,16 +6,19 @@ from .. import logger
 
 def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
     """
-    List all files in a folder recursively that contain a specific substring in their names
-    and match a specific file extension.
+    List all `.h5ad` files in a directory (recursively) that match a given substring.
 
     Args:
-        folder_path (str): The path to the folder to search.
-        substring (str): The substring to filter filenames.
-        extension (str): The file extension to filter by (default is '*.h5ad').
+        folder_path : str
+            Path to the folder where `.h5ad` files are located.
+        substring : str, optional
+            A substring to filter filenames (default is None, meaning no filtering).
+        extension : str, optional
+            File extension to search for (default is "*.h5ad").
 
     Returns:
-        list: A list of file paths that contain the substring and match the extension.
+        list
+            A list of file paths matching the criteria.
     """
     import glob
     import os
@@ -34,6 +37,25 @@ def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
 
 # Backed mode does not work now, this function (https://anndata.readthedocs.io/en/latest/generated/anndata.experimental.concat_on_disk.html) also has limitation
 def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_col=False, dataset_col_name = 'dataset', output_file=None):
+    """
+    Read and concatenate multiple AnnData `.h5ad` files into a single AnnData object.
+
+    Args:
+        adata_files : list
+            List of file paths to `.h5ad` files to be concatenated.
+        merge : str, optional
+            How to handle conflicting columns, e.g., 'unique' (default), 'first', etc.
+        add_dataset_col : bool, optional
+            Whether to add a new column in `adata.obs` identifying the source dataset.
+        dataset_col_name : str, optional
+            Name of the new column storing dataset names.
+        output_file : str, optional
+            Path to save the concatenated AnnData object. If None, the object is not saved.
+
+    Returns:
+        ad.AnnData
+            The concatenated AnnData object.
+    """
     import gc
     # Standard concatenation in memory for smaller datasets
     adata_combined = None
@@ -65,16 +87,19 @@ def read_and_concatenate_adata(adata_files, merge='unique', add_dataset_col=Fals
 
 def filter_and_copy_attributes(adata_target, adata_source):
     """
-    Filter adata_target to have the same cells as adata_source and copy
-    adata_source's obs and obsm to adata_target.
+    Filter `adata_target` to match the cells in `adata_source`, then copy `.obs` and `.obsm`.
 
-    Parameters:
-    adata_target (anndata.AnnData): The original AnnData object to be filtered.
-    adata_source (anndata.AnnData): The AnnData object with the desired cell set and attributes.
+    Args:
+        adata_target : ad.AnnData
+            The AnnData object to be filtered.
+        adata_source : ad.AnnData
+            The reference AnnData object containing the desired cells and attributes.
 
     Returns:
-    adata_filtered (anndata.AnnData): The filtered AnnData object with updated obs and obsm.
+        ad.AnnData
+            The filtered AnnData object with updated `.obs` and `.obsm`.
     """
+
     # Ensure the cell names are consistent and take the intersection
     cells_to_keep = adata_target.obs_names.intersection(adata_source.obs_names)
     cells_to_keep = list(cells_to_keep)  # Convert to list
@@ -101,16 +126,15 @@ def filter_and_copy_attributes(adata_target, adata_source):
 
 def ensure_categorical(adata: ad.AnnData, obs_key: Optional[str] = None, drop_unused: bool = True):
     """
-    Ensure that a specified column in the AnnData object is of the category dtype.
-    Optionally drop unused levels if the column is already a category dtype.
+    Convert an `.obs` column to categorical dtype.
 
-    Parameters:
-    adata : ad.AnnData
-        The AnnData object.
-    obs_key : str, optional
-        The key of the column to ensure as categorical.
-    drop_unused : bool, optional
-        Whether to drop unused levels in the categorical column.
+    Args:
+        adata : ad.AnnData
+            The AnnData object.
+        obs_key : str
+            Column in `.obs` to be converted to categorical.
+        drop_unused : bool, optional
+            Whether to remove unused categories (default is True).
     """
     import pandas as pd
 
@@ -131,11 +155,17 @@ def ensure_categorical(adata: ad.AnnData, obs_key: Optional[str] = None, drop_un
 
 def save_obsm_to_hdf5(adata, filename):
     """
-    Save the .obsm attribute of an AnnData object to an HDF5 file.
+    Save the `.obsm` attribute of an AnnData object to an HDF5 file.
 
-    Parameters:
-    adata (anndata.AnnData): The AnnData object containing the .obsm attribute.
-    filename (str): The name of the HDF5 file to save the data to.
+    Args:
+        adata : anndata.AnnData
+            The AnnData object containing the `.obsm` attribute to be saved.
+        filename : str
+            The path to the HDF5 file where `.obsm` data will be stored.
+
+    Returns:
+        None
+            Saves `.obsm` data to the specified HDF5 file.
     """
     import h5py
     with h5py.File(filename, 'w') as f:
@@ -146,13 +176,15 @@ def save_obsm_to_hdf5(adata, filename):
 
 def load_obsm_from_hdf5(filename):
     """
-    Load the .obsm attribute from an HDF5 file.
+    Load the `.obsm` attribute from an HDF5 file.
 
-    Parameters:
-    filename (str): The name of the HDF5 file to read the data from.
+    Args:
+        filename : str
+            Path to the HDF5 file containing `.obsm` data.
 
     Returns:
-    dict: A dictionary containing the loaded .obsm data.
+        dict
+            A dictionary where keys are `.obsm` names and values are corresponding matrices.
     """
     import h5py
     obsm = {}
@@ -165,14 +197,17 @@ def load_obsm_from_hdf5(filename):
 
 def subset_adata_to_obsm_indices(adata, obsm):
     """
-    Subset the AnnData object to only contain the indices in obsm.
+    Subset an AnnData object to match the indices present in `.obsm`.
 
-    Parameters:
-    adata (anndata.AnnData): The original AnnData object.
-    obsm (dict): The dictionary containing the .obsm data.
+    Args:
+        adata : anndata.AnnData
+            The original AnnData object.
+        obsm : dict
+            A dictionary containing `.obsm` data, where keys are embedding names, and values are arrays.
 
     Returns:
-    anndata.AnnData: The subsetted AnnData object.
+        anndata.AnnData
+            A subsetted AnnData object that contains only the indices available in `.obsm`.
     """
     import numpy as np
     # Find the common indices across all obsm arrays
@@ -189,6 +224,21 @@ def subset_adata_to_obsm_indices(adata, obsm):
 
 
 def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
+    """
+    Retrieve a specific embedding from an AnnData object.
+
+    Args:
+        adata : ad.AnnData
+            The AnnData object containing embeddings.
+        basis : str, optional
+            Key in `.obsm` specifying the embedding (default: "X_pca").
+        pca_n_comps : int, optional
+            Number of principal components if PCA needs to be computed.
+
+    Returns:
+        np.ndarray
+            The extracted embedding matrix.
+    """
     import numpy as np
     if basis in adata.obsm:
         emb = adata.obsm[basis].astype(np.float32)
@@ -213,17 +263,23 @@ def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
 
 def compute_meta_attributes(adata, groupby_key, attribute_key, method='majority_vote', meta_label_name=None):
     """
-    Compute meta attributes for clusters.
+    Compute meta attributes for clusters (e.g., majority vote or mean value).
 
-    Parameters:
-    - adata: AnnData object
-    - groupby_key: str, column in adata.obs used to group cells (e.g., 'leiden_Concord')
-    - attribute_key: str, column in adata.obs for which to compute meta attributes (e.g., 'lineage_ctype')
-    - method: str, 'majority_vote' (for categorical) or 'average' (for numeric)
-    - meta_label_name: str, name for the new meta attribute column (e.g., 'meta_lineage')
+    Args:
+        adata : ad.AnnData
+            The AnnData object containing cell annotations.
+        groupby_key : str
+            The `.obs` column used to group cells (e.g., "leiden").
+        attribute_key : str
+            The `.obs` column to aggregate (e.g., "cell_type").
+        method : str, optional
+            Aggregation method: "majority_vote" for categorical, "average" for numerical (default: "majority_vote").
+        meta_label_name : str, optional
+            Name of the new meta attribute column (default: "meta_{attribute_key}").
 
     Returns:
-    - Updates adata.obs with the new meta attribute column
+        str
+            Name of the newly added column in `.obs`.
     """
     import pandas as pd
     if meta_label_name is None:

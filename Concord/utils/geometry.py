@@ -3,16 +3,15 @@ import numpy as np
 
 def compute_reconstruction_error(adata, layer1, layer2, metric='mse'):
     """
-    Computes the reconstruction error between two layers in an AnnData object.
+    Computes pairwise distances for specified embeddings in an AnnData object.
 
-    Parameters:
-    - adata: AnnData object containing the layers.
-    - layer1: Name of the first layer (e.g., 'original').
-    - layer2: Name of the second layer (e.g., 'reconstructed').
-    - metric: Error metric to use; 'mse' for Mean Squared Error or 'mae' for Mean Absolute Error.
+    Args:
+        adata (AnnData): AnnData object containing embeddings.
+        keys (list): List of keys in adata.obsm or adata.layers for distance computation.
+        metric (str, optional): Distance metric to use, e.g., 'cosine' or 'euclidean'. Defaults to 'cosine'.
 
     Returns:
-    - error: The computed reconstruction error.
+        dict: Dictionary where keys are embedding names and values are pairwise distances.
     """
     import numpy as np
 
@@ -55,6 +54,21 @@ def pairwise_distance(adata, keys, metric="cosine"):
     
 
 def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=75, method='pearsonr'):
+    """
+    Computes correlation between local and distal pairwise distances.
+
+    Args:
+        X_high (numpy.ndarray): High-dimensional data matrix.
+        X_low (numpy.ndarray): Low-dimensional embedding matrix.
+        local_percentile (int, optional): Percentile threshold for local distances. Defaults to 25.
+        distal_percentile (int, optional): Percentile threshold for distal distances. Defaults to 75.
+        method (str, optional): Correlation method; 'pearsonr', 'spearmanr', or 'kendalltau'. Defaults to 'pearsonr'.
+
+    Returns:
+        float: Correlation for local distances.
+        float: Correlation for distal distances.
+    """
+
     from scipy.stats import spearmanr, pearsonr, kendalltau
     from scipy.spatial.distance import pdist
     # Step 1: Compute pairwise distances
@@ -88,16 +102,16 @@ def local_vs_distal_corr(X_high, X_low, local_percentile=25, distal_percentile=7
 def compute_state_batch_distance_ratio(adata, basis='X_latent', batch_key='batch', state_key='cluster', metric='cosine'):
     """
     Computes the Batch-to-State Distance Ratio using centroids to evaluate batch correction.
-    
-    Parameters:
-    - adata: AnnData object containing latent embeddings in adata.obsm.
-    - basis: Key for latent embeddings in adata.obsm.
-    - batch_key: Key for batch labels in adata.obs.
-    - state_key: Key for cell state labels in adata.obs.
-    - metric: Distance metric to use; e.g., 'cosine' or 'euclidean'.
-    
+
+    Args:
+        adata (AnnData): AnnData object containing latent embeddings.
+        basis (str, optional): Key for latent embeddings in adata.obsm. Defaults to 'X_latent'.
+        batch_key (str, optional): Key for batch labels in adata.obs. Defaults to 'batch'.
+        state_key (str, optional): Key for cell state labels in adata.obs. Defaults to 'cluster'.
+        metric (str, optional): Distance metric to use, e.g., 'cosine' or 'euclidean'. Defaults to 'cosine'.
+
     Returns:
-    - batch_to_state_ratio: Ratio of average batch distance to average state distance.
+        float: Ratio of average batch distance to average state distance.
     """
     import numpy as np
     from scipy.spatial.distance import pdist
@@ -143,19 +157,18 @@ def compute_state_batch_distance_ratio(adata, basis='X_latent', batch_key='batch
 
 def compute_trustworthiness(adata, embedding_keys, groundtruth, metric='euclidean', n_neighbors=10):
     """
-    Evaluate trustworthiness of embeddings in adata.obsm, using specified groundtruth data.
+    Evaluates trustworthiness of embeddings in an AnnData object.
 
-    Parameters:
-    - adata: AnnData object containing embeddings in adata.obsm.
-    - embedding_keys: List of keys in adata.obsm to evaluate (e.g., ['X_umap', 'X_tsne']).
-    - groundtruth: Key in adata.obsm or adata.layers for ground truth data or a precomputed matrix.
-                   If a string, it should refer to a key in `adata.obsm` or `adata.layers`.
-    - metric: Metric to use for trustworthiness calculation, e.g., 'euclidean' or 'cosine'.
-    - n_neighbors: Either a single integer or a list of integers specifying the neighborhood sizes for trustworthiness.
+    Args:
+        adata (AnnData): AnnData object containing embeddings in adata.obsm.
+        embedding_keys (list): List of keys in adata.obsm to evaluate (e.g., ['X_umap', 'X_tsne']).
+        groundtruth (str or numpy.ndarray): Key in adata.obsm or adata.layers for ground truth data, or a precomputed matrix.
+        metric (str, optional): Distance metric for trustworthiness calculation, e.g., 'euclidean' or 'cosine'. Defaults to 'euclidean'.
+        n_neighbors (int or list, optional): Neighborhood sizes for trustworthiness evaluation. Defaults to 10.
 
     Returns:
-    - trustworthiness_df: DataFrame with trustworthiness scores for each embedding and each n_neighbors value.
-    - summary_stats_df (if multiple n_neighbors): DataFrame with average trustworthiness and decay rate for each embedding.
+        pandas.DataFrame: Trustworthiness scores for each embedding at each neighborhood size.
+        pandas.DataFrame: Summary statistics with average trustworthiness and decay rate.
     """
     import numpy as np
     import pandas as pd
@@ -217,6 +230,18 @@ def compute_trustworthiness(adata, embedding_keys, groundtruth, metric='euclidea
 
 
 def compute_centroid_distance(adata, basis, state_key, dist_metric='cosine'):
+    """
+    Computes the pairwise distances between centroids of different states.
+
+    Args:
+        adata (AnnData): AnnData object containing embeddings.
+        basis (str): Key for embedding data in adata.obsm.
+        state_key (str): Column in adata.obs defining states or clusters.
+        dist_metric (str, optional): Distance metric to use, e.g., 'cosine' or 'euclidean'. Defaults to 'cosine'.
+
+    Returns:
+        numpy.ndarray: Pairwise distances between state centroids.
+    """
     import pandas as pd
     from scipy.spatial.distance import pdist
     # Convert embedding data to DataFrame and align with observations
@@ -228,6 +253,18 @@ def compute_centroid_distance(adata, basis, state_key, dist_metric='cosine'):
     return dist
 
 def compute_dispersion_across_states(adata, basis, state_key, dispersion_metric='var'):
+    """
+    Computes dispersion across states for a given embedding.
+
+    Args:
+        adata (AnnData): AnnData object containing embeddings.
+        basis (str): Key for embedding data in adata.obsm or adata.layers.
+        state_key (str): Column in adata.obs defining states or clusters.
+        dispersion_metric (str, optional): Metric to compute dispersion; 'var', 'std', 'coefficient_of_variation', or 'fano_factor'. Defaults to 'var'.
+
+    Returns:
+        dict: Mean dispersion for each state.
+    """
     mean_disp = {}
     data = adata.obsm[basis] if basis in adata.obsm else adata.layers[basis]
     for state in adata.obs[state_key].unique():

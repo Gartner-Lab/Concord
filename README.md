@@ -82,9 +82,9 @@ import scanpy as sc
 import torch
 
 adata = sc.datasets.pbmc3k_processed()
-adata = adata.raw.to_adata()  # Store raw counts in adata.X, by default Concord will run standard total count normalization and log transformation internally
+adata = adata.raw.to_adata()  # Store raw counts in adata.X, by default Concord will run standard total count normalization and log transformation internally, not necessary if you want to use your normalized data in adata.X, if so, specify 'X' in cur_ccd.encode_adata(input_layer_key='X', output_key='Concord')
 
-# Set device to cpu or to gpu (if your torch has been set up correctly to use GPU)
+# Set device to cpu or to gpu (if your torch has been set up correctly to use GPU), for mac you can use either torch.device('mps') or torch.device('cpu')
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)

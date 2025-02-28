@@ -257,6 +257,28 @@ def benchmark_graph_connectivity(adata, emb_keys, k=30, use_faiss=False, use_ivf
 
 
 def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, save_dir=None, file_suffix=None):
+    """
+    Benchmark the topological properties of persistence diagrams.
+
+    Args:
+        diagrams : dict
+            A dictionary where keys are method names and values are persistence diagrams.
+        expected_betti_numbers : list, optional
+            A list specifying the expected Betti numbers for different homology dimensions. Default is [1, 0, 0].
+        n_bins : int, optional
+            Number of bins to use for Betti curve calculations. Default is 100.
+        save_dir : str, optional
+            Directory to save benchmarking results as CSV files. If None, results are not saved.
+        file_suffix : str, optional
+            Suffix to append to saved filenames.
+
+    Returns:
+        dict
+            A dictionary containing:
+            - `'betti_stats'`: DataFrame summarizing Betti statistics.
+            - `'distance_metrics'`: DataFrame of computed distances between Betti curves.
+            - `'combined_metrics'`: DataFrame of entropy, variance, and L1 distance metrics.
+    """
     import pandas as pd
     from .tda import compute_betti_statistics, summarize_betti_statistics
 
@@ -311,6 +333,60 @@ def benchmark_geometry(adata, keys,
                        verbose=True,
                        save_dir=None, 
                        file_suffix=None):
+    """
+    Benchmark the geometric properties of different embeddings.
+
+    Args:
+        adata : anndata.AnnData
+            The AnnData object containing cell embeddings.
+        keys : list
+            List of embeddings (keys in `adata.obsm`) to evaluate.
+        eval_metrics : list, optional
+            Metrics to compute, such as 'pseudotime', 'cell_distance_corr', etc. Default includes multiple metrics.
+        dist_metric : str, optional
+            Distance metric for computing cell distances. Default is 'cosine'.
+        groundtruth_key : str, optional
+            Key in `adata.obsm` containing the ground truth embedding. Default is 'PCA_no_noise'.
+        state_key : str, optional
+            Key in `adata.obs` representing cell states or clusters.
+        batch_key : str, optional
+            Key in `adata.obs` representing batch information.
+        groundtruth_dispersion : dict, optional
+            Precomputed dispersion values for ground truth, if available.
+        ground_truth_dispersion_key : str, optional
+            Key used when computing dispersion correlations. Default is 'wt_noise'.
+        corr_types : list, optional
+            List of correlation methods to compute. Default includes 'pearsonr', 'spearmanr', and 'kendalltau'.
+        trustworthiness_n_neighbors : np.ndarray, optional
+            Range of neighborhood sizes for trustworthiness computation. Default is `np.arange(10, 101, 10)`.
+        dispersion_metric : str, optional
+            Metric to compute dispersion, e.g., 'var' (variance). Default is 'var'.
+        return_type : str, optional
+            If 'dataframe', returns summary statistics; if 'full', returns additional details. Default is 'dataframe'.
+        local_percentile : float, optional
+            Percentile threshold for local distance correlations. Default is 0.1.
+        distal_percentile : float, optional
+            Percentile threshold for distal distance correlations. Default is 0.9.
+        start_point : int, optional
+            Index of the starting cell for pseudotime computation. Must be specified.
+        end_point : int, optional
+            Index of the ending cell for pseudotime computation. Must be specified.
+        pseudotime_k : int, optional
+            Number of neighbors used in k-NN graph for pseudotime computation. Default is 30.
+        truetime_key : str, optional
+            Key in `adata.obs` representing ground truth time. Default is 'time'.
+        verbose : bool, optional
+            Whether to enable logging. Default is True.
+        save_dir : str, optional
+            Directory to save benchmarking results. If None, results are not saved.
+        file_suffix : str, optional
+            Suffix for saved filenames.
+
+    Returns:
+        pd.DataFrame or tuple
+            If `return_type='dataframe'`, returns a DataFrame summarizing benchmark results.
+            If `return_type='full'`, returns both the DataFrame and a detailed results dictionary.
+    """
     import pandas as pd
     from .geometry import pairwise_distance, local_vs_distal_corr, compute_trustworthiness, compute_centroid_distance, compute_state_batch_distance_ratio, compute_dispersion_across_states
     results_df = {}

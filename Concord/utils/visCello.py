@@ -12,13 +12,16 @@ class QuotedString(str):
 
 def convert_to_sparse_r_matrix(matrix):
     """
-    Converts a sparse matrix in Python to a sparse dgCMatrix in R.
+    Converts a SciPy sparse matrix to an R `dgCMatrix` object.
 
-    Parameters:
-    - matrix: A scipy sparse matrix (in COO, CSR, or CSC format) or a dense numpy array.
+    Args:
+        matrix (scipy.sparse matrix): A SciPy sparse matrix in COO, CSR, or CSC format.
 
     Returns:
-    - A sparse dgCMatrix R object.
+        rpy2.robjects.RObject: An R sparse `dgCMatrix` object.
+
+    Raises:
+        ValueError: If the input matrix is not sparse.
     """
     import rpy2.robjects as ro
     from rpy2.robjects.packages import importr
@@ -41,13 +44,21 @@ def convert_to_sparse_r_matrix(matrix):
 
 def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='hsa', clist_only = False):
     """
-    Converts an AnnData object to a VisCello cello folder with the necessary files.
+    Converts an AnnData object to a VisCello project directory.
 
-    Parameters:
-    - adata: AnnData object containing your single-cell data.
-    - output_dir: The directory where the VisCello folder will be created.
-    - project_name: Name of the project (used for the folder name).
-    - organism: Organism code (e.g., 'hsa' for human).
+    Args:
+        adata (AnnData): AnnData object containing single-cell data.
+        output_dir (str): Directory where the VisCello project will be created.
+        project_name (str, optional): Name of the project. Defaults to "MyProject".
+        organism (str, optional): Organism code (e.g., 'hsa' for human). Defaults to 'hsa'.
+        clist_only (bool, optional): Whether to generate only the clist file. Defaults to False.
+
+    Returns:
+        None
+
+    Side Effects:
+        - Creates a directory with the necessary files for VisCello.
+        - Saves `eset.rds` (ExpressionSet), `config.yml`, and `clist.rds`.
     """
     # Import the required R packages
     import rpy2.robjects as ro
@@ -157,13 +168,21 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
 
 def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster_key = None):
     """
-    Updates an existing viscello clist by adding subset results from adata_subsets.
+    Updates an existing VisCello clist with new subsets.
 
-    Parameters:
-    - global_adata: The full AnnData object.
-    - adata_subsets: A dictionary where keys are subset names and values are subset AnnData objects.
-    - viscello_dir: Path to the existing viscello directory.
-    - output_file: Path to save the updated clist. Defaults to overwriting the original clist_file.
+    Args:
+        global_adata (AnnData): The full AnnData object.
+        adata_subsets (dict): Dictionary mapping subset names to AnnData objects.
+        viscello_dir (str): Path to the existing VisCello directory.
+        cluster_key (str, optional): Key in `adata.obs` for cluster assignments. Defaults to None.
+
+    Returns:
+        None
+
+    Side Effects:
+        - Reads the existing `clist.rds` file from `viscello_dir`.
+        - Adds new subsets as `Cello` objects to the clist.
+        - Saves the updated `clist.rds` file in `viscello_dir`.
     """
     import os
     import pandas as pd

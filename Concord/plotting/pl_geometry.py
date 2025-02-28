@@ -1,6 +1,37 @@
 import matplotlib.pyplot as plt
 
 def plot_trustworthiness(trustworthiness_df, text_label=True, text_shift=1, legend=False, fontsize=8, legend_fontsize=8, figsize=(6,4), dpi=300, save_path=None):
+    """
+    Plots trustworthiness scores for different latent embeddings over a range of neighborhood sizes.
+
+    Args:
+        trustworthiness_df (pd.DataFrame): 
+            DataFrame containing columns `Embedding`, `n_neighbors`, and `Trustworthiness`.
+        text_label (bool, optional): 
+            Whether to display text labels for the last data point of each embedding. Defaults to `True`.
+        text_shift (float, optional): 
+            Horizontal shift applied to text labels for readability. Defaults to `1`.
+        legend (bool, optional): 
+            Whether to show a legend on the right. Defaults to `False`.
+        fontsize (int, optional): 
+            Font size for plot labels. Defaults to `8`.
+        legend_fontsize (int, optional): 
+            Font size for legend text. Defaults to `8`.
+        figsize (tuple, optional): 
+            Figure size in inches (width, height). Defaults to `(6, 4)`.
+        dpi (int, optional): 
+            Resolution (dots per inch) for saving the figure. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the plot is displayed instead. Defaults to `None`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        plot_trustworthiness(trustworthiness_df, legend=True, save_path="trustworthiness_plot.png")
+        ```
+    """
     plt.figure(figsize=figsize, dpi=dpi)
 
     # Plot trustworthiness for each embedding
@@ -46,6 +77,37 @@ def plot_trustworthiness(trustworthiness_df, text_label=True, text_shift=1, lege
 
 
 def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, rasterize=True, dpi=300, save_path=None):
+    """
+    Plots heatmaps of pairwise distance matrices in a grid layout.
+
+    Args:
+        distances (dict): 
+            Dictionary where keys are distance metric names and values are distance matrices.
+        n_cols (int, optional): 
+            Number of columns in the subplot grid. Defaults to `3`.
+        annot_value (bool, optional): 
+            Whether to annotate heatmap values. Defaults to `False`.
+        figsize (tuple, optional): 
+            Base figure size for each subplot (width, height). Defaults to `(2, 1.6)`.
+        cbar (bool, optional): 
+            Whether to display a color bar. Defaults to `True`.
+        fontsize (int, optional): 
+            Font size for axis labels and titles. Defaults to `10`.
+        rasterize (bool, optional): 
+            Whether to rasterize the heatmap for better performance. Defaults to `True`.
+        dpi (int, optional): 
+            Resolution (dots per inch) for saving the figure. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the plot is displayed instead. Defaults to `None`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        plot_distance_heatmap(distances, n_cols=4, save_path="distance_heatmaps.png")
+        ```
+    """
     # Visualize the distance matrices in a more compact layout
     from scipy.spatial.distance import squareform
     import matplotlib.pyplot as plt
@@ -102,6 +164,46 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
 
 
 def plot_geometry_scatter(data_dict, correlation = None, ground_key='PCA_no_noise', linear_fit = False, s=1, c=None, alpha=0.5, n_cols=3, fontsize=8, figsize=(4, 4), rasterized=True, dpi=300, save_path=None):
+    """
+    Plots scatter plots comparing geometric properties of embeddings.
+
+    Args:
+        data_dict (dict): 
+            Dictionary where keys are embedding names and values are distance vectors.
+        correlation (pd.DataFrame, optional): 
+            DataFrame containing correlation values for each embedding. Defaults to `None`.
+        ground_key (str, optional): 
+            Key used as the reference ground-truth embedding. Defaults to `'PCA_no_noise'`.
+        linear_fit (bool, optional): 
+            Whether to fit and plot a linear regression line. Defaults to `False`.
+        s (float, optional): 
+            Marker size in scatter plots. Defaults to `1`.
+        c (str or array-like, optional): 
+            Color of points. Defaults to `None`.
+        alpha (float, optional): 
+            Opacity of points. Defaults to `0.5`.
+        n_cols (int, optional): 
+            Number of columns in the subplot grid. Defaults to `3`.
+        fontsize (int, optional): 
+            Font size for axis labels and titles. Defaults to `8`.
+        figsize (tuple, optional): 
+            Base figure size for each subplot (width, height). Defaults to `(4, 4)`.
+        rasterized (bool, optional): 
+            Whether to rasterize scatter points for performance. Defaults to `True`.
+        dpi (int, optional): 
+            Resolution (dots per inch) for saving the figure. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the plot is displayed instead. Defaults to `None`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        plot_geometry_scatter(data_dict, correlation=correlation_df, save_path="geometry_scatter.png")
+        ```
+    """
+    
     import matplotlib.pyplot as plt
     import numpy as np
 

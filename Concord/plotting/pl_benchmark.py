@@ -32,6 +32,50 @@ def add_metric_row(df):
 
 
 def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', cmap_padding=0.05, agg_name='Aggregate score', dpi=300, save_path=None, figsize=None):
+    """
+    Plots a benchmarking results table using the `plottable` library.
+
+    This function creates a formatted table displaying different benchmarking metrics 
+    across various methods. It includes:
+    - Circle-marked metric values.
+    - Color-encoded values based on a chosen colormap.
+    - Aggregate scores visualized as bar charts.
+
+    Args:
+        df (pd.DataFrame): 
+            The benchmarking results DataFrame. It should have a multi-index in columns 
+            where the first level represents metric categories and the second level contains 
+            metric names.
+        pal (str, optional): 
+            Colormap for individual metric values. Defaults to `'PRGn'`.
+        pal_agg (str, optional): 
+            Colormap for aggregate scores. Defaults to `'YlGnBu'`.
+        cmap_method (str, optional): 
+            Method for normalizing colormaps. Options:
+                - `'norm'`: Normalize based on standard deviation.
+                - `'minmax'`: Normalize based on the min-max range.
+                - `'minmax_padded'`: Adds padding to the min-max normalization.
+                - `'0_to_1'`: Normalize between 0 and 1.
+            Defaults to `'norm'`.
+        cmap_padding (float, optional): 
+            Padding factor for `minmax_padded` colormap normalization. Defaults to `0.05`.
+        agg_name (str, optional): 
+            The name of the aggregate score column. Defaults to `'Aggregate score'`.
+        dpi (int, optional): 
+            Resolution of the saved figure. Defaults to `300`.
+        save_path (str, optional): 
+            If provided, saves the figure to the specified path. Defaults to `None`.
+        figsize (tuple, optional): 
+            Figure size `(width, height)`. If `None`, it is determined dynamically based on 
+            the number of columns and rows. Defaults to `None`.
+
+    Raises:
+        ValueError: If `cmap_method` is not one of `'norm'`, `'minmax'`, `'minmax_padded'`, or `'0_to_1'`.
+
+    Returns:
+        None
+    """
+    
     # Plot the geometry results using plotable
     from plottable import ColumnDefinition, Table
     from plottable.plots import bar

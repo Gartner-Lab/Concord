@@ -8,7 +8,35 @@ import os
 
 
 def plot_go_enrichment(gp_results, top_n=10, qval_correct=1e-10, color_palette='viridis_r', font_size=12, figsize=(7,3), dpi=300, save_path=None):
-    """Plot top GO enrichment terms."""
+    """
+    Plots the top Gene Ontology (GO) enrichment terms based on adjusted p-values (FDR q-values).
+
+    Args:
+        gp_results (object): 
+            GO enrichment results object containing a DataFrame in `gp_results.results`.
+        top_n (int, optional): 
+            Number of top terms to display. Defaults to `10`.
+        qval_correct (float, optional): 
+            A small correction factor added to q-values before taking `-log10`. Defaults to `1e-10`.
+        color_palette (str, optional): 
+            Color palette for the bar plot. Defaults to `'viridis_r'`.
+        font_size (int, optional): 
+            Font size for plot labels. Defaults to `12`.
+        figsize (tuple, optional): 
+            Size of the figure in inches (width, height). Defaults to `(7,3)`.
+        dpi (int, optional): 
+            Dots per inch (resolution) for saving the figure. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the figure is displayed instead of being saved. Defaults to `None`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        plot_go_enrichment(gp_results, top_n=15, save_path="go_enrichment.png")
+        ```
+    """
     if gp_results is not None:
         top_terms = gp_results.results[['Term', 'Adjusted P-value']].rename(columns={'Adjusted P-value': 'FDR q-val'})
         top_terms = top_terms.nsmallest(top_n, 'FDR q-val')
@@ -34,18 +62,35 @@ def plot_all_top_enriched_terms(all_gsea_results, top_n=10, ncols=1, font_size=1
                             color_palette='viridis_r', qval_correct=1e-10,
                                 figsize=(4, 4), dpi=300, save_path=None):
     """
-    Plot the top enriched terms for each neuron.
+    Plots the top enriched Gene Set Enrichment Analysis (GSEA) terms for multiple neurons.
 
-    Parameters:
-    - all_gsea_results (dict): A dictionary with neuron names as keys and their GSEA results as values.
-    - top_n (int): Number of top enriched terms to display for each neuron.
-    - ncols (int): Number of columns in the grid layout.
-    - figsize (tuple): The size of each subplot.
-    - font_size (int): The font size for titles and labels.
-    - color_palette (str): The color palette to use for significance coloring.
+    Args:
+        all_gsea_results (dict): 
+            Dictionary where keys are neuron names and values are GSEA results DataFrames.
+        top_n (int, optional): 
+            Number of top enriched terms to display per neuron. Defaults to `10`.
+        ncols (int, optional): 
+            Number of columns in the subplot grid layout. Defaults to `1`.
+        font_size (int, optional): 
+            Font size for plot labels. Defaults to `10`.
+        color_palette (str, optional): 
+            Color palette for the bar plots. Defaults to `'viridis_r'`.
+        qval_correct (float, optional): 
+            A small correction factor added to q-values before taking `-log10`. Defaults to `1e-10`.
+        figsize (tuple, optional): 
+            Size of each subplot (width, height) in inches. Defaults to `(4,4)`.
+        dpi (int, optional): 
+            Resolution of the output figure. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the figure is displayed. Defaults to `None`.
 
     Returns:
-    None
+        None
+
+    Example:
+        ```python
+        plot_all_top_enriched_terms(all_gsea_results, top_n=5, ncols=2, save_path="gsea_terms.pdf")
+        ```
     """
     n_neurons = len(all_gsea_results)
     nrows = math.ceil(n_neurons / ncols)
@@ -93,17 +138,31 @@ def plot_all_top_enriched_terms(all_gsea_results, top_n=10, ncols=1, font_size=1
 
 def plot_all_top_gsea_results(all_gsea_results, terms_per_plot=5, ncols=4, figsize_per_plot=(3, 4), dpi=300, save_path=None):
     """
-    Plot GSEA results for all neurons in a compact view.
+    Plots Gene Set Enrichment Analysis (GSEA) results for multiple neurons in a grid layout.
 
-    Parameters:
-    - all_gsea_results (dict): A dictionary with neuron names as keys and their GSEA results as values.
-    - terms_per_plot (int): Number of top enriched terms to display for each neuron.
-    - ncols (int): Number of columns in the grid layout.
-    - figsize_per_plot (tuple): Size of each subplot.
+    Args:
+        all_gsea_results (dict): 
+            Dictionary where keys are neuron names and values are GSEA result objects.
+        terms_per_plot (int, optional): 
+            Number of top enriched terms to display per neuron. Defaults to `5`.
+        ncols (int, optional): 
+            Number of columns in the subplot grid. Defaults to `4`.
+        figsize_per_plot (tuple, optional): 
+            Size of each subplot (width, height) in inches. Defaults to `(3,4)`.
+        dpi (int, optional): 
+            Resolution of the output figure in dots per inch. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the figure. If `None`, the figure is displayed. Defaults to `None`.
 
     Returns:
-    None
+        None
+
+    Example:
+        ```python
+        plot_all_top_gsea_results(all_gsea_results, terms_per_plot=7, ncols=3, save_path="gsea_results.png")
+        ```
     """
+
     from PIL import Image
     n_neurons = len(all_gsea_results)
     nrows = math.ceil(n_neurons / ncols)

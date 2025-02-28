@@ -12,7 +12,6 @@ from .value_check import *
 from .cell_cycle import *
 from .timer import *
 from .Hs_Mm_conversion import *
-from .iff_selection import *
 from .run_dim_reduction import *
 from .coverage_estimator import *
 from .feature_selector import *
@@ -20,7 +19,6 @@ from .benchmark import *
 from .estimate_aug_mask_prob import *
 from .visCello import *
 from .simulation import *
-from .metrics import *
 from .tda import *
 from .geometry import *
 from .run_integration_methods import *
