@@ -6,14 +6,65 @@ from ..utils.evaluator import log_classification
 from .loss import nt_xent_loss, importance_penalty_loss
 
 class Trainer:
+    """
+    A trainer class for optimizing the Concord model.
+
+    This class manages the training and validation of the Concord model, 
+    including contrastive learning, classification, and reconstruction losses.
+
+    Attributes:
+        model (nn.Module): The neural network model being trained.
+        data_structure (list): The structure of the dataset used in training.
+        device (torch.device): The device on which computations are performed.
+        logger (logging.Logger): Logger for recording training progress.
+        use_classifier (bool): Whether to use a classification head.
+        classifier_weight (float): Weighting factor for classification loss.
+        unique_classes (list): List of unique class labels.
+        unlabeled_class (int or None): Label representing unlabeled samples.
+        use_decoder (bool): Whether to use a decoder for reconstruction loss.
+        decoder_weight (float): Weighting factor for reconstruction loss.
+        clr_mode (str): Contrastive learning mode ('aug' or 'nn').
+        use_clr (bool): Whether contrastive learning is enabled.
+        clr_weight (float): Weighting factor for contrastive loss.
+        importance_penalty_weight (float): Weighting for feature importance penalty.
+        importance_penalty_type (str): Type of regularization for importance penalty.
+
+    Methods:
+        forward_pass: Computes loss components and model outputs.
+        train_epoch: Runs one training epoch.
+        validate_epoch: Runs one validation epoch.
+        _run_epoch: Handles training or validation for one epoch.
+        _compute_averages: Computes average losses over an epoch.
+    """
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
                  use_classifier=False, classifier_weight=1.0, 
                  unique_classes=None,
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
                  clr_mode='aug', clr_temperature=0.5, clr_weight=1.0,
-                 importance_penalty_weight=0, importance_penalty_type='L1',
-                 use_wandb=False):
+                 importance_penalty_weight=0, importance_penalty_type='L1'):
+        """
+        Initializes the Trainer.
+
+        Args:
+            model (nn.Module): The neural network model to train.
+            data_structure (list): List defining the structure of input data.
+            device (torch.device): Device on which computations will run.
+            logger (logging.Logger): Logger for recording training details.
+            lr (float): Learning rate for the optimizer.
+            schedule_ratio (float): Learning rate decay factor.
+            use_classifier (bool, optional): Whether to use classification. Default is False.
+            classifier_weight (float, optional): Weight for classification loss. Default is 1.0.
+            unique_classes (list, optional): List of unique class labels.
+            unlabeled_class (int or None, optional): Label for unlabeled data. Default is None.
+            use_decoder (bool, optional): Whether to use a decoder. Default is True.
+            decoder_weight (float, optional): Weight for decoder loss. Default is 1.0.
+            clr_mode (str, optional): Contrastive learning mode ('aug', 'nn'). Default is 'aug'.
+            clr_temperature (float, optional): Temperature for contrastive loss. Default is 0.5.
+            clr_weight (float, optional): Weight for contrastive loss. Default is 1.0.
+            importance_penalty_weight (float, optional): Weight for importance penalty. Default is 0.
+            importance_penalty_type (str, optional): Type of penalty ('L1' or 'L2'). Default is 'L1'.
+        """
         self.model = model
         self.data_structure = data_structure
         self.device = device
@@ -27,7 +78,6 @@ class Trainer:
         self.clr_mode = clr_mode
         self.use_clr = clr_mode is not None
         self.clr_weight = clr_weight
-        self.use_wandb = use_wandb
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
 
@@ -40,6 +90,18 @@ class Trainer:
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
 
     def forward_pass(self, inputs, class_labels, domain_labels, covariate_tensors=None):
+        """
+        Performs a forward pass and computes loss components.
+
+        Args:
+            inputs (torch.Tensor): Input feature matrix.
+            class_labels (torch.Tensor): Class labels for classification loss.
+            domain_labels (torch.Tensor): Domain labels for batch normalization.
+            covariate_tensors (dict, optional): Dictionary of covariate tensors.
+
+        Returns:
+            tuple: Loss components (total loss, classification loss, MSE loss, contrastive loss, importance penalty loss).
+        """
         outputs = self.model(inputs, domain_labels, covariate_tensors)
         class_pred = outputs.get('class_pred')
         decoded = outputs.get('decoded')
@@ -84,9 +146,29 @@ class Trainer:
         return loss, loss_classifier, loss_mse, loss_clr, loss_penalty, class_labels, class_pred
 
     def train_epoch(self, epoch, train_dataloader):
+        """
+        Runs one epoch of training.
+
+        Args:
+            epoch (int): Current epoch number.
+            train_dataloader (DataLoader): Training data loader.
+
+        Returns:
+            float: Average training loss.
+        """
         return self._run_epoch(epoch, train_dataloader, train=True)
 
     def validate_epoch(self, epoch, val_dataloader):
+        """
+        Runs one epoch of validation.
+
+        Args:
+            epoch (int): Current epoch number.
+            val_dataloader (DataLoader): Validation data loader.
+
+        Returns:
+            float: Average validation loss.
+        """
         return self._run_epoch(epoch, val_dataloader, train=False)
 
     def _run_epoch(self, epoch, dataloader, train=True):
@@ -116,8 +198,6 @@ class Trainer:
             if train:
                 loss.backward()
                 self.optimizer.step()
-            # Logging
-            self._log_metrics(loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train)
 
             total_loss += loss.item()
             total_mse += loss_mse.item()
@@ -148,19 +228,6 @@ class Trainer:
 
         return avg_loss
 
-    def _log_metrics(self, loss, loss_classifier, loss_mse, loss_clr, loss_penalty, train=True):
-        if self.use_wandb:
-            import wandb
-            prefix = "train" if train else "val"
-            wandb.log({f"{prefix}/loss": loss.item()})
-            if self.use_classifier:
-                wandb.log({f"{prefix}/classifier": loss_classifier.item()})
-            if self.use_decoder:
-                wandb.log({f"{prefix}/mse": loss_mse.item()})
-            if self.use_clr:
-                wandb.log({f"{prefix}/clr": loss_clr.item()})
-            if self.model.use_importance_mask:
-                wandb.log({f"{prefix}/importance_penalty": loss_penalty.item()})
 
     def _compute_averages(self, total_loss, total_mse, total_clr, total_classifier, total_importance_penalty, dataloader_len):
         avg_loss = total_loss / dataloader_len

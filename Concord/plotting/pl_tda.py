@@ -6,6 +6,50 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
                             legend=True, legend_loc='lower right', label_axes=True, colormap='tab10',
                             marker_size=20, diagonal=True, title=None, fontsize=12, axis_ticks=True,
                             xlim=None, ylim=None, rasterized=True):
+    """
+    Plots a persistence diagram showing birth and death times of topological features.
+
+    Args:
+        diagram (array-like): Persistence diagram data (birth, death, homology dimension).
+        homology_dimensions (list, optional): 
+            Homology dimensions to plot (e.g., [0, 1, 2]). Defaults to all available.
+        ax (matplotlib.axes.Axes, optional): 
+            Matplotlib axis to plot on. If `None`, a new figure is created.
+        show (bool, optional): 
+            Whether to display the plot. Defaults to `True`.
+        legend (bool, optional): 
+            Whether to show a legend. Defaults to `True`.
+        legend_loc (str, optional): 
+            Location of the legend. Defaults to `'lower right'`.
+        label_axes (bool, optional): 
+            Whether to label the x- and y-axes. Defaults to `True`.
+        colormap (str, optional): 
+            Colormap for different homology dimensions. Defaults to `'tab10'`.
+        marker_size (int, optional): 
+            Size of markers for points. Defaults to `20`.
+        diagonal (bool, optional): 
+            Whether to plot the diagonal y = x reference line. Defaults to `True`.
+        title (str, optional): 
+            Title of the plot. Defaults to `None`.
+        fontsize (int, optional): 
+            Font size for labels and title. Defaults to `12`.
+        axis_ticks (bool, optional): 
+            Whether to display axis ticks. Defaults to `True`.
+        xlim (tuple, optional): 
+            Limits for the x-axis. Defaults to `None`.
+        ylim (tuple, optional): 
+            Limits for the y-axis. Defaults to `None`.
+        rasterized (bool, optional): 
+            Whether to rasterize the plot for performance. Defaults to `True`.
+
+    Returns:
+        matplotlib.axes.Axes: The axis object containing the persistence diagram.
+
+    Example:
+        ```python
+        plot_persistence_diagram(diagram, homology_dimensions=[0, 1])
+        ```
+    """
     diagram = diagram[0] # This is due to how giotto-tda returns the diagram
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 6))
@@ -85,6 +129,39 @@ def plot_persistence_diagram(diagram, homology_dimensions=None, ax=None, show=Tr
 
 
 def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_size=(3,3), legend=True, legend_loc=None, rasterized=True, fontsize=12, save_path=None, **kwargs):
+    """
+    Plots multiple persistence diagrams in a grid layout.
+
+    Args:
+        diagrams (dict): 
+            Dictionary where keys are dataset names and values are persistence diagrams.
+        marker_size (int, optional): 
+            Size of markers for points. Defaults to `4`.
+        n_cols (int, optional): 
+            Number of columns in the grid. Defaults to `3`.
+        dpi (int, optional): 
+            Resolution of the figure. Defaults to `300`.
+        base_size (tuple, optional): 
+            Base figure size for each subplot `(width, height)`. Defaults to `(3, 3)`.
+        legend (bool, optional): 
+            Whether to include legends. Defaults to `True`.
+        legend_loc (str, optional): 
+            Location of the legend. Defaults to `None`.
+        rasterized (bool, optional): 
+            Whether to rasterize the plots. Defaults to `True`.
+        fontsize (int, optional): 
+            Font size for labels and titles. Defaults to `12`.
+        save_path (str, optional): 
+            File path to save the figure. Defaults to `None`.
+
+    Returns:
+        None
+
+    Example:
+        ```python
+        plot_persistence_diagrams(diagrams, n_cols=2, save_path="persistence_diagrams.png")
+        ```
+    """
     # Plot the persistence diagrams into a single figure
     import matplotlib.pyplot as plt
     combined_keys = list(diagrams.keys())
@@ -108,6 +185,44 @@ def plot_persistence_diagrams(diagrams, marker_size=4, n_cols=3, dpi=300, base_s
 
 
 def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Betti curves", ymax=10, ax=None, show=True, legend=True, legend_loc='upper right', label_axes=True, axis_ticks=True, fontsize=12):
+    """
+    Plots Betti curves, which track the number of topological features over filtration values.
+
+    Args:
+        diagram (array-like): 
+            Persistence diagram data used to compute Betti curves.
+        nbins (int, optional): 
+            Number of bins for filtration values. Defaults to `100`.
+        homology_dimensions (list, optional): 
+            List of homology dimensions to plot. Defaults to `[0, 1, 2]`.
+        title (str, optional): 
+            Title of the plot. Defaults to `"Betti curves"`.
+        ymax (int, optional): 
+            Maximum y-axis value. Defaults to `10`.
+        ax (matplotlib.axes.Axes, optional): 
+            Axis object for plotting. If `None`, a new figure is created.
+        show (bool, optional): 
+            Whether to display the plot. Defaults to `True`.
+        legend (bool, optional): 
+            Whether to include a legend. Defaults to `True`.
+        legend_loc (str, optional): 
+            Location of the legend. Defaults to `'upper right'`.
+        label_axes (bool, optional): 
+            Whether to label the axes. Defaults to `True`.
+        axis_ticks (bool, optional): 
+            Whether to include axis ticks. Defaults to `True`.
+        fontsize (int, optional): 
+            Font size for labels and title. Defaults to `12`.
+
+    Returns:
+        matplotlib.axes.Axes: The axis object containing the Betti curve.
+
+    Example:
+        ```python
+        plot_betti_curve(diagram, nbins=50, homology_dimensions=[0,1])
+        ```
+    """
+
     from gtda.diagrams import BettiCurve
     betti_curve = BettiCurve(n_bins=nbins)
     betti_curves = betti_curve.fit_transform(diagram)
@@ -140,6 +255,39 @@ def plot_betti_curve(diagram, nbins=100, homology_dimensions=[0,1,2], title="Bet
 
 
 def plot_betti_curves(diagrams, nbins=100, ymax=8, n_cols=3, base_size=(3,3), dpi=300, legend=True, save_path=None, **kwargs):
+    """
+    Plots Betti curves for multiple persistence diagrams in a grid layout.
+
+    Parameters
+    ----------
+    diagrams : dict
+        A dictionary where keys are diagram names and values are persistence diagrams.
+    nbins : int, optional
+        Number of bins to use for Betti curve computation, by default 100.
+    ymax : int, optional
+        Maximum y-axis limit for the Betti curves, by default 8.
+    n_cols : int, optional
+        Number of columns in the grid layout, by default 3.
+    base_size : tuple, optional
+        Base figure size (width, height) for each subplot, by default (3,3).
+    dpi : int, optional
+        Dots per inch for figure resolution, by default 300.
+    legend : bool, optional
+        Whether to include a legend in each plot, by default True.
+    save_path : str, optional
+        File path to save the plot. If None, the plot is displayed instead.
+    **kwargs : dict
+        Additional keyword arguments passed to `plot_betti_curve`.
+
+    Returns
+    -------
+    None
+        Displays or saves the plotted figure.
+
+    Notes
+    -----
+    Each subplot corresponds to a Betti curve computed from a persistence diagram.
+    """
     # Plot the betti curves into a single figure
     import matplotlib.pyplot as plt
     combined_keys = list(diagrams.keys())
@@ -171,23 +319,35 @@ def plot_betti_statistic(
     title_fontsize=9, legend_fontsize=8
 ):
     """
-    Plots a grouped bar plot for a specified statistic across dimensions for each method.
-    Allows plotting all dimensions or a single specified dimension.
+    Plots a grouped bar chart of Betti number statistics across different methods.
 
-    Parameters:
-    - betti_stats_pivot: DataFrame with multi-index columns (Dimension, Statistic).
-    - statistic: The name of the statistic to plot (e.g., 'Entropy', 'Variance').
-    - dimension: Specific dimension to plot (e.g., 'Dim 0') or None to plot all dimensions.
-    - log_y: Boolean, whether to use a logarithmic scale for the y-axis.
-    - bar_width: Width of each bar in the grouped bar plot (default is 0.2).
-    - pal: Color palette for the bars (default is 'tab20').
-    - figsize: Size of the figure (default is (10, 6)).
-    - dpi: Resolution of the figure (default is 300).
-    - save_path: Path to save the figure (default is None).
-    - xlabel_fontsize, ylabel_fontsize, tick_fontsize, title_fontsize, legend_fontsize: Font sizes.
-    
+    Args:
+        betti_stats_pivot (pd.DataFrame): 
+            DataFrame containing Betti number statistics.
+        statistic (str, optional): 
+            Statistic to plot (e.g., 'Entropy', 'Variance'). Defaults to `'Entropy'`.
+        dimension (str or int, optional): 
+            Specific homology dimension to plot. Defaults to `None` (plots all).
+        log_y (bool, optional): 
+            Whether to use a logarithmic scale on the y-axis. Defaults to `False`.
+        bar_width (float, optional): 
+            Width of bars in the grouped bar chart. Defaults to `0.2`.
+        pal (str, optional): 
+            Color palette. Defaults to `'tab20'`.
+        figsize (tuple, optional): 
+            Figure size in inches. Defaults to `(7, 4)`.
+        dpi (int, optional): 
+            Resolution in dots per inch. Defaults to `300`.
+        save_path (str, optional): 
+            Path to save the figure. Defaults to `None`.
+
     Returns:
-    - None
+        None
+
+    Example:
+        ```python
+        plot_betti_statistic(betti_stats_df, statistic='Entropy', save_path="betti_statistic.png")
+        ```
     """
 
     import pandas as pd
@@ -261,18 +421,31 @@ def plot_betti_statistic(
 
 def plot_betti_distance(distance_metrics_df, metric, color='teal', log_y = False, figsize=(6, 4), dpi=300, save_path=None):
     """
-    Plots the specified distance metric across methods.
+    Plots distance metrics for Betti numbers across different methods.
 
-    Parameters:
-    - distance_metrics_df: DataFrame containing distance metrics for each method.
-    - metric: String specifying the distance metric to plot ('L1 Distance', 'L2 Distance', 'Total Relative Error').
-    - color: Color of the bars in the plot (default: 'teal').
-    - figsize: Tuple specifying the figure size (default: (6, 4)).
-    - dpi: Resolution of the figure in dots per inch (default: 300).
-    - save_path: Path to save the plot as an image file (default: None, meaning the plot will not be saved).
+    Args:
+        distance_metrics_df (pd.DataFrame): 
+            DataFrame containing distance metrics.
+        metric (str): 
+            Metric to plot (`'L1 Distance'`, `'L2 Distance'`, `'Total Relative Error'`).
+        color (str, optional): 
+            Color of the bars in the plot. Defaults to `'teal'`.
+        log_y (bool, optional): 
+            Whether to use a logarithmic scale on the y-axis. Defaults to `False`.
+        figsize (tuple, optional): 
+            Figure size in inches. Defaults to `(6, 4)`.
+        dpi (int, optional): 
+            Resolution in dots per inch. Defaults to `300`.
+        save_path (str, optional): 
+            File path to save the plot. Defaults to `None`.
 
     Returns:
-    - None
+        None
+
+    Example:
+        ```python
+        plot_betti_distance(distance_metrics_df, metric="L1 Distance")
+        ```
     """
     import matplotlib.pyplot as plt
     # Ensure the metric is correctly capitalized to match the DataFrame columns

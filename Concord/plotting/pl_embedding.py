@@ -9,6 +9,10 @@ import pandas as pd
 import matplotlib.colors as mcolors
 from .. import logger
 from .palettes import get_color_mapping
+import logging
+from matplotlib.collections import PathCollection, LineCollection
+
+logger = logging.getLogger(__name__)
 
 
 def plot_embedding(adata, basis, color_by=None, 
@@ -22,6 +26,46 @@ def plot_embedding(adata, basis, color_by=None,
                    rasterized=True,
                    seed=42,
                    save_path=None):
+    
+    """
+    Plots a 2D embedding (e.g., UMAP, PCA) with optional highlighting and color mapping.
+
+    Args:
+        adata (AnnData): Single-cell AnnData object containing embeddings and metadata.
+        basis (str): The name of the embedding stored in `adata.obsm` (e.g., `'X_umap'`).
+        color_by (str | list, optional): Column(s) in `adata.obs` to color the points by. Defaults to None.
+        pal (dict, optional): Color palette mapping category values to colors. Defaults to None.
+        highlight_indices (list, optional): Indices of points to highlight. Defaults to None.
+        default_color (str, optional): Default color for uncolored points. Defaults to "lightgrey".
+        highlight_color (str, optional): Color for highlighted points. Defaults to "black".
+        highlight_size (int, optional): Size of highlighted points. Defaults to 20.
+        draw_path (bool, optional): Whether to draw a path connecting highlighted points. Defaults to False.
+        alpha (float, optional): Opacity of points. Defaults to 0.9.
+        text_alpha (float, optional): Opacity of text labels. Defaults to 0.5.
+        figsize (tuple, optional): Figure size (width, height). Defaults to (9, 3).
+        dpi (int, optional): Resolution of the figure. Defaults to 300.
+        ncols (int, optional): Number of columns for subplots. Defaults to 1.
+        ax (matplotlib.axes.Axes, optional): Axes object for the plot. Defaults to None.
+        title (str, optional): Title of the plot. Defaults to None.
+        xlabel (str, optional): Label for X-axis. Defaults to None.
+        ylabel (str, optional): Label for Y-axis. Defaults to None.
+        xticks (bool, optional): Whether to show X-axis ticks. Defaults to True.
+        yticks (bool, optional): Whether to show Y-axis ticks. Defaults to True.
+        colorbar_loc (str, optional): Location of colorbar ("right", "left", "bottom", etc.). Defaults to "right".
+        vmax_quantile (float, optional): If provided, scales the color range to this quantile. Defaults to None.
+        vmax (float, optional): Maximum value for color scaling. Defaults to None.
+        font_size (int, optional): Font size for annotations. Defaults to 8.
+        point_size (int, optional): Size of scatter plot points. Defaults to 10.
+        path_width (int, optional): Width of path lines (if `draw_path=True`). Defaults to 1.
+        legend_loc (str, optional): Location of the legend ("on data", "right margin", etc.). Defaults to "on data".
+        rasterized (bool, optional): If True, rasterizes the points for efficient plotting. Defaults to True.
+        seed (int, optional): Random seed for reproducibility. Defaults to 42.
+        save_path (str, optional): Path to save the figure. Defaults to None.
+
+    Returns:
+        None
+    """
+
     warnings.filterwarnings('ignore')
 
     if color_by is None or len(color_by) == 0:
@@ -170,6 +214,31 @@ def plot_embedding(adata, basis, color_by=None,
 
 # Portal method to choose either plot_embedding_3d_plotly or plot_embedding_3d_matplotlib, given the engine parameter
 def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, point_size=3, opacity=0.7, seed=42, width=800, height=600, engine='plotly', autosize=True, static=False, static_format='png'):
+    """
+    Plots a 3D embedding using Plotly or Matplotlib.
+
+    Args:
+        adata (AnnData): Single-cell AnnData object containing embeddings.
+        basis (str, optional): The name of the 3D embedding stored in `adata.obsm`. Defaults to `'encoded_UMAP'`.
+        color_by (str, optional): Column in `adata.obs` used to color points. Defaults to `'batch'`.
+        pal (dict, optional): Color palette mapping categorical variables to colors. Defaults to None.
+        save_path (str, optional): Path to save the figure. Defaults to None.
+        point_size (int, optional): Size of the points in the plot. Defaults to 3.
+        opacity (float, optional): Opacity of the points. Defaults to 0.7.
+        seed (int, optional): Random seed for reproducibility. Defaults to 42.
+        width (int, optional): Width of the plot in pixels. Defaults to 800.
+        height (int, optional): Height of the plot in pixels. Defaults to 600.
+        engine (str, optional): Rendering engine (`'plotly'` or `'matplotlib'`). Defaults to `'plotly'`.
+        autosize (bool, optional): Whether to automatically adjust plot size. Defaults to True.
+        static (bool, optional): If True, saves the plot as a static image. Defaults to False.
+        static_format (str, optional): Format for static image (e.g., `'png'`, `'pdf'`). Defaults to `'png'`.
+
+    Returns:
+        plotly.Figure or matplotlib.Figure: A 3D scatter plot.
+
+    Raises:
+        ValueError: If the engine is not `'plotly'` or `'matplotlib'`.
+    """
     if engine == 'plotly':
         return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, autosize, static, static_format)
     elif engine == 'matplotlib':
@@ -539,16 +608,7 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
 
 
 
-import numpy as np
-import pandas as pd
-import logging
-import math
-import warnings
-import matplotlib.pyplot as plt
-import scanpy as sc
-from matplotlib.collections import PathCollection, LineCollection
 
-logger = logging.getLogger(__name__)
 
 def plot_all_embeddings(
     adata,
@@ -589,9 +649,46 @@ def plot_all_embeddings(
     path_width=1
 ):
     """
-    Plot multiple embeddings (PAGA, KNN, PCA, UMAP) for given keys and colorings.
-    Optionally highlight a subset of points (indices). If highlight_color is None,
-    highlighted points will use the same color mapping as the rest (numeric or categorical).
+    Plots multiple 2D embeddings (PAGA, KNN, PCA, UMAP) with different color mappings.
+
+    Args:
+        adata (AnnData): Single-cell AnnData object containing embeddings.
+        combined_keys (list): List of feature representations (e.g., `['X_pca', 'X_umap']`).
+        color_bys (tuple, optional): List of `adata.obs` columns to color by. Defaults to `("time", "batch")`.
+        basis_types (tuple, optional): Types of embeddings to plot. Defaults to `("PAGA", "KNN", "PCA", "UMAP")`.
+        pal (dict, optional): Color palettes for each `color_by` variable. Defaults to `{"time": "viridis", "batch": "Set1"}`.
+        vmax_quantile (float, optional): Upper quantile for color scaling in numeric data. Defaults to None.
+        k (int, optional): Number of neighbors for KNN and PAGA graphs. Defaults to 15.
+        edges_color (str, optional): Color of edges in KNN/PAGA graphs. Defaults to `"grey"`.
+        edges_width (float, optional): Width of edges in KNN/PAGA graphs. Defaults to 0.05.
+        layout (str, optional): Graph layout algorithm for KNN/PAGA. Defaults to `"kk"`.
+        threshold (float, optional): Edge threshold for PAGA visualization. Defaults to 0.1.
+        node_size_scale (float, optional): Scale factor for PAGA node sizes. Defaults to 0.1.
+        edge_width_scale (float, optional): Scale factor for PAGA edge widths. Defaults to 0.1.
+        font_size (int, optional): Font size for plot annotations. Defaults to 7.
+        legend_font_size (int, optional): Font size for legends. Defaults to 2.
+        point_size (float, optional): Size of scatter plot points. Defaults to 2.5.
+        alpha (float, optional): Transparency of points. Defaults to 0.8.
+        figsize (tuple, optional): Figure size (width, height). Defaults to `(9, 0.9)`.
+        ncols (int, optional): Number of columns for subplot grid. Defaults to 11.
+        seed (int, optional): Random seed for reproducibility. Defaults to 42.
+        leiden_key (str, optional): Key for Leiden clustering in PAGA. Defaults to `"leiden"`.
+        leiden_resolution (float, optional): Resolution parameter for Leiden clustering. Defaults to 1.0.
+        legend_loc (str, optional): Location of the legend. Defaults to None.
+        colorbar_loc (str, optional): Location of the colorbar. Defaults to None.
+        rasterized (bool, optional): Whether to rasterize the plot. Defaults to True.
+        save_dir (str, optional): Directory to save plots. Defaults to `"."`.
+        dpi (int, optional): Image resolution. Defaults to 300.
+        save_format (str, optional): Image format (`"png"`, `"pdf"`, etc.). Defaults to `"png"`.
+        file_suffix (str, optional): Filename suffix. Defaults to `"plot"`.
+        highlight_indices (list, optional): Indices of highlighted points. Defaults to None.
+        highlight_color (str, optional): Color of highlighted points. Defaults to `"black"`.
+        highlight_size (int, optional): Size of highlighted points. Defaults to 20.
+        draw_path (bool, optional): Whether to draw a connecting path for highlights. Defaults to False.
+        path_width (int, optional): Width of connecting paths. Defaults to 1.
+
+    Returns:
+        None
     """
     def highlight_points(ax, adata, basis_key, data_col, cmap, palette,
                          highlight_indices, highlight_color, highlight_size,
@@ -836,58 +933,62 @@ def plot_all_embeddings_3d(
     **kwargs
 ):
     """
-    Plots multiple 3D embeddings (stored in adata.obsm) with coloring by different obs/var columns.
-    For each combination of basis_type and color_by, we create a multi-panel figure of size (nrows, ncols).
+    Plots multiple 3D embeddings with different color mappings across various embedding types.
 
-    Parameters
-    ----------
-    adata : AnnData
-        Contains the data and obsm embeddings.
-    combined_keys : list
-        A list of 'keys' for which we have e.g. 'key_UMAP_3D' in adata.obsm.
-    color_bys : tuple or list of str
-        The obs/var columns or gene names to color by.
-    basis_types : tuple or list of str
-        The suffix or full name of the 3D embedding in adata.obsm, e.g. 'UMAP_3D', 'TSNE_3D'.
-    pal : dict or None
-        Color palette dictionary or fallback.
-    vmax_quantile : float or None
-        If set, percentile to clamp numeric data at (e.g. 0.99 for 99th percentile).
-    point_size : float
-        Marker area (points^2) for scatter.
-    alpha : float
-        Marker opacity.
-    figsize : tuple
-        Figure size in inches (width, height).
-    ncols : int
-        Number of columns in the subplot layout.
-    seed : int
-        Random seed for color mapping.
-    legend_font_size : int
-        Font size for legend (if categorical data).
-    rasterized : bool
-        If True, points will be rasterized in the subplots.
-    save_dir : str
-        Directory to save the figures.
-    dpi : int
-        Resolution (dots per inch) for saved figures.
-    save_format : str
-        Output image format, e.g. 'png', 'pdf', 'svg'.
-    file_suffix : str
-        Suffix added to the saved file name.
-    elev : float
-        Elevation angle for 3D view.
-    azim : float
-        Azimuth angle for 3D view.
-    **kwargs : 
-        Additional parameters passed directly to `plot_embedding_3d_matplotlib`, 
-        allowing customization (e.g. show_axis_labels, show_ticks, etc.).
+    Each subplot represents a different embedding (e.g., UMAP_3D) with a specified coloring 
+    (e.g., time, batch). This function generates a grid of 3D scatter plots.
 
-    Returns
-    -------
-    None
-        Saves one figure per (basis_type, color_by) combination.
+    Args:
+        adata (AnnData): 
+            Single-cell AnnData object containing embeddings.
+        combined_keys (list): 
+            List of feature representations for which embeddings exist in `adata.obsm`.
+        color_bys (tuple of str, optional): 
+            List of `adata.obs` columns to color points by. Defaults to `('time', 'batch')`.
+        basis_types (tuple of str, optional): 
+            Types of embeddings to plot. Defaults to `('UMAP_3D',)`.
+        pal (dict, optional): 
+            Dictionary mapping categorical values to colors. Defaults to None.
+        point_size (float, optional): 
+            Size of points in the scatter plot. Defaults to `2.5`.
+        alpha (float, optional): 
+            Opacity of points. Defaults to `0.8`.
+        figsize (tuple, optional): 
+            Figure size in inches (width, height). Defaults to `(10, 5)`.
+        ncols (int, optional): 
+            Number of columns in the subplot grid. Defaults to `4`.
+        seed (int, optional): 
+            Random seed for color mapping. Defaults to `42`.
+        legend_font_size (int, optional): 
+            Font size for legend labels. Defaults to `5`.
+        rasterized (bool, optional): 
+            Whether to rasterize the scatter plots to reduce file size. Defaults to `False`.
+        save_dir (str, optional): 
+            Directory where plots will be saved. Defaults to `'.'`.
+        dpi (int, optional): 
+            Image resolution in dots per inch. Defaults to `300`.
+        save_format (str, optional): 
+            Image format (`'png'`, `'pdf'`, `'svg'`, etc.). Defaults to `'png'`.
+        file_suffix (str, optional): 
+            Suffix to append to saved file names. Defaults to `'3d_plot'`.
+        elev (float, optional): 
+            Elevation angle for 3D view. Defaults to `30`.
+        azim (float, optional): 
+            Azimuth angle for 3D view. Defaults to `45`.
+        zoom_factor (float, optional): 
+            Zoom factor to adjust the scale of the plot. Defaults to `0.0`.
+        **kwargs: 
+            Additional parameters forwarded to `plot_embedding_3d_matplotlib` for customization.
+
+    Returns:
+        None: 
+            Saves one figure per (basis_type, color_by) combination.
+
+    Raises:
+        ValueError: 
+            If a specified `basis_type` is not found
     """
+
     import math
     import numpy as np
 
@@ -974,38 +1075,66 @@ def plot_all_embeddings_3d(
 
 
 
-
-
 def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color_by='batch', save_path='rotation.mp4', pal=None,
                                       point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60,
                                       legend_itemsize=100, font_size=16, seed=42):
     """
-    Visualize a rotating 3D embedding and save it as an MP4 video for presentation purposes.
+    Generates a rotating 3D embedding animation and saves it as an MP4 video.
 
-    Parameters:
-    adata : AnnData
-        AnnData object containing embeddings and metadata.
-    embedding_key : str, optional
-        Key in adata.obsm where the embedding is stored. Default is 'encoded_UMAP'.
-    color_by : str, optional
-        Column in adata.obs to color the points by. Default is 'batch'.
-    save_path : str, optional
-        Path to save the video. Default is 'rotation.mp4'.
-    point_size : int, optional
-        Size of the points in the plot. Default is 3.
-    opacity : float, optional
-        Opacity of the points in the plot. Default is 0.7.
-    width : int, optional
-        Width of the plot in pixels. Default is 800.
-    height : int, optional
-        Height of the plot in pixels. Default is 600.
-    rotation_duration : int, optional
-        Duration of the rotation in seconds. Default is 10 seconds.
-    num_steps : int, optional
-        Number of steps for the rotation animation. Default is 60.
+    This function visualizes a 3D embedding (e.g., UMAP, PCA) with an animated rotation 
+    and saves it as an MP4 video. The colors can be mapped to different cell metadata.
+
+    Args:
+        adata (AnnData): 
+            Single-cell AnnData object containing embeddings and metadata.
+        embedding_key (str, optional): 
+            Key in `adata.obsm` where the 3D embedding is stored. Defaults to `'encoded_UMAP'`.
+        color_by (str, optional): 
+            Column in `adata.obs` to color points by. Defaults to `'batch'`.
+        save_path (str, optional): 
+            File path to save the MP4 video. Defaults to `'rotation.mp4'`.
+        pal (dict, optional): 
+            Color palette mapping categorical values to colors. Defaults to None.
+        point_size (int, optional): 
+            Size of the scatter plot points. Defaults to `3`.
+        opacity (float, optional): 
+            Opacity of the scatter plot points. Defaults to `0.7`.
+        width (int, optional): 
+            Width of the output video in pixels. Defaults to `800`.
+        height (int, optional): 
+            Height of the output video in pixels. Defaults to `1200`.
+        rotation_duration (int, optional): 
+            Duration of the rotation animation in seconds. Defaults to `10`.
+        num_steps (int, optional): 
+            Number of frames used for the rotation. Higher values result in a smoother animation. Defaults to `60`.
+        legend_itemsize (int, optional): 
+            Size of legend markers for categorical color mappings. Defaults to `100`.
+        font_size (int, optional): 
+            Font size for legends and labels. Defaults to `16`.
+        seed (int, optional): 
+            Random seed for color mapping. Defaults to `42`.
 
     Returns:
-    None
+        None: 
+            Saves the rotating animation as an MP4 file.
+
+    Raises:
+        KeyError: 
+            If `embedding_key` is not found in `adata.obsm` or `color_by` is not in `adata.obs`.
+        ValueError: 
+            If the specified embedding has fewer than 3 dimensions.
+
+    Example:
+        ```python
+        plot_rotating_embedding_3d_to_mp4(
+            adata,
+            embedding_key='X_umap',
+            color_by='cell_type',
+            save_path='3D_rotation.mp4',
+            rotation_duration=15,
+            num_steps=90
+        )
+        ```
     """
     import numpy as np
     import plotly.graph_objs as go

@@ -14,6 +14,36 @@ logger = logging.getLogger(__name__)
 
 
 class DataLoaderManager:
+    """
+    Manages data loading for training and evaluation, including optional sampling.
+
+    This class handles embedding computation, k-NN graph construction, domain-aware 
+    sampling, and splits data into train/validation sets when needed.
+
+    Attributes:
+        input_layer_key (str): Key for input layer in AnnData.
+        domain_key (str): Key for domain labels in `adata.obs`.
+        class_key (str, optional): Key for class labels in `adata.obs`. Defaults to None.
+        covariate_keys (list, optional): List of covariate keys in `adata.obs`. Defaults to None.
+        batch_size (int): Batch size for data loading.
+        train_frac (float): Fraction of data used for training.
+        use_sampler (bool): Whether to use a custom sampler.
+        sampler_emb (str): Key for embeddings used in sampling.
+        sampler_knn (int): Number of k-nearest neighbors for sampling.
+        p_intra_knn (float): Probability of intra-cluster sampling.
+        p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
+        min_p_intra_domain (float): Minimum probability for intra-domain sampling.
+        max_p_intra_domain (float): Maximum probability for intra-domain sampling.
+        clr_mode (str): Contrastive learning mode.
+        dist_metric (str): Distance metric for k-NN graph.
+        pca_n_comps (int): Number of PCA components used in embedding computation.
+        use_faiss (bool): Whether to use FAISS for fast k-NN computation.
+        use_ivf (bool): Whether to use IVF indexing for FAISS.
+        ivf_nprobe (int): Number of probes for IVF-Faiss.
+        preprocess (callable, optional): Preprocessing function for `adata`.
+        num_cores (int, optional): Number of CPU cores for parallel processing.
+        device (torch.device): Device for computation (CPU or CUDA).
+    """
     def __init__(self, input_layer_key, domain_key, 
                     class_key=None, covariate_keys=None,
                     batch_size=32, train_frac=0.9,
@@ -31,7 +61,33 @@ class DataLoaderManager:
                     preprocess=None, 
                     num_cores=None,
                     device=None):
-            
+        """
+        Initializes the DataLoaderManager.
+
+        Args:
+            input_layer_key (str): Key for input layer in `adata`.
+            domain_key (str): Key for domain labels in `adata.obs`.
+            class_key (str, optional): Key for class labels. Defaults to None.
+            covariate_keys (list, optional): List of covariate keys. Defaults to None.
+            batch_size (int, optional): Batch size. Defaults to 32.
+            train_frac (float, optional): Fraction of data used for training. Defaults to 0.9.
+            use_sampler (bool, optional): Whether to use the custom sampler. Defaults to True.
+            sampler_emb (str, optional): Key for embeddings used in sampling.
+            sampler_knn (int, optional): Number of neighbors for k-NN sampling. Defaults to 300.
+            p_intra_knn (float, optional): Probability of intra-cluster sampling. Defaults to 0.3.
+            p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
+            min_p_intra_domain (float, optional): Minimum probability for intra-domain sampling. Defaults to 1.0.
+            max_p_intra_domain (float, optional): Maximum probability for intra-domain sampling. Defaults to 1.0.
+            clr_mode (str, optional): Contrastive learning mode. Defaults to 'aug'.
+            dist_metric (str, optional): Distance metric for k-NN. Defaults to 'euclidean'.
+            pca_n_comps (int, optional): Number of PCA components. Defaults to 50.
+            use_faiss (bool, optional): Whether to use FAISS. Defaults to True.
+            use_ivf (bool, optional): Whether to use IVF-Faiss indexing. Defaults to False.
+            ivf_nprobe (int, optional): Number of probes for IVF-Faiss. Defaults to 8.
+            preprocess (callable, optional): Preprocessing function for `adata`.
+            num_cores (int, optional): Number of CPU cores. Defaults to None.
+            device (torch.device, optional): Device for computation. Defaults to None.
+        """
         self.input_layer_key = input_layer_key
         self.domain_key = domain_key
         self.class_key = class_key
@@ -66,6 +122,12 @@ class DataLoaderManager:
 
 
     def compute_embedding_and_knn(self, emb_key='X_pca'):
+        """
+        Constructs a k-NN graph based on existing embedding or PCA (of not exist, compute automatically).
+
+        Args:
+            emb_key (str, optional): Key for embedding basis. Defaults to 'X_pca'.
+        """
         # Get embedding for current adata
         from ..utils.anndata_utils import get_adata_basis
         self.emb = get_adata_basis(self.adata, basis=emb_key, pca_n_comps=self.pca_n_comps)
@@ -125,6 +187,15 @@ class DataLoaderManager:
 
 
     def anndata_to_dataloader(self, adata):
+        """
+        Converts an AnnData object to PyTorch DataLoader.
+
+        Args:
+            adata (AnnData): The input AnnData object.
+
+        Returns:
+            tuple: Train DataLoader, validation DataLoader (if `train_frac < 1.0`), and data structure.
+        """
         self.adata = adata
         
         # Preprocess data if necessary

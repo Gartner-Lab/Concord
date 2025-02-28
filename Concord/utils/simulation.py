@@ -8,6 +8,60 @@ logger = logging.getLogger(__name__)
 
 
 class Simulation:
+    ### Concord.utils.Simulation
+    """
+    A class for simulating single-cell gene expression data with various structures and batch effects.
+
+    Args:
+        n_cells (int, optional): Number of cells to simulate. Defaults to 1000.
+        n_genes (int, optional): Number of genes to simulate. Defaults to 1000.
+        n_batches (int, optional): Number of batches to simulate. Defaults to 2.
+        n_states (int, optional): Number of states (e.g., clusters, trajectories). Defaults to 3.
+        state_type (str, optional): Type of state to simulate; options include 'cluster', 'trajectory', 'tree', etc. Defaults to 'cluster'.
+        batch_type (str or list, optional): Type of batch effect; options include 'batch_specific_features', 'variance_inflation', etc. Defaults to 'batch_specific_features'.
+        state_distribution (str, optional): Distribution type for states; e.g., 'normal', 'poisson'. Defaults to 'normal'.
+        state_level (float, optional): Mean expression level for states. Defaults to 1.0.
+        state_min_level (float, optional): Minimum expression level. Defaults to 0.0.
+        state_dispersion (float, optional): Dispersion of state expression. Defaults to 0.1.
+        program_structure (str, optional): Gene expression program structure; e.g., 'linear', 'bidirectional'. Defaults to "linear".
+        program_on_time_fraction (float, optional): Fraction of time the program is on. Defaults to 0.3.
+        program_gap_size (int, optional): Size of gaps in expression programs. Defaults to 1.
+        program_noise_in_block (bool, optional): Whether to add noise within each expression block. Defaults to True.
+        trajectory_program_num (int, optional): Number of programs in a trajectory simulation. Defaults to 3.
+        trajectory_cell_block_size_ratio (float, optional): Ratio of cell block sizes in a trajectory. Defaults to 0.3.
+        trajectory_loop_to (int or list, optional): Loop connection in trajectory simulations. Defaults to None.
+        tree_branching_factor (int, optional): Number of branches per tree level. Defaults to 2.
+        tree_depth (int, optional): Depth of the simulated tree. Defaults to 3.
+        tree_program_decay (float, optional): Decay factor for tree programs across branches. Defaults to 0.5.
+        tree_cellcount_decay (float, optional): Decay factor for cell numbers across tree branches. Defaults to 1.0.
+        batch_distribution (str or list, optional): Distribution for batch effects. Defaults to 'normal'.
+        batch_level (float or list, optional): Magnitude of batch effects. Defaults to 1.0.
+        batch_dispersion (float or list, optional): Dispersion of batch effects. Defaults to 0.1.
+        batch_cell_proportion (list, optional): Proportion of cells per batch. Defaults to None.
+        batch_feature_frac (float or list, optional): Fraction of genes affected by batch effects. Defaults to 0.1.
+        global_non_specific_gene_fraction (float, optional): Fraction of genes that are globally non-specific. Defaults to 0.1.
+        pairwise_non_specific_gene_fraction (dict, optional): Pairwise-specific gene fraction between state pairs. Defaults to None.
+        universal_gene_fraction (float, optional): Fraction of universal genes expressed across all cells. Defaults to 0.0.
+        non_neg (bool, optional): Whether to enforce non-negative expression values. Defaults to False.
+        to_int (bool, optional): Whether to convert expression values to integers. Defaults to False.
+        seed (int, optional): Random seed for reproducibility. Defaults to 0.
+
+    Methods:
+        simulate_data(): Simulates gene expression data, including batch effects.
+        simulate_state(): Simulates cell state-specific gene expression patterns.
+        simulate_batch(): Simulates batch-specific effects on gene expression.
+        simulate_clusters(): Simulates gene expression in discrete clusters.
+        simulate_trajectory(): Simulates continuous gene expression trajectories.
+        simulate_tree(): Simulates hierarchical branching gene expression.
+        simulate_gatto(): Simulates expression patterns similar to Gatto et al., 2023.
+        simulate_s_curve(): Simulates an S-curve structure in gene expression.
+        simulate_swiss_roll(): Simulates a Swiss roll structure with optional hole.
+        simulate_expression_block(): Generates structured gene expression within a cell population.
+        simulate_dropout(): Simulates dropout in gene expression data.
+        downsample_mtx_umi(): Performs UMI count downsampling.
+        simulate_distribution(): Samples values from specified distributions.
+    """
+
     def __init__(self, n_cells=1000, n_genes=1000, 
                  n_batches=2, n_states=3, 
                  state_type='cluster', 
@@ -83,6 +137,14 @@ class Simulation:
 
 
     def simulate_data(self):
+        """
+        Simulates single-cell gene expression data, integrating state-based and batch effects.
+
+        Returns:
+            tuple: 
+                - adata (AnnData): Simulated gene expression data with batch effects.
+                - adata_pre (AnnData): Pre-batch effect simulated data.
+        """
         from scipy import sparse as sp
         from .other_util import sort_string_list
         adata_state = self.simulate_state()
@@ -128,6 +190,12 @@ class Simulation:
 
 
     def simulate_state(self):
+        """
+        Simulates gene expression profiles for different cell states.
+
+        Returns:
+            AnnData: An AnnData object containing simulated state-specific expression data.
+        """
         if self.state_type == 'cluster':
             logger.info(f"Simulating {self.n_states} clusters with distribution: {self.state_distribution} with mean expression {self.state_level} and dispersion {self.state_dispersion}.")
             adata = self.simulate_clusters(n_genes=self.n_genes, n_cells=self.n_cells, num_clusters=self.n_states, 
@@ -183,16 +251,6 @@ class Simulation:
                                       distribution=self.state_distribution, mean_expression=self.state_level, dispersion=self.state_dispersion, 
                                       hole=True,
                                       universal_gene_fraction=self.universal_gene_fraction, seed=self.seed)
-        elif self.state_type == 'intersecting_circle':
-            logger.info(f"Simulating intersecting circles with distribution: {self.state_distribution} with mean shift {self.state_level} and dispersion {self.state_dispersion}.")
-            adata = self.simulate_intersecting_circles(n_genes=self.n_genes, n_cells=self.n_cells, 
-                                      distribution=self.state_distribution, mean_expression=self.state_level, dispersion=self.state_dispersion, 
-                                      universal_gene_fraction=self.universal_gene_fraction, seed=self.seed)
-        elif self.state_type == 'nonintersecting_loops':
-            logger.info(f"Simulating nonintersecting loops with distribution: {self.state_distribution} with mean shift {self.state_level} and dispersion {self.state_dispersion}.")
-            adata = self.simulate_nonintersecting_loops(n_genes=self.n_genes, n_cells=self.n_cells, 
-                                      distribution=self.state_distribution, mean_expression=self.state_level, dispersion=self.state_dispersion, 
-                                      universal_gene_fraction=self.universal_gene_fraction, seed=self.seed)
         else:
             raise ValueError(f"Unknown state_type '{self.state_type}'.")
         
@@ -211,6 +269,26 @@ class Simulation:
 
     def simulate_batch(self, adata, cell_indices=None, cell_proportion=0.3, batch_name='batch_1', effect_type='batch_specific_features', distribution='normal', 
                        level=1.0, dispersion = 0.1,batch_feature_frac=0.1, seed=42):
+        """
+        Applies batch-specific effects to an existing simulated dataset.
+
+        Args:
+            adata (AnnData): Base dataset to apply batch effects.
+            cell_indices (array-like, optional): Indices of cells to modify. Defaults to None.
+            cell_proportion (float, optional): Proportion of cells affected. Defaults to 0.3.
+            batch_name (str, optional): Name of the batch. Defaults to 'batch_1'.
+            effect_type (str, optional): Type of batch effect (e.g., 'batch_specific_features', 'variance_inflation'). Defaults to 'batch_specific_features'.
+            distribution (str, optional): Distribution type for batch effects (e.g., 'normal'). Defaults to 'normal'.
+            level (float, optional): Effect level (e.g., scaling factor). Defaults to 1.0.
+            dispersion (float, optional): Dispersion of batch effects. Defaults to 0.1.
+            batch_feature_frac (float, optional): Fraction of genes affected by batch effects. Defaults to 0.1.
+            seed (int, optional): Random seed for reproducibility. Defaults to 42.
+
+        Returns:
+            tuple:
+                - batch_adata (AnnData): Modified dataset with batch effects.
+                - batch_adata_pre (AnnData): Dataset before applying batch effects.
+        """
         from scipy import sparse as sp
         np.random.seed(seed)
         if not (0 < cell_proportion <= 1):
@@ -278,6 +356,28 @@ class Simulation:
                       global_non_specific_gene_fraction=0.1, 
                       pairwise_non_specific_gene_fraction=None,
                       cluster_key='cluster', permute=False, seed=42):
+        """
+        Simulates gene expression for discrete cell clusters.
+
+        Args:
+            n_genes (int or list, optional): Number of genes per cluster or total genes. Defaults to 6.
+            n_cells (int or list, optional): Number of cells per cluster or total cells. Defaults to 12.
+            num_clusters (int, optional): Number of clusters to simulate. Defaults to 2.
+            program_structure (str, optional): Expression program structure ('linear', 'uniform', etc.). Defaults to 'uniform'.
+            program_on_time_fraction (float, optional): Fraction of program duration. Defaults to 0.3.
+            distribution (str, optional): Type of distribution for gene expression. Defaults to 'normal'.
+            mean_expression (float, optional): Mean expression level. Defaults to 10.
+            min_expression (float, optional): Minimum expression level. Defaults to 1.
+            dispersion (float, optional): Dispersion in expression levels. Defaults to 1.0.
+            global_non_specific_gene_fraction (float, optional): Fraction of globally expressed genes. Defaults to 0.1.
+            pairwise_non_specific_gene_fraction (dict, optional): Pairwise-specific genes between cluster pairs. Defaults to None.
+            cluster_key (str, optional): Key for cluster labeling. Defaults to 'cluster'.
+            permute (bool, optional): Whether to shuffle cells. Defaults to False.
+            seed (int, optional): Random seed. Defaults to 42.
+
+        Returns:
+            AnnData: Simulated dataset with clustered gene expression.
+        """
         np.random.seed(seed)
         
         # Check if n_genes is a list or integer
@@ -391,6 +491,26 @@ class Simulation:
                             program_num=3, program_structure="linear", program_on_time_fraction=0.3,
                             distribution='normal', mean_expression=10, min_expression=0, dispersion=1.0, seed=42,
                             loop_to = None):
+        """
+        Simulates a continuous trajectory of gene expression.
+
+        Args:
+            n_genes (int, optional): Number of genes. Defaults to 10.
+            n_cells (int, optional): Number of cells. Defaults to 100.
+            cell_block_size_ratio (float, optional): Ratio of cell blocks. Defaults to 0.3.
+            program_num (int, optional): Number of gene programs in the trajectory. Defaults to 3.
+            program_structure (str, optional): Structure of gene programs ('linear', 'bidirectional'). Defaults to 'linear'.
+            program_on_time_fraction (float, optional): Fraction of time the program is on. Defaults to 0.3.
+            distribution (str, optional): Distribution type. Defaults to 'normal'.
+            mean_expression (float, optional): Mean expression level. Defaults to 10.
+            min_expression (float, optional): Minimum expression level. Defaults to 0.
+            dispersion (float, optional): Dispersion of expression. Defaults to 1.0.
+            seed (int, optional): Random seed. Defaults to 42.
+            loop_to (int or list, optional): Defines looping relationships in the trajectory. Defaults to None.
+
+        Returns:
+            AnnData: Simulated dataset with continuous gene expression patterns.
+        """
         np.random.seed(seed)
 
         # Simulate a transitional gene program from off to on and back to off
@@ -496,6 +616,29 @@ class Simulation:
                         distribution='normal',
                         mean_expression=10, min_expression=0, 
                         dispersion=1.0, seed=42, noise_in_block=True):
+        """
+        Simulates hierarchical branching gene expression patterns.
+
+        Args:
+            n_genes (int, optional): Number of genes. Defaults to 10.
+            n_cells (int, optional): Number of cells. Defaults to 100.
+            branching_factor (int, optional): Number of branches per level. Defaults to 2.
+            depth (int, optional): Depth of the branching tree. Defaults to 3.
+            program_structure (str, optional): Gene program structure. Defaults to 'linear_increasing'.
+            program_on_time_fraction (float, optional): Program activation time fraction. Defaults to 0.3.
+            program_gap_size (int, optional): Gap size between programs. Defaults to 1.
+            program_decay (float, optional): Decay factor for program effects. Defaults to 0.5.
+            cellcount_decay (float, optional): Decay factor for cell counts. Defaults to 1.0.
+            distribution (str, optional): Expression distribution type. Defaults to 'normal'.
+            mean_expression (float, optional): Mean gene expression level. Defaults to 10.
+            min_expression (float, optional): Minimum gene expression level. Defaults to 0.
+            dispersion (float, optional): Dispersion of expression. Defaults to 1.0.
+            seed (int, optional): Random seed. Defaults to 42.
+            noise_in_block (bool, optional): Whether to add noise within expression blocks. Defaults to True.
+
+        Returns:
+            AnnData: Simulated dataset with hierarchical tree-like gene expression.
+        """
         np.random.seed(seed)
         
         # Check if branching faactor is a list or integer
@@ -620,7 +763,7 @@ class Simulation:
         """
         Simulates downsampling of a gene expression matrix (UMI counts) by a given ratio.
 
-        Parameters:
+        Args:
             mtx (numpy.ndarray): The input matrix where rows represent genes and columns represent cells.
             ratio (float): The downsampling ratio (default 0.1).
             seed (int): Random seed for reproducibility (default 1).
@@ -694,7 +837,7 @@ class Simulation:
         """
         Simulates dropout in UMI counts based on the specified dropout lambda.
 
-        Parameters:
+        Args:
             mtx (numpy.ndarray): The actual UMI counts matrix (genes x cells).
             dropout_lambda (float): The lambda parameter controlling the dropout probability.
             seed (int, optional): Seed for the random number generator for reproducibility.
@@ -876,85 +1019,3 @@ class Simulation:
 
 
 
-    def simulate_intersecting_circles(self, n_cells=1000, n_genes=100, radius=1.0, mean_expression=1, distribution='normal', dispersion=0.1, seed=42, universal_gene_fraction=0.0):
-        import numpy as np
-        np.random.seed(seed)
-
-        # Parameters
-        num_points = n_cells // 2  # Number of points in each circle
-        circle_radius = 1  # Radius of both circles
-
-        # Generate the first circle in the x-y plane
-        angles_circle1 = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
-        circle1_x = circle_radius * np.cos(angles_circle1)
-        circle1_y = circle_radius * np.sin(angles_circle1)
-        circle1_z = np.zeros(num_points)  # Z = 0 for the x-y plane
-
-        # Generate the second circle in the y-z plane, shifted to pass through the center of the first circle
-        angles_circle2 = np.linspace(0, 2 * np.pi, num_points, endpoint=False)
-        circle2_x = np.zeros(num_points)  # X = 0 for the y-z plane
-        circle2_y = circle_radius * np.cos(angles_circle2)
-        circle2_z = circle_radius * np.sin(angles_circle2)
-
-        # Shift the second circle along the y-axis to interlock with the first circle
-        circle2_y += circle_radius  # Shift by radius so it intersects the first circle's center
-
-        X = np.vstack((np.hstack((circle1_x, circle2_x)), np.hstack((circle1_y, circle2_y)), np.hstack((circle1_z, circle2_z)))).T
-        
-        # Combine points from both circles
-        X = X + mean_expression
-
-        np_repeats = n_genes // 3
-        gene_multipliers = np.random.normal(1, 0.1, np_repeats)  # Slight variance in each dimension
-        expression_matrix = np.vstack([
-            np.outer(gene_multipliers, X[:, 0]),
-            np.outer(gene_multipliers, X[:, 1]),
-            np.outer(gene_multipliers, X[:, 2])
-        ]).T
-                
-        # Add a block of universal genes if specified
-        if universal_gene_fraction > 0:
-            n_universal_genes = int(universal_gene_fraction * n_genes)
-            universal_genes = mean_expression * np.ones((n_cells, n_universal_genes))
-            expression_matrix = np.hstack([expression_matrix, universal_genes])
-        
-        # Add noise to the expression matrix based on the specified distribution
-        expression_matrix_wt_noise = self.simulate_distribution(distribution, expression_matrix, dispersion)
-        
-        # Create an AnnData object
-        adata = sc.AnnData(expression_matrix_wt_noise)
-        adata.obs['circle'] = ['circle1'] * num_points + ['circle2'] * num_points
-        adata.layers['no_noise'] = expression_matrix
-        
-        return adata
-
-    def simulate_nonintersecting_loops(self, n_cells=1000, n_genes=100, mean_expression=1, distribution='normal', dispersion=0.1, seed=42, universal_gene_fraction=0.0):
-        import numpy as np
-        np.random.seed(seed)
-
-        # Parameters
-        num_points = n_cells // 2
-
-        # Simulate loop 1 using the simulate trajectory function
-        loop1 = self.simulate_trajectory(n_cells=num_points, n_genes=n_genes, program_num=4, program_structure="linear_bidirectional", cell_block_size_ratio=0.5, program_on_time_fraction=0.0, loop_to=0,
-                                         distribution=distribution, mean_expression=mean_expression, dispersion=dispersion, seed=seed)
-        
-        loop1.var_names = loop1.var_names + '_loop1'
-        loop1.obs_names = loop1.obs_names + '_loop1'
-        loop1.obs['loop'] = 'loop1'
-
-        # Simulate loop 2 using the simulate trajectory function
-        loop2 = self.simulate_trajectory(n_cells=num_points, n_genes=n_genes, program_num=4, program_structure="linear_bidirectional", cell_block_size_ratio=0.5, program_on_time_fraction=0.0, loop_to=0,
-                                         distribution=distribution, mean_expression=mean_expression, dispersion=dispersion, seed=seed)
-        loop2.var_names = loop2.var_names + '_loop2'
-        loop2.obs_names = loop2.obs_names + '_loop2'
-        loop2.obs['loop'] = 'loop2'
-        
-        # Concatenate the two loops
-        adata = ad.concat([loop1, loop2], join='outer', axis=0)
-        adata.X = np.nan_to_num(adata.X, nan=0.0)
-        for key in adata.layers.keys():
-            adata.layers[key] = np.nan_to_num(adata.layers[key], nan=0.0)
-
-        return adata
-    

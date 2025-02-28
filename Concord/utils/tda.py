@@ -4,6 +4,21 @@ import numpy as np
 from ..plotting.pl_tda import plot_persistence_diagram, plot_betti_curves
 
 def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2]):
+    """
+    Computes persistent homology using Vietoris-Rips complex.
+
+    Args:
+        adata : anndata.AnnData
+            The AnnData object containing the data.
+        key : str, optional
+            The key in `adata.obsm` specifying the embedding to use. Default is 'X_pca'.
+        homology_dimensions : list, optional
+            List of homology dimensions to compute. Default is [0, 1, 2].
+
+    Returns:
+        np.ndarray
+            Persistence diagrams representing homology classes across filtration values.
+    """
     from gtda.homology import VietorisRipsPersistence
     data = adata.obsm[key][None, :, :]
     VR = VietorisRipsPersistence(homology_dimensions=homology_dimensions)  # Parameter explained in the text
@@ -14,7 +29,21 @@ def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2])
 
 def compute_betti_median_or_mode(betti_values, statistic="median"):
     """
-    Computes the median or mode of Betti numbers for a given Betti curve.
+    Computes the median or mode of Betti numbers.
+
+    Args:
+        betti_values : np.ndarray
+            Array of Betti numbers across filtration values.
+        statistic : str, optional
+            Statistic to compute ('median' or 'mode'). Default is 'median'.
+
+    Returns:
+        float
+            The computed median or mode of the Betti numbers.
+
+    Raises:
+        ValueError
+            If the provided statistic is not 'median' or 'mode'.
     """
     from scipy.stats import mode
     if statistic == "median":
@@ -28,6 +57,14 @@ def compute_betti_median_or_mode(betti_values, statistic="median"):
 def compute_betti_entropy(betti_values):
     """
     Computes the entropy of the Betti curve.
+
+    Args:
+        betti_values : np.ndarray
+            Array of Betti numbers across filtration values.
+
+    Returns:
+        float
+            The entropy of the Betti curve.
     """
     from scipy.stats import entropy
     total = np.sum(betti_values)
@@ -41,6 +78,18 @@ def compute_betti_entropy(betti_values):
 def interpolate_betti_curve(betti_values, original_sampling, common_sampling):
     """
     Interpolates Betti curve onto a common filtration grid.
+
+    Args:
+        betti_values : np.ndarray
+            Array of Betti numbers.
+        original_sampling : np.ndarray
+            The original filtration values associated with the Betti numbers.
+        common_sampling : np.ndarray
+            The target filtration values for interpolation.
+
+    Returns:
+        np.ndarray
+            Interpolated Betti curve.
     """
     from scipy.interpolate import interp1d
     interp_func = interp1d(
@@ -55,14 +104,23 @@ def compute_betti_statistics(diagram, expected_betti_numbers, n_bins=100):
     """
     Computes Betti statistics given a persistence diagram.
 
-    Parameters:
-    - diagram: Persistence diagram from Giotto-TDA.
-    - expected_betti_numbers: Array of expected Betti numbers for comparison.
-      For example, np.array([5, 0, 0]) for dimensions 0, 1, and 2.
-    - n_bins: Number of bins for the Betti curve computation (default: 100).
+    Args:
+        diagram : np.ndarray
+            Persistence diagram from Giotto-TDA.
+        expected_betti_numbers : np.ndarray
+            Expected Betti numbers for different homology dimensions.
+        n_bins : int, optional
+            Number of bins for the Betti curve computation. Default is 100.
 
     Returns:
-    - stats_dict: A dictionary containing Betti curve statistics and distance metrics.
+        dict
+            A dictionary containing:
+            - `'betti_stats'`: Dictionary of Betti statistics.
+            - `'observed_betti_numbers'`: Observed Betti numbers.
+            - `'expected_betti_numbers'`: Expected Betti numbers.
+            - `'l1_distance'`: L1 distance between observed and expected Betti numbers.
+            - `'l2_distance'`: L2 distance between observed and expected Betti numbers.
+            - `'total_relative_error'`: Total relative error.
     """
     from gtda.diagrams import BettiCurve
 
@@ -159,14 +217,16 @@ def compute_betti_statistics(diagram, expected_betti_numbers, n_bins=100):
 
 def summarize_betti_statistics(betti_stats):
     """
-    Summarizes Betti statistics into pandas DataFrames for Betti Curve Statistics and Distance Metrics.
+    Summarizes Betti statistics into pandas DataFrames.
 
-    Parameters:
-    - betti_stats: Dictionary containing Betti statistics for each method.
+    Args:
+        betti_stats : dict
+            Dictionary containing Betti statistics for different methods.
 
     Returns:
-    - betti_stats_pivot: DataFrame containing Betti Curve Statistics.
-    - distance_metrics_df: DataFrame containing Distance Metrics.
+        tuple
+            - `betti_stats_pivot`: DataFrame of Betti statistics.
+            - `distance_metrics_df`: DataFrame of distance metrics.
     """
     import pandas as pd
     # Prepare data for Betti Curve Statistics DataFrame

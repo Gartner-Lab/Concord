@@ -7,8 +7,39 @@ logger = logging.getLogger(__name__)
 
 
 class ConcordSampler(Sampler):
+    """
+    A custom PyTorch sampler that performs probabilistic domain-aware and 
+    neighborhood-aware batch sampling for contrastive learning.
+
+    This sampler selects samples from both intra-domain and inter-domain 
+    distributions based on configurable probabilities.
+
+    Attributes:
+        batch_size (int): Number of samples per batch.
+        p_intra_knn (float): Probability of selecting samples from k-NN neighborhoods.
+        p_intra_domain_dict (dict): Dictionary mapping domain indices to intra-domain probabilities.
+        device (torch.device): Device to store tensors (default: GPU if available).
+        domain_ids (torch.Tensor): Tensor containing domain labels for each sample.
+        neighborhood (Neighborhood): Precomputed k-NN index.
+        unique_domains (torch.Tensor): Unique domain categories.
+        domain_counts (torch.Tensor): Number of samples per domain.
+        valid_batches (list): List of precomputed valid batches.
+        min_batch_size (int): Minimum allowed batch size.
+    """
     def __init__(self, batch_size, domain_ids, 
                  neighborhood, p_intra_knn=0.3, p_intra_domain_dict=None, min_batch_size=4, device=None):
+        """
+        Initializes the ConcordSampler.
+
+        Args:
+            batch_size (int): Number of samples per batch.
+            domain_ids (torch.Tensor): Tensor of domain labels for each sample.
+            neighborhood (Neighborhood): Precomputed k-NN index.
+            p_intra_knn (float, optional): Probability of selecting samples from k-NN neighborhoods. Default is 0.3.
+            p_intra_domain_dict (dict, optional): Dictionary mapping domain indices to intra-domain probabilities. Default is None.
+            min_batch_size (int, optional): Minimum allowed batch size. Default is 4.
+            device (torch.device, optional): Device to store tensors. Defaults to GPU if available.
+        """
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
         print(f"p_intra_knn: {p_intra_knn}")
@@ -26,6 +57,16 @@ class ConcordSampler(Sampler):
     # Function to permute non- -1 values and push -1 values to the end
     @staticmethod
     def permute_nonneg_and_fill(x, ncol):
+        """
+        Permutes non-negative values and fills remaining positions with -1.
+
+        Args:
+            x (torch.Tensor): Input tensor containing indices.
+            ncol (int): Number of columns to keep.
+
+        Returns:
+            torch.Tensor: Permuted tensor with -1s filling unused positions.
+        """
         result = torch.full((x.size(0), ncol), -1, dtype=x.dtype, device=x.device)
         for i in range(x.size(0)):
             non_negatives = x[i][x[i] >= 0]
@@ -36,6 +77,12 @@ class ConcordSampler(Sampler):
 
 
     def _generate_batches(self):
+        """
+        Generates batches based on intra-domain and intra-neighborhood probabilities.
+
+        Returns:
+            list: A list of valid batches.
+        """
         all_batches = []
 
         for domain in self.unique_domains:
@@ -120,11 +167,23 @@ class ConcordSampler(Sampler):
     
 
     def __iter__(self):
+        """
+        Iterator for sampling batches.
+
+        Yields:
+            torch.Tensor: A batch of sample indices.
+        """
         self.valid_batches = self._generate_batches()
         for batch in self.valid_batches:
             yield batch
 
     def __len__(self):
+        """
+        Returns the number of batches.
+
+        Returns:
+            int: Number of valid batches.
+        """
         return len(self.valid_batches)
 
 
@@ -149,8 +208,4 @@ class ConcordSampler(Sampler):
 #             # Concatenate batch and nn_indices to form the full batch
 #             full_batch = torch.cat([batch, nn_indices], dim=0)
 #             yield full_batch
-
-
-#     def __len__(self):
-#         return len(self.base_sampler)
 

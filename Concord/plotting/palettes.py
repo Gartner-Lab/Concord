@@ -123,6 +123,45 @@ def get_numeric_color(pal='RdYlBu'):
 
 
 def get_color_mapping(adata, col, pal, seed=42):
+    """
+    Generates a color mapping for a given column in `adata.obs` or for gene expression.
+
+    This function determines whether the column is numeric or categorical and assigns
+    an appropriate colormap (for numeric data) or a categorical color palette.
+
+    Args:
+        adata (AnnData): 
+            An AnnData object containing single-cell expression data.
+        col (str): 
+            The column in `adata.obs` or a gene name in `adata.var_names` to be used for coloring.
+        pal (dict, str, or None): 
+            Color palette or colormap for categorical or numeric data.
+            - If `dict`, it should map categories to colors.
+            - If `str`, it should be a recognized seaborn or matplotlib palette/colormap.
+            - If `None`, defaults to 'Set1' for categorical data and 'viridis' for numeric data.
+        seed (int, optional): 
+            Random seed for reproducibility when shuffling colors in categorical mapping. Defaults to `42`.
+
+    Returns:
+        tuple: `(data_col, cmap, palette)`
+            - `data_col` (pd.Series or np.ndarray): The extracted column data from `adata.obs` or `adata[:, col].X`.
+            - `cmap` (matplotlib.colors.Colormap or None): A colormap for numeric data. Returns `None` for categorical data.
+            - `palette` (dict or None): A dictionary mapping categorical values to colors. Returns `None` for numeric data.
+
+    Raises:
+        ValueError: If the column is neither found in `adata.obs` nor in `adata.var_names`.
+        ValueError: If a numeric column is provided with a categorical palette (dict).
+
+    Example:
+        ```python
+        data_col, cmap, palette = get_color_mapping(adata, 'batch', pal='Set2')
+        ```
+
+        ```python
+        data_col, cmap, palette = get_color_mapping(adata, 'GeneX', pal='RdYlBu')
+        ```
+    """
+
     import scipy.sparse as sp
     """Generate color map or palette based on column data type in adata.obs or adata.var."""
     if col is None:
