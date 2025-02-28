@@ -70,6 +70,11 @@ pip install -r requirements_optional.txt
 
 Concord integrates with **VisCello**, a tool for interactive visualization. To explore results interactively, visit [VisCello GitHub](https://github.com/kimpenn/VisCello) and refer to the full documentation for more information.
 
+You will also need the rpy2 package installed via:
+```bash
+pip install rpy2
+```
+
 ---
 
 ## Quick Start
