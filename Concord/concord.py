@@ -117,7 +117,7 @@ class Concord:
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
-            sampler_knn=300, # Default neighborhood size, can be adjusted
+            sampler_knn=None, # Default neighborhood size, can be adjusted
             dist_metric='euclidean',
             p_intra_knn=0.3,
             p_intra_domain=0.95,
@@ -139,8 +139,8 @@ class Concord:
         set_seed(self.config.seed)
 
         if self.config.sampler_knn is None:
-            self.config.sampler_knn = self.adata.n_obs // 50 
-            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/50 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+            self.config.sampler_knn = self.adata.n_obs // 10 
+            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:

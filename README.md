@@ -6,7 +6,7 @@ Qin Zhu, Gartner Lab, UCSF
 
 CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery) is a novel machine learning framework that leverages contrastive learning, masked autoencoders, and a unique batch construction strategy using data-aware sampling. CONCORD learns an encoding of cells that captures the cell state manifold, revealing both local and global structures. The resulting high-resolution atlas of cell states and trajectories is coherent across different domains, such as batches, technologies, and species. 
 
-**Full Documentation available at [insert documentation link].**
+**Full Documentation available at [https://qinzhu.github.io/Concord_documentation/]](https://qinzhu.github.io/Concord_documentation/).**
 
 ---
 
@@ -18,7 +18,7 @@ CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery) is 
 git clone git@github.com:Gartner-Lab/Concord.git
 ```
 
-It is recommended to use conda (https://conda.io/projects/conda/en/latest/user-guide/install/index.html) to create and set up virtual environment for Concord.
+It is recommended to use conda (https://conda.io/projects/conda/en/latest/user-guide/install/index.html) to create and set up a virtual environment for Concord.
 
 ### 2. Install PyTorch:
 
