@@ -1,7 +1,6 @@
 
 import matplotlib.pyplot as plt
 import scanpy as sc
-import umap
 import warnings
 import numpy as np
 import time
@@ -16,8 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def plot_embedding(adata, basis, color_by=None, 
-                   pal=None, highlight_indices=None, default_color='lightgrey', highlight_color='black',
-                   highlight_size=20, draw_path=False, alpha=0.9, text_alpha=0.5,
+                   pal=None, 
+                   highlight_indices=None, 
+                   default_color='lightgrey', 
+                   highlight_color='black',
+                   highlight_size=20, 
+                   highlight_density=False,
+                   density_color='viridis',
+                   density_levels=5,
+                   density_alpha=0.5,
+                   draw_path=False, alpha=0.9, text_alpha=0.5,
                    figsize=(9, 3), dpi=300, ncols=1, ax = None,
                    title=None, xlabel = None, ylabel = None, xticks=True, yticks=True,
                    colorbar_loc='right',
@@ -108,19 +115,19 @@ def plot_embedding(adata, basis, color_by=None,
         if col is None:
             sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
                                  legend_loc='right margin', legend_fontsize=font_size,
-                                 size=point_size, alpha=alpha)
+                                 size=point_size, alpha=alpha, zorder=1)
             for collection in ax.collections:
                 collection.set_color(default_color)
         elif pd.api.types.is_numeric_dtype(data_col):
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc='right margin', legend_fontsize=font_size,
                             size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                            vmax=vmax  # Use the computed vmax if provided
-                            )
+                            vmax=vmax,  # Use the computed vmax if provided
+                            zorder=1)
         else:
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, palette=palette)
+                            size=point_size, alpha=alpha, palette=palette, zorder=1)
 
         if legend_loc == 'on data':
             for text in ax.texts:
@@ -130,17 +137,19 @@ def plot_embedding(adata, basis, color_by=None,
         if highlight_indices is not None:
             # Extract the coordinates for highlighting
             embedding = adata.obsm[basis]
+            highlight_x = embedding[highlight_indices, 0]
+            highlight_y = embedding[highlight_indices, 1]
 
             if col is None:
                 # Highlight without color-by
                 ax.scatter(
-                    embedding[highlight_indices, 0],
-                    embedding[highlight_indices, 1],
+                    highlight_x,
+                    highlight_y,
                     s=highlight_size,
                     linewidths=0,
                     color=highlight_color,
                     alpha=1.0,
-                    zorder=1,  # Ensure points are on top
+                    zorder=2,  # Ensure points are on top
                 )
             elif pd.api.types.is_numeric_dtype(data_col):
                 # Highlight with numeric color mapping
@@ -152,13 +161,13 @@ def plot_embedding(adata, basis, color_by=None,
                 else:
                     highlight_colors = highlight_color
                 ax.scatter(
-                    embedding[highlight_indices, 0],
-                    embedding[highlight_indices, 1],
+                    highlight_x,
+                    highlight_y,
                     s=highlight_size,
                     linewidths=0,
                     color=highlight_colors,
                     alpha=1.0,
-                    zorder=1,
+                    zorder=2,
                 )
             else:
                 # Highlight with categorical color mapping
@@ -167,13 +176,13 @@ def plot_embedding(adata, basis, color_by=None,
                 else:
                     colors = highlight_color
                 ax.scatter(
-                    embedding[highlight_indices, 0],
-                    embedding[highlight_indices, 1],
+                    highlight_x,
+                    highlight_y,
                     s=highlight_size,
                     linewidths=0,
                     color=colors,
                     alpha=1.0,
-                    zorder=1,
+                    zorder=2,
                 )
 
             if draw_path:
@@ -182,8 +191,27 @@ def plot_embedding(adata, basis, color_by=None,
                 ax.plot(
                     path_coords[:, 0],
                     path_coords[:, 1],
-                    'r-', linewidth=path_width, alpha=alpha, zorder=2
+                    'r-', linewidth=path_width, alpha=alpha, zorder=3
                 )
+
+            if highlight_density:
+                import seaborn as sns
+                xlim = ax.get_xlim()
+                ylim = ax.get_ylim()
+                # Plot density within xlim and ylim
+                sns.kdeplot(
+                    x=highlight_x,
+                    y=highlight_y,
+                    ax=ax,
+                    cmap=density_color,
+                    alpha=density_alpha,
+                    fill=True,
+                    levels=density_levels,
+                    zorder=0)
+                ax.set_xlim(xlim)
+                ax.set_ylim(ylim)
+                
+
 
         ax.set_title(ax.get_title() if title is None else title, fontsize=font_size)
         ax.set_xlabel('' if xlabel is None else xlabel, fontsize=font_size-2)
@@ -409,19 +437,28 @@ def plot_embedding_3d_matplotlib(
         raise KeyError(f"Embedding key '{basis}' not found in adata.obsm")
 
     embedding = adata.obsm[basis]
-    if not isinstance(embedding, np.ndarray):
-        embedding = np.array(embedding)
+
+    # if not isinstance(embedding, np.ndarray):
+    #     embedding = np.array(embedding)
     if embedding.shape[1] < 3:
         raise ValueError(f"Embedding '{basis}' must have at least 3 dimensions")
+    
+    # Convert embedding to pandas DataFrame and match with adata.obs
+    embedding = pd.DataFrame(embedding[:, :3], columns=['DIM1', 'DIM2', 'DIM3'])
+    embedding.index = adata.obs.index
 
     df = adata.obs.copy()
-    df['DIM1'] = embedding[:, 0]
-    df['DIM2'] = embedding[:, 1]
-    df['DIM3'] = embedding[:, 2]
+    df['DIM1'] = embedding['DIM1']
+    df['DIM2'] = embedding['DIM2']
+    df['DIM3'] = embedding['DIM3']
 
     # Get color mapping
     data_col, cmap, palette_dict = get_color_mapping(adata, color_by, pal, seed=seed)
 
+    print("palette_dict", palette_dict)
+    print("color_by", color_by)
+    print("pal", pal)   
+    print("cmap", cmap)
     # Create fig/ax if not provided
     created_new_fig = False
     if ax is None:
@@ -442,8 +479,6 @@ def plot_embedding_3d_matplotlib(
 
     # Convert categorical data to colors
     if pd.api.types.is_numeric_dtype(data_col):
-        print("111")
-        print(vmax_quantile)
         if vmax_quantile is not None:
             vmax = np.percentile(data_col, vmax_quantile * 100)
             print(f"Using vmax={vmax} based on quantile {vmax_quantile}")
@@ -451,6 +486,8 @@ def plot_embedding_3d_matplotlib(
         colors = data_col
     else:
         colors = data_col.astype('category').map(palette_dict)
+
+
 
     # **Step 1: Plot all points as transparent background (establish depth ordering)**
     ax.scatter(
@@ -470,11 +507,13 @@ def plot_embedding_3d_matplotlib(
     else:
         non_highlight_mask = np.ones(len(df), dtype=bool)
 
+
     ax.scatter(
         df.loc[non_highlight_mask, 'DIM1'],
         df.loc[non_highlight_mask, 'DIM2'],
         df.loc[non_highlight_mask, 'DIM3'],
         c=colors[non_highlight_mask],
+        cmap=cmap,
         alpha=alpha,
         s=point_size,
         marker=marker_style,
@@ -491,6 +530,7 @@ def plot_embedding_3d_matplotlib(
             df.loc[highlight_indices, 'DIM2'],
             df.loc[highlight_indices, 'DIM3'],
             c=highlight_color,
+            cmap=cmap,
             s=highlight_size,
             alpha=highlight_alpha,
             marker=marker_style,
@@ -518,6 +558,7 @@ def plot_embedding_3d_matplotlib(
     x_range = (x_max - x_min) * zoom_factor
     y_range = (y_max - y_min) * zoom_factor
     z_range = (z_max - z_min) * zoom_factor
+
 
     ax.set_xlim([x_min + x_range, x_max - x_range])
     ax.set_ylim([y_min + y_range, y_max - y_range])
