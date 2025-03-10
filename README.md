@@ -4,9 +4,9 @@ Qin Zhu, Gartner Lab, UCSF
 
 ## Description
 
-CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery) is a novel machine learning framework that leverages contrastive learning, masked autoencoders, and a unique batch construction strategy using data-aware sampling. CONCORD learns an encoding of cells that captures the cell state manifold, revealing both local and global structures. The resulting high-resolution atlas of cell states and trajectories is coherent across different domains, such as batches, technologies, and species. 
+Resolving the structure of the gene expression manifold from single cell RNA sequencing (scRNAseq) experiments remains an outstanding challenge, compounded by noise in scRNA-seq data and systematic discrepancies—often referred to as batch effects—across experimental systems and replicates. To address this, we introduce **CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery)**. The core innovation behind CONCORD is a probabilistic, dataset- and neighborhood-aware sampling strategy that dramatically improves performance of **dimension reduction** and **data integration** on single cell data compared to existing methods. Operated in a one-shot, fully unsupervised manner, CONCORD generates **denoised cell embeddings** that capture key **topological and geometric features** of the underlying biological manifold, revealing fine-grained local detail while preserving a coherent global structure. The resulting high-resolution atlas of cell states and trajectories is coherent across different datasets, such as experimental batches, technologies, and species. Moreover, these embeddings can be interpreted as context-dependent biological programs, facilitating the analysis of the regulatory mechanisms driving cell state transitions and subpopulation heterogeneity. We demonstrate the utility of CONCORD on a range of topological structures and biological contexts, underscoring its potential to yield new insights from both existing and future single-cell datasets.
 
-**Full Documentation available at [https://qinzhu.github.io/Concord_documentation/]](https://qinzhu.github.io/Concord_documentation/).**
+**Full Documentation available at https://qinzhu.github.io/Concord_documentation/.**
 
 ---
 
