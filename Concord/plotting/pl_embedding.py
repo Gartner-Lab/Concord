@@ -650,7 +650,6 @@ def plot_top_genes_embedding(adata, ranked_lists, basis, top_x=4, figsize=(5, 1.
 
 
 
-
 def plot_all_embeddings(
     adata,
     combined_keys,
