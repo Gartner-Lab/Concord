@@ -131,9 +131,6 @@ ccd.pl.plot_embedding(
 
 The latent space produced by CONCORD often capture complex biological structures that may not be fully visualized in 2D projections. We recommend exploring the latent space using a 3D UMAP to more effectively capture and examine the intricacies of the data. For example:
 
-### 3D Visualization:
-For complex structures, 3D UMAP may provide better insights:
-
 ```python
 ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=15, min_dist=0.1, metric='euclidean')
 
