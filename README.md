@@ -31,10 +31,10 @@ pip install torch torchvision torchaudio
 
 ### 3. Install dependencies:
 
-Navigate to the Concord directory and install the required dependencies:
+Navigate to the Concord directory (containing requirements.txt) and install the required dependencies:
 
 ```bash
-cd path_to_Concord
+cd path_to_Concord 
 pip install -r requirements.txt
 ```
 
@@ -144,6 +144,11 @@ fig = ccd.pl.plot_embedding_3d(
 ```
 
 ---
+
+## License
+
+This project is licensed under the **MIT License**.  
+See the [LICENSE](https://github.com/Gartner-Lab/Concord/blob/main/LICENSE.md) file for details.
 
 ## Citation
 
