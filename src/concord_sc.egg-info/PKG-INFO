@@ -1,3 +1,50 @@
+Metadata-Version: 2.2
+Name: concord-sc
+Version: 0.9.3
+Summary: CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery
+Home-page: https://github.com/Gartner-Lab/Concord
+Author: Qin Zhu
+Author-email: qin.zhu@ucsf.edu
+License: MIT
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.7
+Description-Content-Type: text/markdown
+License-File: LICENSE.md
+Requires-Dist: anndata>=0.8
+Requires-Dist: numpy<2.0,>=1.23
+Requires-Dist: h5py>=3.1
+Requires-Dist: tqdm
+Requires-Dist: umap-learn>=0.5.1
+Requires-Dist: matplotlib>=3.6
+Requires-Dist: pandas>=1.5
+Requires-Dist: plotly>=5.0.0
+Requires-Dist: scanpy>=1.1
+Requires-Dist: scikit-learn>=0.24
+Requires-Dist: scipy>=1.8
+Requires-Dist: seaborn>=0.13
+Requires-Dist: scikit-misc
+Requires-Dist: nbformat
+Requires-Dist: build
+Provides-Extra: optional
+Requires-Dist: gseapy>=1.1.0; extra == "optional"
+Requires-Dist: Pillow>=10.0.0; extra == "optional"
+Requires-Dist: plottable>=0.1; extra == "optional"
+Requires-Dist: requests>=2.0; extra == "optional"
+Requires-Dist: rpy2>=3.5; extra == "optional"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
 # CONCORD: COntrastive learNing for Cross-dOmain Reconciliation and Discovery
 
 Qin Zhu, Gartner Lab, UCSF

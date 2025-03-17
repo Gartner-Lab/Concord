@@ -1,17 +1,22 @@
 anndata>=0.8
-numpy>=1.23,<2.0
+numpy<2.0,>=1.23
 h5py>=3.1
 tqdm
-umap_learn>=0.5.1
+umap-learn>=0.5.1
 matplotlib>=3.6
 pandas>=1.5
 plotly>=5.0.0
 scanpy>=1.1
-scikit_learn>=0.24
+scikit-learn>=0.24
 scipy>=1.8
 seaborn>=0.13
 scikit-misc
 nbformat
 build
 
-
+[optional]
+gseapy>=1.1.0
+Pillow>=10.0.0
+plottable>=0.1
+requests>=2.0
+rpy2>=3.5
