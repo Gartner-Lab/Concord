@@ -1117,12 +1117,14 @@ def plot_all_embeddings_3d(
 
 def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color_by='batch', save_path='rotation.mp4', pal=None,
                                       point_size=3, opacity=0.7, width=800, height=1200, rotation_duration=10, num_steps=60,
-                                      legend_itemsize=100, font_size=16, seed=42):
+                                      legend_itemsize=100, font_size=16, dpi=100, show_title=False, show_legend=False, 
+                                      show_axes=False, show_background=False, elev=30, azim=0, zoom=1.5, seed=42):
     """
     Generates a rotating 3D embedding animation and saves it as an MP4 video.
 
     This function visualizes a 3D embedding (e.g., UMAP, PCA) with an animated rotation 
     and saves it as an MP4 video. The colors can be mapped to different cell metadata.
+    By default, it shows only the point cloud for a clean visualization.
 
     Args:
         adata (AnnData): 
@@ -1151,12 +1153,28 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
             Size of legend markers for categorical color mappings. Defaults to `100`.
         font_size (int, optional): 
             Font size for legends and labels. Defaults to `16`.
+        dpi (int, optional):
+            Resolution in dots per inch for the output images. Higher values result in higher resolution. Defaults to `100`.
+        show_title (bool, optional):
+            Whether to show the plot title. Defaults to `False`.
+        show_legend (bool, optional):
+            Whether to show the color legend or colorbar. Defaults to `False`.
+        show_axes (bool, optional):
+            Whether to show the axes and grid. Defaults to `False`.
+        show_background (bool, optional):
+            Whether to show the background. Defaults to `False`.
+        elev (float, optional):
+            Elevation angle in degrees (vertical rotation). Defaults to `30`.
+        azim (float, optional):
+            Azimuth angle in degrees (horizontal rotation). Defaults to `0`.
+        zoom (float, optional):
+            Zoom factor. Lower values zoom in, higher values zoom out. Defaults to `1.5`.
         seed (int, optional): 
             Random seed for color mapping. Defaults to `42`.
 
     Returns:
         None: 
-            Saves the rotating animation as an MP4 file.
+            Saves the rotating animation as an MP4 video.
 
     Raises:
         KeyError: 
@@ -1172,15 +1190,23 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
             color_by='cell_type',
             save_path='3D_rotation.mp4',
             rotation_duration=15,
-            num_steps=90
+            num_steps=90,
+            dpi=300,
+            show_legend=True,
+            elev=20,
+            azim=45
         )
         ```
     """
     import numpy as np
     import plotly.graph_objs as go
     import plotly.express as px
-    import moviepy.editor as mpy
+    import moviepy.video.io.ImageSequenceClip as ImageSequenceClip
+    import pandas as pd
+    import matplotlib.colors as mcolors
     import os
+    import math
+    
     if embedding_key not in adata.obsm:
         raise KeyError(f"Embedding key '{embedding_key}' not found in adata.obsm")
 
@@ -1203,44 +1229,99 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
 
     # Create initial 3D scatter plot
     data_col, cmap, palette = get_color_mapping(adata, color_by, pal, seed=seed)
+    
+    # Set the title based on show_title parameter
+    title = f'3D Embedding colored by {color_by}' if show_title else None
+    
+    # Determine if we're dealing with numeric data
+    is_numeric = pd.api.types.is_numeric_dtype(data_col)
         
     # Plot based on data type: numeric or categorical
-    if pd.api.types.is_numeric_dtype(data_col):
+    if is_numeric:
         colors = [mcolors.rgb2hex(cmap(i)) for i in np.linspace(0, 1, 256)]
         colorscale = [[i / (len(colors) - 1), color] for i, color in enumerate(colors)]
         fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
-                            title=f'3D Embedding colored by {color_by}',
+                            title=title,
                             labels={'color': color_by}, opacity=opacity,
                             color_continuous_scale=colorscale)
     else:
         fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
-                            title=f'3D Embedding colored by {color_by}',
+                            title=title,
                             labels={'color': color_by}, opacity=opacity,
                             color_discrete_map=palette)
         
-        # Increase size of the points in the legend
-        fig.update_layout(
-            legend=dict(
-                font=dict(size=font_size),  # Increase legend font size
-                itemsizing='constant',  # Make legend items the same size
-                itemwidth=max(legend_itemsize, 30)  # Increase legend item width
+        # Increase size of the points in the legend if legend is shown
+        if show_legend:
+            fig.update_layout(
+                legend=dict(
+                    font=dict(size=font_size),  # Increase legend font size
+                    itemsizing='constant',  # Make legend items the same size
+                    itemwidth=max(legend_itemsize, 30)  # Increase legend item width
+                )
             )
-        )
-    
-    # fig = px.scatter_3d(df, x='DIM1', y='DIM2', z='DIM3', color=color_by,
-    #                     title=f'3D Embedding colored by {color_by}', labels={'color': color_by},
-    #                     opacity=opacity)
 
     fig.update_traces(marker=dict(size=point_size), selector=dict(mode='markers'))
-    fig.update_layout(width=width, height=height)
     
-
+    # Configure layout based on parameters
+    layout_updates = dict(width=width, height=height)
+    
+    # Hide legend/colorbar if not show_legend
+    if not show_legend:
+        if is_numeric:
+            # For numeric data, hide the colorbar
+            fig.update_layout(coloraxis_showscale=False)
+            for trace in fig.data:
+                if hasattr(trace, 'colorbar'):
+                    trace.colorbar.showticklabels = False
+                    trace.colorbar.thickness = 0
+                    trace.colorbar.len = 0
+        else:
+            # For categorical data, hide the legend
+            layout_updates['showlegend'] = False
+    
+    # Configure scene for axes and background
+    scene_updates = {}
+    
+    if not show_axes:
+        scene_updates.update({
+            'xaxis': {'visible': False, 'showticklabels': False, 'showgrid': False, 'zeroline': False},
+            'yaxis': {'visible': False, 'showticklabels': False, 'showgrid': False, 'zeroline': False},
+            'zaxis': {'visible': False, 'showticklabels': False, 'showgrid': False, 'zeroline': False}
+        })
+    
+    if not show_background:
+        scene_updates['bgcolor'] = 'rgba(0,0,0,0)'  # Transparent background
+    
+    if scene_updates:
+        layout_updates['scene'] = scene_updates
+    
+    # Apply all layout updates
+    fig.update_layout(**layout_updates)
+    
+    # For a completely clean look without title
+    if not show_title:
+        fig.update_layout(margin=dict(t=0, l=0, r=0, b=0))
+    
+    # Convert elevation and azimuth (degrees) to coordinates on a sphere for initial view
+    elev_rad = math.radians(elev)
+    azim_rad = math.radians(azim)
+    x = zoom * math.cos(elev_rad) * math.cos(azim_rad)
+    y = zoom * math.cos(elev_rad) * math.sin(azim_rad)
+    z = zoom * math.sin(elev_rad)
+    
     # Create rotation steps by defining camera positions
-    asp_ratio = 1.5
-    def generate_camera_angles(num_steps):
+    def generate_camera_angles(num_steps, initial_x=x, initial_y=y, initial_z=z):
+        # Start from the initial viewpoint and rotate around the z-axis
+        initial_radius_xy = math.sqrt(initial_x**2 + initial_y**2)
+        initial_theta = math.atan2(initial_y, initial_x)
+        
         return [
             dict(
-                eye=dict(x=np.cos(2 * np.pi * t / num_steps) * asp_ratio, y=np.sin(2 * np.pi * t / num_steps) * asp_ratio, z=asp_ratio / 2)
+                eye=dict(
+                    x=initial_radius_xy * math.cos(initial_theta + 2 * math.pi * t / num_steps),
+                    y=initial_radius_xy * math.sin(initial_theta + 2 * math.pi * t / num_steps),
+                    z=initial_z
+                )
             )
             for t in range(num_steps)
         ]
@@ -1248,21 +1329,24 @@ def plot_rotating_embedding_3d_to_mp4(adata, embedding_key='encoded_UMAP', color
     # Generate camera angles for the rotation
     camera_angles = generate_camera_angles(num_steps)
     print(f"number of frames: {len(camera_angles)}")
-    # Save the frames as images
+    
+    # Save the frames as images with specified DPI
     frame_files = []
     for i, camera_angle in enumerate(camera_angles):
         fig.update_layout(scene_camera=camera_angle)
         frame_file = f"frame_{i:04d}.png"
-        fig.write_image(frame_file)
+        # Pass the DPI parameter to write_image
+        fig.write_image(frame_file, scale=dpi/100)  # Convert DPI to scale factor
         frame_files.append(frame_file)
 
-    # Create the video using MoviePy
-    clips = [mpy.ImageClip(frame).set_duration(rotation_duration / num_steps) for frame in frame_files]
-    video = mpy.concatenate_videoclips(clips, method="compose")
-    video.write_videofile(save_path, fps=num_steps / rotation_duration)
+    # Create the video using MoviePy's ImageSequenceClip
+    fps = num_steps / rotation_duration
+    video = ImageSequenceClip.ImageSequenceClip(frame_files, fps=fps)
+    video.write_videofile(save_path)
 
     # Clean up the temporary image files
     for frame_file in frame_files:
         os.remove(frame_file)
 
     print(f"Rotation video saved to {save_path}")
+    
