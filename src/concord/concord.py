@@ -94,10 +94,10 @@ class Concord:
             lr=1e-2,
             schedule_ratio=0.97,
             train_frac=1.0,
-            latent_dim=32,
-            encoder_dims=[128],
-            decoder_dims=[128],
-            augmentation_mask_prob=0.5,  # Default mask probability
+            latent_dim=100,
+            encoder_dims=[512],
+            decoder_dims=[512],
+            augmentation_mask_prob=0.3,  
             domain_key=None,
             class_key=None,
             domain_embedding_dim=8,
@@ -106,7 +106,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
-            clr_temperature=0.5,
+            clr_temperature=0.3,
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
