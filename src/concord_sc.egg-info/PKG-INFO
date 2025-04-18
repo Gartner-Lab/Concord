@@ -1,6 +1,6 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: concord-sc
-Version: 0.9.3
+Version: 0.9.4
 Summary: CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery
 Home-page: https://github.com/Gartner-Lab/Concord
 Author: Qin Zhu
@@ -33,6 +33,18 @@ Requires-Dist: Pillow>=10.0.0; extra == "optional"
 Requires-Dist: plottable>=0.1; extra == "optional"
 Requires-Dist: requests>=2.0; extra == "optional"
 Requires-Dist: rpy2>=3.5; extra == "optional"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: license
+Dynamic: license-file
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
 
 # CONCORD: COntrastive learNing for Cross-dOmain Reconciliation and Discovery
 

@@ -97,7 +97,7 @@ class Concord:
             latent_dim=100,
             encoder_dims=[512],
             decoder_dims=[512],
-            augmentation_mask_prob=0.3,  
+            augmentation_mask_prob=0.4,  
             domain_key=None,
             class_key=None,
             domain_embedding_dim=8,
