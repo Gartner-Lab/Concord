@@ -47,7 +47,6 @@ def generate_synthetic_doublets(adata, doublet_synth_ratio, seed, batch_key, dro
         plt.show()
 
     fraction_idx = 0
-
     for batch in batches:
         batch_data = adata[adata.obs[batch_key] == batch]
         num_doublets = int(len(batch_data) * doublet_synth_ratio)
@@ -89,9 +88,7 @@ def generate_synthetic_doublets(adata, doublet_synth_ratio, seed, batch_key, dro
     adata_synthetic_doublets.var = adata.var.copy()
 
     if combine_with_original:
-        # Combine with the original adata
-        if droplet_type_key not in adata.obs.columns:
-            adata.obs[droplet_type_key] = 'singlet'
+        adata.obs[droplet_type_key] = 'singlet'
 
         adata_combined = ad.concat([adata, adata_synthetic_doublets], axis=0, join='outer')
         # Remove existing obsm if any

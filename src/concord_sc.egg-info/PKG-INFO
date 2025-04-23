@@ -1,6 +1,6 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: concord-sc
-Version: 0.9.4
+Version: 0.9.5
 Summary: CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery
 Home-page: https://github.com/Gartner-Lab/Concord
 Author: Qin Zhu
@@ -33,18 +33,6 @@ Requires-Dist: Pillow>=10.0.0; extra == "optional"
 Requires-Dist: plottable>=0.1; extra == "optional"
 Requires-Dist: requests>=2.0; extra == "optional"
 Requires-Dist: rpy2>=3.5; extra == "optional"
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description
-Dynamic: description-content-type
-Dynamic: home-page
-Dynamic: license
-Dynamic: license-file
-Dynamic: provides-extra
-Dynamic: requires-dist
-Dynamic: requires-python
-Dynamic: summary
 
 # CONCORD: COntrastive learNing for Cross-dOmain Reconciliation and Discovery
 
@@ -52,7 +40,7 @@ Qin Zhu, Gartner Lab, UCSF
 
 ## Description
 
-Resolving the intricate structure of the cellular state landscape from single-cell RNA sequencing (scRNAseq) experiments remains an outstanding challenge, compounded by technical noise and systematic discrepancies—often referred to as batch effects—across experimental systems and replicate. To address this, we introduce **CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery)**, a self-supervised contrastive learning framework designed for robust **dimensionality reduction** and **data integration** in single-cell analysis. The core innovation of CONCORD lies in its probabilistic, dataset- and neighborhood-aware sampling strategy, which enhances contrastive learning by simultaneously improving the resolution of cell states and mitigating batch artifacts. Operated in a fully unsupervised manner, CONCORD generates **denoised cell encodings** that faithfully preserve key biological structures, from fine-grained distinctions among closely related cell states to large-scale topological organizations. The resulting high-resolution cell atlas seamlessly integrates data across experimental batches, technologies, and species. Additionally, CONCORD’s latent space capture biologically meaningful **gene programs**, enabling the exploration of regulatory mechanisms underlying cell state transitions and subpopulation heterogeneity. We demonstrate the utility of CONCORD on a range of topological structures and biological contexts, underscoring its potential to extract meaningful insights from both existing and future single-cell datasets.
+**Batch integration**, **denoising**, and **dimensionality reduction** remain fundamental challenges in single-cell data analysis. While many machine learning tools aim to overcome these challenges by engineering model architectures, we use a different strategy, building on the insight that optimized mini-batch sampling during training can profoundly influence learning outcomes. We present **CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery)**, a self-supervised learning approach that implements a unified, probabilistic data sampling scheme combining neighborhood-aware and dataset-aware sampling: the former enhancing resolution while the latter removing batch effects. Using only a minimalist one-hidden-layer neural network and contrastive learning, CONCORD achieves state-of-the-art performance without relying on deep architectures, auxiliary losses, or supervision. It generates high-resolution cell atlases that seamlessly integrate data across batches, technologies, and species, without relying on prior assumptions about data structure. The resulting latent representations are denoised, interpretable, and biologically meaningful—capturing gene co-expression programs, resolving subtle cellular states, and preserving both local geometric relationships and global topological organization. We demonstrate CONCORD’s broad applicability across diverse datasets, establishing it as a general-purpose framework for learning unified, high-fidelity representations of cellular identity and dynamics.
 
 **Full Documentation available at https://qinzhu.github.io/Concord_documentation/.**
 
