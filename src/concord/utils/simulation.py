@@ -308,6 +308,10 @@ class Simulation:
             logger.info(f"Simulating variance inflation effect on {batch_name} by multiplying original data with a normal distributed scaling factor with level 1 and std {dispersion}.")
             scale_vector = 1 + np.random.normal(loc=0, scale=dispersion, size=batch_adata.n_vars * batch_adata.n_obs).reshape(batch_adata.n_obs, batch_adata.n_vars)
             batch_adata.X = batch_adata.X.toarray() * scale_vector if sp.issparse(batch_adata.X) else batch_adata.X * scale_vector
+        elif effect_type == 'batch_specific_distribution':
+            logger.info(f"Simulating batch-specific distribution effect on {batch_name} by adding a {distribution} distributed value with level {level} and dispersion {dispersion}.")
+            batch_adata.X = batch_adata.X.astype(np.float64)
+            batch_adata.X += Simulation.simulate_distribution(distribution, level, dispersion, (batch_adata.n_obs, batch_adata.n_vars))
         elif effect_type == 'uniform_dropout':
             logger.info(f"Simulating uniform dropout effect on {batch_name} by setting a random fraction of the data to 0. Fraction is determined by level={level}.")
             dropout_prob = level
@@ -329,6 +333,7 @@ class Simulation:
             logger.info(f"Simulating batch-specific expression effect on {batch_name} by adding a {distribution} distributed value with level {level} and dispersion {dispersion} to a random subset of batch-affected genes.")
             n_genes_batch_specific = int(batch_feature_frac * batch_adata.n_vars)
             batch_specific_genes = np.random.choice(batch_adata.n_vars, n_genes_batch_specific, replace=False)
+            batch_adata.X = batch_adata.X.astype(np.float64)
             batch_adata.X[:, batch_specific_genes] += Simulation.simulate_distribution(distribution, level, dispersion, (batch_adata.n_obs, n_genes_batch_specific))
         elif effect_type == 'batch_specific_features':
             logger.info(f"Simulating batch-specific features effect on {batch_name} by appending a set of batch-specific genes with {distribution} distributed value with level {level} and dispersion {dispersion}.")
