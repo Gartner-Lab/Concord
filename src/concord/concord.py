@@ -106,7 +106,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_mode="aug", # Consider fix
-            clr_temperature=0.3,
+            clr_temperature=0.5,
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
