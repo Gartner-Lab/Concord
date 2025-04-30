@@ -94,23 +94,26 @@ def plot_embedding(adata, basis, color_by=None,
     for col, ax in zip(color_by, axs):
         data_col, cmap, palette = get_color_mapping(adata, col, pal, seed=seed)
 
-        # Compute vmax based on the quantile if vmax_quantile is provided and color_by is numeric
+        # Start clean: determine a local vmax per color_by
+        local_vmax = None
+
         if pd.api.types.is_numeric_dtype(data_col):
             if vmax is not None:
-                pass  # Use the provided vmax
+                local_vmax = vmax  # If user manually specified a vmax globally
             elif vmax_quantile is not None:
                 import scipy.sparse as sp
                 if col in adata.var_names:  # If color_by is a gene
                     expression_values = adata[:, col].X
                     if sp.issparse(expression_values):
                         expression_values = expression_values.toarray().flatten()
-                    vmax = np.percentile(expression_values, vmax_quantile * 100)
-                elif col in adata.obs:  # If color_by is in adata.obs
-                    vmax = np.percentile(data_col, vmax_quantile * 100)
+                    local_vmax = np.percentile(expression_values, vmax_quantile * 100)
+                    local_vmax = max(0.1, local_vmax)
+                elif col in adata.obs:
+                    local_vmax = np.percentile(data_col, vmax_quantile * 100)
                 else:
                     raise ValueError(f"Unknown column '{col}' in adata")
             else:
-                vmax = data_col.max()            
+                local_vmax = data_col.max()           
 
         if col is None:
             sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
@@ -119,11 +122,18 @@ def plot_embedding(adata, basis, color_by=None,
             for collection in ax.collections:
                 collection.set_color(default_color)
         elif pd.api.types.is_numeric_dtype(data_col):
-            sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                            legend_loc='right margin', legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                            vmax=vmax,  # Use the computed vmax if provided
-                            zorder=1)
+            if col in adata.var_names:
+                sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                legend_loc='right margin', legend_fontsize=font_size,
+                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                vmin=0, vmax=local_vmax,
+                                zorder=1)
+            else:
+                sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                legend_loc='right margin', legend_fontsize=font_size,
+                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                vmax=local_vmax,
+                                zorder=1)
         else:
             sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
                             legend_loc=legend_loc, legend_fontsize=font_size,
