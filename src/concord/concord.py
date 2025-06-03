@@ -73,17 +73,20 @@ class Concord:
         else:
             self.adata = adata if inplace else adata.copy()
 
-        self.save_dir = Path(save_dir)
         self.config = None
         self.loader = None
         self.model = None
         self.run = None
         self.sampler_kwargs = {}
 
-        if not self.save_dir.exists():
-            self.save_dir.mkdir(parents=True, exist_ok=True)
-
-        add_file_handler(logger, self.save_dir / "run.log")
+        if save_dir is not None:
+            self.save_dir = Path(save_dir)
+            if not self.save_dir.exists():
+                self.save_dir.mkdir(parents=True, exist_ok=True)
+            add_file_handler(logger, self.save_dir / "run.log")
+        else:
+            self.save_dir = None
+            logger.warning("save_dir is None. Model and log files will not be saved.")
 
         self.default_params = dict(
             seed=0,
@@ -422,17 +425,20 @@ class Concord:
             self.model.load_state_dict(best_model_state)
             logger.info("Best model state loaded into the model before final save.")
 
-        if save_model:
+        if save_model and self.save_dir is not None:
             import time
             file_suffix = f"{time.strftime('%b%d-%H%M')}"
             model_save_path = self.save_dir / f"final_model_{file_suffix}.pt"
             self.save_model(self.model, model_save_path)
-            # Save the configuration
+
             config_save_path = self.save_dir / f"config_{file_suffix}.json"
             with open(config_save_path, 'w') as f:
                 json.dump(self.config.to_dict(), f, indent=4)
-            
+
             logger.info(f"Final model saved at: {model_save_path}; Configuration saved at: {config_save_path}.")
+        elif save_model:
+            logger.warning("save_dir is None. Skipping model/config saving.")
+
 
 
     def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_latent=False, return_class=True, return_class_prob=True):  

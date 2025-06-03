@@ -1,6 +1,6 @@
 
 import pandas as pd
-from .timer import Timer
+from .other_util import Timer
 import logging
 import numpy as np
 from .. import logger
@@ -54,7 +54,7 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
 
                 # Initialize Concord model with updated parameters
                 from ..concord import Concord
-                ccd = Concord(adata=adata, **params_copy)
+                cur_ccd = Concord(adata=adata, **params_copy)
 
                 # Define the output key and file suffix including param_name and value
                 output_key_final = f"{output_key}_{param_name}_{str(value).replace(' ', '')}"
@@ -62,8 +62,8 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
 
 
                 # Encode adata and store the results in adata.obsm
-                ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key_final, return_decoded=return_decoded)
-                adata.obsm[output_key_final] = ccd.adata.obsm[output_key_final]
+                cur_ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key_final, return_decoded=return_decoded)
+                adata.obsm[output_key_final] = cur_ccd.adata.obsm[output_key_final]
 
                 if trace_memory:
                     current, peak = tracemalloc.get_traced_memory()

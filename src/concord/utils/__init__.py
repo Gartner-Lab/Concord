@@ -10,7 +10,6 @@ from .batch_analysis import *
 from .path_analysis import *
 from .value_check import *
 from .cell_cycle import *
-from .timer import *
 from .Hs_Mm_conversion import *
 from .run_dim_reduction import *
 from .coverage_estimator import *
