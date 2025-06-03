@@ -54,7 +54,6 @@ src/concord/utils/run_integration_methods.py
 src/concord/utils/simulation.py
 src/concord/utils/sparsity.py
 src/concord/utils/tda.py
-src/concord/utils/timer.py
 src/concord/utils/value_check.py
 src/concord/utils/visCello.py
 src/concord_sc.egg-info/PKG-INFO

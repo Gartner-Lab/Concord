@@ -8,7 +8,7 @@ import logging
 import matplotlib.pyplot as plt
 import time
 from ..model.knn import Neighborhood
-from .timer import Timer
+from .other_util import Timer
 
 
 logger = logging.getLogger(__name__)
