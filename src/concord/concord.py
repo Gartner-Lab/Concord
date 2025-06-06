@@ -220,7 +220,6 @@ class Concord:
         # to be used by chunkloader for data transformation
         self.preprocessor = Preprocessor(
             use_key="X",
-            feature_list=self.config.input_feature,
             normalize_total=1e4,
             result_normed_key="X_normed",
             log1p=True,
@@ -343,6 +342,7 @@ class Concord:
         self.data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
+            feature_list=self.config.input_feature,
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
             sampler_emb=self.config.sampler_emb, 
