@@ -21,6 +21,7 @@ def plot_embedding(adata, basis, color_by=None,
                    highlight_color='black',
                    highlight_size=20, 
                    highlight_density=False,
+                   highlight_alpha=1.0,
                    density_color='viridis',
                    density_levels=5,
                    density_alpha=0.5,
@@ -158,7 +159,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     linewidths=0,
                     color=highlight_color,
-                    alpha=1.0,
+                    alpha=highlight_alpha,
                     zorder=2,  # Ensure points are on top
                 )
             elif pd.api.types.is_numeric_dtype(data_col):
@@ -176,7 +177,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     linewidths=0,
                     color=highlight_colors,
-                    alpha=1.0,
+                    alpha=highlight_alpha,
                     zorder=2,
                 )
             else:
@@ -191,7 +192,7 @@ def plot_embedding(adata, basis, color_by=None,
                     s=highlight_size,
                     linewidths=0,
                     color=colors,
-                    alpha=1.0,
+                    alpha=highlight_alpha,
                     zorder=2,
                 )
 

@@ -46,6 +46,7 @@ class DataLoaderManager:
     """
     def __init__(self, input_layer_key, domain_key, 
                     class_key=None, covariate_keys=None,
+                    feature_list=None,  
                     batch_size=32, train_frac=0.9,
                     use_sampler=True,
                     sampler_emb=None,
@@ -92,6 +93,7 @@ class DataLoaderManager:
         self.domain_key = domain_key
         self.class_key = class_key
         self.covariate_keys = covariate_keys
+        self.feature_list = feature_list
         self.batch_size = batch_size
         self.train_frac = train_frac
         self.use_sampler = use_sampler
@@ -197,11 +199,16 @@ class DataLoaderManager:
             tuple: Train DataLoader, validation DataLoader (if `train_frac < 1.0`), and data structure.
         """
         self.adata = adata
-        
         # Preprocess data if necessary
         if self.preprocess:
             logger.info("Preprocessing adata...")
             self.preprocess(self.adata)
+
+        # Subset features if provided
+        if self.feature_list:
+            logger.info(f"Filtering features with provided list ({len(self.feature_list)} features)...")
+            self.adata._inplace_subset_var(adata.var_names.isin(self.feature_list))
+
 
         self.domain_labels = self.adata.obs[self.domain_key]
         self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)
