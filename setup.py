@@ -25,7 +25,7 @@ setup(
     license="MIT",
     install_requires=[
         "anndata>=0.8",
-        "numpy>=1.23,<2.0",
+        "numpy>=1.23",
         "h5py>=3.1",
         "tqdm",
         "umap-learn>=0.5.1",

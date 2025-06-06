@@ -13,7 +13,7 @@ Requires-Python: >=3.7
 Description-Content-Type: text/markdown
 License-File: LICENSE.md
 Requires-Dist: anndata>=0.8
-Requires-Dist: numpy<2.0,>=1.23
+Requires-Dist: numpy>=1.23
 Requires-Dist: h5py>=3.1
 Requires-Dist: tqdm
 Requires-Dist: umap-learn>=0.5.1
