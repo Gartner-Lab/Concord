@@ -3,6 +3,7 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 import logging
+from .anndata_utils import ordered_concat
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ class Simulation:
                  tree_depth=3,
                  tree_program_decay=0.5,
                  tree_cellcount_decay=1.0,
+                 tree_initial_inherited_genes=None,
                  batch_distribution='normal',
                  batch_level=1.0, 
                  batch_dispersion=0.1, 
@@ -114,6 +116,7 @@ class Simulation:
         self.tree_depth = tree_depth
         self.tree_program_decay = tree_program_decay
         self.tree_cellcount_decay = tree_cellcount_decay
+        self.tree_initial_inherited_genes = tree_initial_inherited_genes
 
         # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
         self.batch_type = batch_type if isinstance(batch_type, list) else [batch_type] * n_batches
@@ -149,7 +152,7 @@ class Simulation:
         from .other_util import sort_string_list
         adata_state = self.simulate_state()
 
-        adata_state = adata_state[:, sort_string_list(adata_state.var_names)]
+        #adata_state = adata_state[:, sort_string_list(adata_state.var_names)]
 
         batch_list = []
         state_list = []
@@ -228,7 +231,9 @@ class Simulation:
                                       cellcount_decay=self.tree_cellcount_decay,
                                       distribution=self.state_distribution,
                                       mean_expression=self.state_level, min_expression=self.state_min_level,
-                                      dispersion=self.state_dispersion, noise_in_block=self.program_noise_in_block, seed=self.seed)
+                                      dispersion=self.state_dispersion, noise_in_block=self.program_noise_in_block, 
+                                      initial_inherited_genes=self.tree_initial_inherited_genes,
+                                      seed=self.seed)
         elif self.state_type == 'gatto':
             logger.info(f"Simulating dataset in Gatto et al. 2023 with distribution: {self.state_distribution} with background expression {self.state_level} and dispersion {self.state_dispersion}.")
             adata = self.simulate_gatto(n_genes=self.n_genes, n_cells=self.n_cells, 
@@ -620,7 +625,9 @@ class Simulation:
                         cellcount_decay=1.0,
                         distribution='normal',
                         mean_expression=10, min_expression=0, 
-                        dispersion=1.0, seed=42, noise_in_block=True):
+                        dispersion=1.0, seed=42, noise_in_block=True,
+                        initial_inherited_genes=None
+                        ):
         """
         Simulates hierarchical branching gene expression patterns.
 
@@ -750,16 +757,19 @@ class Simulation:
             for i in range(cur_branching_factor):
                 new_branch_path = branch_path + [i]
                 new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes, start_time=end_time)
-                adata = sc.concat([adata, new_adata], join='outer')
+                adata = ordered_concat([adata, new_adata], join='outer')
 
             return adata
             
-        adata = simulate_branch(depth, branch_path=[])
+        adata = simulate_branch(depth, branch_path=[], inherited_genes=initial_inherited_genes)
+        adata.X = np.nan_to_num(adata.X, nan=0.0)
         for key in adata.layers.keys():
             adata.layers[key] = np.nan_to_num(adata.layers[key], nan=0.0)
+    
         if not noise_in_block:
             adata.X = Simulation.simulate_distribution(distribution, adata.layers['no_noise'], dispersion)
         return adata
+    
 
 
         
@@ -803,20 +813,71 @@ class Simulation:
     
     
     @staticmethod
-    def simulate_distribution(distribution, mean, dispersion, size=None):
+    def simulate_distribution(distribution, mean, dispersion, size=None, nonzero_only=False):
+        """
+        Samples values from a specified distribution.
+
+        Args:
+            distribution (str): The type of distribution ('normal', 'poisson', etc.).
+            mean (np.ndarray): The mean values for the distribution.
+            dispersion (float): The dispersion or standard deviation.
+            size (tuple, optional): The shape of the output matrix. Defaults to mean.shape.
+            nonzero_only (bool, optional): If True, noise/dispersion is only applied
+                                           to non-zero elements of the mean matrix.
+                                           Defaults to False.
+        Returns:
+            np.ndarray: The matrix with simulated values.
+        """
         if size is None:
             size = mean.shape
 
-        if distribution == "normal":
-            return mean + np.random.normal(0, dispersion, size)
-        elif distribution == 'poisson':
-            return np.random.poisson(mean, size)
-        elif distribution == 'negative_binomial':
-            return Simulation.rnegbin(mean, dispersion, size)
-        elif distribution == 'lognormal':
-            return np.random.lognormal(mean, dispersion, size)
+        if not nonzero_only:
+            # --- ORIGINAL BEHAVIOR: Apply noise to the entire matrix ---
+            if distribution == "normal":
+                return mean + np.random.normal(0, dispersion, size)
+            elif distribution == 'poisson':
+                # Ensure lambda for Poisson is non-negative
+                return np.random.poisson(np.maximum(0, mean), size)
+            elif distribution == 'negative_binomial':
+                return Simulation.rnegbin(np.maximum(0, mean), dispersion, size)
+            elif distribution == 'lognormal':
+                 # Ensure base for lognormal is positive
+                return np.random.lognormal(np.log(np.maximum(1e-9, mean)), dispersion, size)
+            else:
+                raise ValueError(f"Unknown distribution '{distribution}'.")
+
         else:
-            raise ValueError(f"Unknown distribution '{distribution}'.")
+            # --- NEW BEHAVIOR: Apply noise only to non-zero mean values ---
+            # Create a boolean mask of non-zero elements
+            mask = mean > 0
+            
+            if distribution == "normal":
+                # For additive noise, start with the original mean matrix
+                result = mean.copy().astype(float)
+                # Generate noise for only the non-zero elements
+                noise = np.random.normal(0, dispersion, size=np.sum(mask))
+                # Add the noise to the corresponding non-zero elements
+                result[mask] += noise
+                return result
+
+            elif distribution in ['poisson', 'negative_binomial', 'lognormal']:
+                # For generative distributions, start with a zero matrix
+                result = np.zeros_like(mean, dtype=float)
+                # Get the mean values for only the non-zero elements
+                nonzero_means = mean[mask]
+
+                if distribution == 'poisson':
+                    sampled_values = np.random.poisson(np.maximum(0, nonzero_means))
+                elif distribution == 'negative_binomial':
+                    sampled_values = Simulation.rnegbin(np.maximum(0, nonzero_means), dispersion)
+                elif distribution == 'lognormal':
+                    sampled_values = np.random.lognormal(np.log(np.maximum(1e-9, nonzero_means)), dispersion)
+                
+                # Place the newly sampled values back into the result matrix at the correct positions
+                result[mask] = sampled_values
+                return result
+            else:
+                raise ValueError(f"Unknown distribution '{distribution}'.")
 
 
     @staticmethod
