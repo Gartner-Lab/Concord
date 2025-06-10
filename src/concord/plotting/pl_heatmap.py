@@ -122,8 +122,14 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
     if isinstance(val, str):
         if val == 'X':
             data = pd.DataFrame(adata.X.toarray() if sp.issparse(adata.X) else adata.X)
+            # Set the index to the gene names if available
+            if adata.var_names is not None:
+                data.columns = adata.var_names
         elif val in adata.layers.keys():
             data = pd.DataFrame(adata.layers[val].toarray() if sp.issparse(adata.layers[val]) else adata.layers[val])
+            # Set the index to the gene names if available
+            if adata.var_names is not None:
+                data.columns = adata.var_names
         elif val in adata.obsm.keys():
             data = pd.DataFrame(adata.obsm[val])
         else:

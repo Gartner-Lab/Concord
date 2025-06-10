@@ -261,7 +261,7 @@ def run_integration_methods_pipeline(
     # Concord default
     if "concord" in methods:
         profiled_run("concord", lambda: run_concord(
-            adata, layer='X', preprocess=True, batch_key=batch_key,
+            adata, layer='X', preprocess=False, batch_key=batch_key,
             output_key="concord", latent_dim=latent_dim,
             return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord")
 

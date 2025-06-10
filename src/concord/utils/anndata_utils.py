@@ -1,8 +1,12 @@
-from typing import Optional
+
 import anndata as ad
 import os  
 import scanpy as sc 
+import numpy as np
+import pandas as pd
+from typing import List, Optional
 from .. import logger
+
 
 def list_adata_files(folder_path, substring=None, extension='*.h5ad'):
     """
@@ -303,3 +307,79 @@ def compute_meta_attributes(adata, groupby_key, attribute_key, method='majority_
     print(f"Added '{meta_label_name}' to adata.obs")
     return meta_label_name
 
+
+
+def ordered_concat(
+    adatas: List[ad.AnnData], 
+    join: str = 'outer', 
+    label: Optional[str] = None, 
+    keys: Optional[List[str]] = None, 
+    index_unique: Optional[str] = None,
+    **kwargs
+) -> ad.AnnData:
+    """
+    A wrapper for anndata.concat that preserves gene order based on the input list sequence.
+
+    Instead of sorting the final variables (genes) alphabetically like the default
+    anndata.concat, this function orders them sequentially: all genes from the
+    first AnnData object appear first, followed by any *new* genes from the
+    second object, and so on.
+
+    Args:
+        adatas: A list of AnnData objects to concatenate.
+        join: Type of join ('inner' or 'outer'). Defaults to 'outer'.
+        label: Column name to add to `.obs` identifying the origin of each cell.
+        keys: Names for the `label` column. Inferred from `adatas.keys()` if it's a dict.
+        index_unique: How to make indices unique. See anndata.concat documentation.
+        **kwargs: Additional keyword arguments passed to anndata.concat.
+
+    Returns:
+        The concatenated AnnData object with a preserved, sequential gene order.
+    """
+
+    if not isinstance(adatas, list) or not adatas:
+        raise ValueError("`adatas` must be a non-empty list of AnnData objects.")
+
+    # --- Step 1: Determine the desired sequential gene order ---
+    final_gene_order = []
+    seen_genes = set()
+
+    for adata in adatas:
+        # Find genes in the current AnnData that we haven't seen yet
+        new_genes = [gene for gene in adata.var_names if gene not in seen_genes]
+        
+        # Add these new genes to our final ordered list
+        final_gene_order.extend(new_genes)
+        
+        # Update the set of seen genes
+        seen_genes.update(adata.var_names)
+
+    # --- Step 2: Perform the standard concatenation using the provided arguments ---
+    # This creates a merged object, but with genes sorted alphabetically.
+    # We pass all original arguments, including the list of adatas.
+    concatenated_adata = ad.concat(
+        adatas,
+        join=join,
+        label=label,
+        keys=keys,
+        index_unique=index_unique,
+        **kwargs
+    )
+
+    # --- Step 3: Clean up any NaN values from the 'outer' join ---
+    # This is important for data integrity and visualization.
+    if hasattr(concatenated_adata.X, 'toarray'):
+        concatenated_adata.X = concatenated_adata.X.toarray()
+    concatenated_adata.X = np.nan_to_num(concatenated_adata.X, nan=0.0)
+    
+    for layer_key in concatenated_adata.layers.keys():
+        if hasattr(concatenated_adata.layers[layer_key], 'toarray'):
+            concatenated_adata.layers[layer_key] = concatenated_adata.layers[layer_key].toarray()
+        concatenated_adata.layers[layer_key] = np.nan_to_num(concatenated_adata.layers[layer_key], nan=0.0)
+
+    # --- Step 4: Re-index the AnnData object to enforce the correct order ---
+    # This is the key step that fixes the sorting issue.
+    # We use .copy() to ensure the final object is not a view.
+    reordered_adata = concatenated_adata[:, final_gene_order].copy()
+
+    return reordered_adata
