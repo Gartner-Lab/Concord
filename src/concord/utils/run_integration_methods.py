@@ -90,7 +90,7 @@ def run_harmony(adata, batch_key="batch", output_key="Harmony", input_key="X_pca
 
 
 def run_scvi(adata, layer="counts", batch_key="batch", gene_likelihood="nb", n_layers=2, n_latent=30, output_key="scVI", return_model=True, return_corrected=False, transform_batch=None):
-    import scvi
+    import scvi.model
     # Set up the AnnData object for SCVI
     scvi.model.SCVI.setup_anndata(adata, layer=layer, batch_key=batch_key)
     
@@ -111,7 +111,7 @@ def run_scvi(adata, layer="counts", batch_key="batch", gene_likelihood="nb", n_l
 
 def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels_key="cell_type", unlabeled_category="Unknown", output_key="scANVI", 
                gene_likelihood="nb", n_layers=2, n_latent=30, return_corrected=False, transform_batch=None):
-    import scvi
+    import scvi.model
     # Train SCVI model if not supplied
     if scvi_model is None:
         scvi_model = run_scvi(adata, layer=layer, batch_key=batch_key, gene_likelihood=gene_likelihood,
