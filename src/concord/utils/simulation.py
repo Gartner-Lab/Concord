@@ -4,329 +4,248 @@ import anndata as ad
 import scanpy as sc
 from scipy import sparse as sp
 import logging
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any, Union, Tuple
 from .anndata_utils import ordered_concat
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------- #
+# Configuration Data Classes
+# ---------------------------------------------------------------------------- #
+
+@dataclass
+class SimConfig:
+    """General simulation parameters."""
+    n_cells: int = 1000
+    n_genes: int = 1000
+    seed: int = 0
+    non_neg: bool = False
+    to_int: bool = False
+
+@dataclass
+class StateConfig:
+    """Base configuration for cell state simulation."""
+    state_type: str = 'cluster'
+    distribution: str = 'normal'
+    level: float = 1.0
+    min_level: float = 0.0
+    dispersion: float = 0.1
+
+@dataclass
+class ClusterConfig(StateConfig):
+    """Parameters for cluster-based simulation."""
+    n_states: int = 3
+    program_structure: str = "linear"
+    program_on_time_fraction: float = 0.3
+    global_non_specific_gene_fraction: float = 0.1
+    pairwise_non_specific_gene_fraction: Optional[Dict[Tuple[int, int], float]] = None
+
+@dataclass
+class TrajectoryConfig(StateConfig):
+    """Parameters for trajectory-based simulation."""
+    state_type: str = "trajectory"
+    program_num: int = 3
+    program_structure: str = "linear"
+    program_on_time_fraction: float = 0.3
+    cell_block_size_ratio: float = 0.3
+    loop_to: Optional[Union[int, List[int]]] = None
+
+@dataclass
+class TreeConfig(StateConfig):
+    """Parameters for tree-based simulation."""
+    state_type: str = "tree"
+    branching_factor: Union[int, List[int]] = 2
+    depth: int = 3
+    program_structure: str = "linear_increasing"
+    program_on_time_fraction: float = 0.3
+    program_gap_size: int = 1
+    program_decay: float = 0.5
+    cellcount_decay: float = 1.0
+    noise_in_block: bool = True
+    initial_inherited_genes: Optional[List[str]] = None
+
+@dataclass
+class BatchConfig:
+    """Configuration for batch effects."""
+    n_batches: int = 2
+    effect_type: Union[str, List[str]] = 'batch_specific_features'
+    distribution: Union[str, List[str]] = 'normal'
+    level: Union[float, List[float]] = 1.0
+    dispersion: Union[float, List[float]] = 0.1
+    feature_frac: Union[float, List[float]] = 0.1
+    cell_proportion: Optional[List[float]] = None
+
+    def __post_init__(self):
+        """Ensure all batch parameters are lists of the correct length."""
+        self.effect_type = self._to_list(self.effect_type, self.n_batches)
+        self.distribution = self._to_list(self.distribution, self.n_batches)
+        self.level = self._to_list(self.level, self.n_batches)
+        self.dispersion = self._to_list(self.dispersion, self.n_batches)
+        self.feature_frac = self._to_list(self.feature_frac, self.n_batches)
+        if self.cell_proportion is None:
+            self.cell_proportion = [1 / self.n_batches] * self.n_batches
+        elif len(self.cell_proportion) != self.n_batches:
+            raise ValueError("Length of batch_cell_proportion must match n_batches.")
+
+    @staticmethod
+    def _to_list(value: Any, n: int) -> List:
+        """Normalize a scalar or sequence to a list of length n."""
+        if isinstance(value, list) and len(value) == n:
+            return value
+        if isinstance(value, (str, int, float)):
+            return [value] * n
+        raise ValueError(f"Cannot broadcast value to length {n}.")
+    
+
 
 class Simulation:
-    ### Concord.utils.Simulation
     """
-    A class for simulating single-cell gene expression data with various structures and batch effects.
-
-    Args:
-        n_cells (int, optional): Number of cells to simulate. Defaults to 1000.
-        n_genes (int, optional): Number of genes to simulate. Defaults to 1000.
-        n_batches (int, optional): Number of batches to simulate. Defaults to 2.
-        n_states (int, optional): Number of states (e.g., clusters, trajectories). Defaults to 3.
-        state_type (str, optional): Type of state to simulate; options include 'cluster', 'trajectory', 'tree', etc. Defaults to 'cluster'.
-        batch_type (str or list, optional): Type of batch effect; options include 'batch_specific_features', 'variance_inflation', etc. Defaults to 'batch_specific_features'.
-        state_distribution (str, optional): Distribution type for states; e.g., 'normal', 'poisson'. Defaults to 'normal'.
-        state_level (float, optional): Mean expression level for states. Defaults to 1.0.
-        state_min_level (float, optional): Minimum expression level. Defaults to 0.0.
-        state_dispersion (float, optional): Dispersion of state expression. Defaults to 0.1.
-        program_structure (str, optional): Gene expression program structure; e.g., 'linear', 'bidirectional'. Defaults to "linear".
-        program_on_time_fraction (float, optional): Fraction of time the program is on. Defaults to 0.3.
-        program_gap_size (int, optional): Size of gaps in expression programs. Defaults to 1.
-        program_noise_in_block (bool, optional): Whether to add noise within each expression block. Defaults to True.
-        trajectory_program_num (int, optional): Number of programs in a trajectory simulation. Defaults to 3.
-        trajectory_cell_block_size_ratio (float, optional): Ratio of cell block sizes in a trajectory. Defaults to 0.3.
-        trajectory_loop_to (int or list, optional): Loop connection in trajectory simulations. Defaults to None.
-        tree_branching_factor (int, optional): Number of branches per tree level. Defaults to 2.
-        tree_depth (int, optional): Depth of the simulated tree. Defaults to 3.
-        tree_program_decay (float, optional): Decay factor for tree programs across branches. Defaults to 0.5.
-        tree_cellcount_decay (float, optional): Decay factor for cell numbers across tree branches. Defaults to 1.0.
-        batch_distribution (str or list, optional): Distribution for batch effects. Defaults to 'normal'.
-        batch_level (float or list, optional): Magnitude of batch effects. Defaults to 1.0.
-        batch_dispersion (float or list, optional): Dispersion of batch effects. Defaults to 0.1.
-        batch_cell_proportion (list, optional): Proportion of cells per batch. Defaults to None.
-        batch_feature_frac (float or list, optional): Fraction of genes affected by batch effects. Defaults to 0.1.
-        global_non_specific_gene_fraction (float, optional): Fraction of genes that are globally non-specific. Defaults to 0.1.
-        pairwise_non_specific_gene_fraction (dict, optional): Pairwise-specific gene fraction between state pairs. Defaults to None.
-        universal_gene_fraction (float, optional): Fraction of universal genes expressed across all cells. Defaults to 0.0.
-        non_neg (bool, optional): Whether to enforce non-negative expression values. Defaults to False.
-        to_int (bool, optional): Whether to convert expression values to integers. Defaults to False.
-        seed (int, optional): Random seed for reproducibility. Defaults to 0.
-
-    Methods:
-        simulate_data(): Simulates gene expression data, including batch effects.
-        simulate_state(): Simulates cell state-specific gene expression patterns.
-        simulate_batch(): Simulates batch-specific effects on gene expression.
-        simulate_clusters(): Simulates gene expression in discrete clusters.
-        simulate_trajectory(): Simulates continuous gene expression trajectories.
-        simulate_tree(): Simulates hierarchical branching gene expression.
-        simulate_gatto(): Simulates expression patterns similar to Gatto et al., 2023.
-        simulate_s_curve(): Simulates an S-curve structure in gene expression.
-        simulate_swiss_roll(): Simulates a Swiss roll structure with optional hole.
-        simulate_expression_block(): Generates structured gene expression within a cell population.
-        simulate_dropout(): Simulates dropout in gene expression data.
-        downsample_mtx_umi(): Performs UMI count downsampling.
-        simulate_distribution(): Samples values from specified distributions.
+    A refactored class for simulating single-cell gene expression data.
     """
+    def __init__(self, sim_config: SimConfig, state_config: StateConfig, batch_config: BatchConfig):
+        self.sim_config = sim_config
+        self.state_config = state_config
+        self.batch_config = batch_config
+        self.rng = np.random.default_rng(self.sim_config.seed)
 
-    def __init__(self, n_cells=1000, n_genes=1000, 
-                 n_batches=2, n_states=3, 
-                 state_type='cluster', 
-                 batch_type='batch_specific_features', 
-                 state_distribution='normal',
-                 state_level=1.0, 
-                 state_min_level=0.0,
-                 state_dispersion=0.1, 
-                 program_structure="linear",
-                 program_on_time_fraction=0.3,
-                 program_gap_size=1,
-                 program_noise_in_block=True,
-                 trajectory_program_num=3,
-                 trajectory_cell_block_size_ratio=0.3,
-                 trajectory_loop_to = None,
-                 tree_branching_factor=2,
-                 tree_depth=3,
-                 tree_program_decay=0.5,
-                 tree_cellcount_decay=1.0,
-                 tree_initial_inherited_genes=None,
-                 batch_distribution='normal',
-                 batch_level=1.0, 
-                 batch_dispersion=0.1, 
-                 batch_cell_proportion=None,
-                 batch_feature_frac=0.1,
-                 global_non_specific_gene_fraction=0.1,
-                 pairwise_non_specific_gene_fraction=None,
-                 universal_gene_fraction=0.0,
-                 non_neg = False,
-                 to_int = False,
-                 seed=0):
-        self.n_cells = n_cells
-        self.n_genes = n_genes
-        self.n_batches = n_batches
-        self.n_states = n_states
-        self.state_type = state_type
-        self.state_distribution = state_distribution
-        self.state_level = state_level
-        self.state_min_level = state_min_level
-        self.state_dispersion = state_dispersion
-        self.program_structure = program_structure
-        self.program_on_time_fraction = program_on_time_fraction
-        self.program_gap_size = program_gap_size
-        self.program_noise_in_block = program_noise_in_block
-
-        self.trajectory_program_num = trajectory_program_num
-        self.trajectory_cell_block_size_ratio = trajectory_cell_block_size_ratio
-        self.trajectory_loop_to = trajectory_loop_to
-
-        self.tree_branching_factor = tree_branching_factor
-        self.tree_depth = tree_depth
-        self.tree_program_decay = tree_program_decay
-        self.tree_cellcount_decay = tree_cellcount_decay
-        self.tree_initial_inherited_genes = tree_initial_inherited_genes
-
-        # Batch parameters, if multiple batches, allow list of values, if not list, use the same value for all batches
-        tl = self._to_list               # alias for brevity
-
-        # --- batch‑level “vectors” ------------------------------------------------
-        self.batch_type        = tl(batch_type,        n_batches, default='batch_specific_features', dtype=str)
-        self.batch_level       = tl(batch_level,       n_batches, default=1.0)
-        self.batch_dispersion  = tl(batch_dispersion,  n_batches, default=0.1)
-        self.batch_distribution= tl(batch_distribution,n_batches, default='normal', dtype=str)
-        self.batch_feature_frac= tl(batch_feature_frac,n_batches, default=0.1)
-        self.batch_cell_proportion = tl(batch_cell_proportion,
-                                        n_batches,
-                                        default=1 / n_batches) 
-
-        self.global_non_specific_gene_fraction = global_non_specific_gene_fraction
-        self.pairwise_non_specific_gene_fraction = pairwise_non_specific_gene_fraction
-        self.universal_gene_fraction = universal_gene_fraction
-        self.non_neg = non_neg
-        self.to_int = to_int
-
+        # Dispatch maps for simulation logic
         self._state_sim_map = {
-            "cluster":    self._sim_state_cluster,
+            "cluster": self._sim_state_cluster,
             "trajectory": self._sim_state_trajectory,
-            "tree":       self._sim_state_tree,
+            "tree": self._sim_state_tree,
         }
-
         self._batch_effect_map = {
-            "variance_inflation":          self._be_variance_inflation,
+            "variance_inflation": self._be_variance_inflation,
             "batch_specific_distribution": self._be_batch_specific_distribution,
-            "uniform_dropout":             self._be_uniform_dropout,
-            "value_dependent_dropout":     self._be_value_dependent_dropout,
-            "downsampling":                self._be_downsampling,
-            "scaling_factor":              self._be_scaling_factor,
-            "batch_specific_expression":   self._be_batch_specific_expression,
-            "batch_specific_features":     self._be_batch_specific_features,
+            "uniform_dropout": self._be_uniform_dropout,
+            "value_dependent_dropout": self._be_value_dependent_dropout,
+            "downsampling": self._be_downsampling,
+            "scaling_factor": self._be_scaling_factor,
+            "batch_specific_expression": self._be_batch_specific_expression,
+            "batch_specific_features": self._be_batch_specific_features,
         }
 
-        self.seed = seed
-        np.random.seed(seed)
-
-
-    def simulate_data(self):
+    def simulate_data(self) -> Tuple[ad.AnnData, ad.AnnData]:
         """
-        Simulates single-cell gene expression data, integrating state-based and batch effects.
+        Simulates data by generating cell states and then applying batch effects.
 
         Returns:
-            tuple: 
-                - adata (AnnData): Simulated gene expression data with batch effects.
-                - adata_pre (AnnData): Pre-batch effect simulated data.
+            A tuple containing the final AnnData object and the pre-batch-effect AnnData object.
         """
-        from .other_util import sort_string_list
         adata_state = self.simulate_state()
 
-        #adata_state = adata_state[:, sort_string_list(adata_state.var_names)]
-
-        batch_list = []
-        state_list = []
-        for i in range(self.n_batches):
+        batch_list, state_list = [], []
+        for i in range(self.batch_config.n_batches):
             batch_adata, batch_adata_pre = self.simulate_batch(
-                adata_state, 
-                cell_proportion=self.batch_cell_proportion[i], 
-                batch_name=f"batch_{i+1}", effect_type=self.batch_type[i], 
-                distribution = self.batch_distribution[i],
-                level=self.batch_level[i], dispersion=self.batch_dispersion[i], 
-                batch_feature_frac=self.batch_feature_frac[i], seed=self.seed+i)
-
+                adata_state,
+                batch_idx=i,
+                seed=self.sim_config.seed + i
+            )
             batch_list.append(batch_adata)
             state_list.append(batch_adata_pre)
 
-        adata = ad.concat(batch_list, join='outer')
-        adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X
-        adata.X = np.nan_to_num(adata.X, nan=0.0)
-
-        adata = adata[:, sort_string_list(adata.var_names)]
-
-        adata_pre = ad.concat(state_list, join='outer')
-        adata_pre = adata_pre[:, sort_string_list(adata_pre.var_names)]
-
-        # Concatenate batch name to cell names to make them unique
-        adata.obs_names = [f"{batch}_{cell}" for batch, cell in zip(adata.obs['batch'], adata.obs_names)]
-        adata_pre.obs_names = [f"{batch}_{cell}" for batch, cell in zip(adata_pre.obs['batch'], adata_pre.obs_names)]
-
-        adata.obs['batch'] = adata.obs['batch'].astype('category')
-        adata_pre.obs['batch'] = adata_pre.obs['batch'].astype('category')
-
-        adata.X = np.nan_to_num(adata.X, nan=0.0)
-        adata.layers['no_noise'] = np.nan_to_num(adata.layers['no_noise'], nan=0.0)
-        adata.layers['wt_noise'] = np.nan_to_num(adata.layers['wt_noise'], nan=0.0)
-        adata.layers['counts'] = adata.X.copy()
+        adata = self._finalize_anndata(batch_list, join='outer')
+        adata_pre = self._finalize_anndata(state_list, join='outer')
 
         return adata, adata_pre
 
+    def _finalize_anndata(self, adatas: List[ad.AnnData], join: str) -> ad.AnnData:
+        """Concatenate, sort, and clean a list of AnnData objects."""
+        from .other_util import sort_string_list # Assuming this utility exists
 
-    # ─────────────────────────────────────────────────────────────────────────────
-    # State simulation methods
-    # ─────────────────────────────────────────────────────────────────────────────
-    def _sim_state_cluster(self):
-        return self.simulate_clusters(
-            n_genes=self.n_genes, n_cells=self.n_cells, num_clusters=self.n_states,
-            program_structure=self.program_structure,
-            program_on_time_fraction=self.program_on_time_fraction,
-            distribution=self.state_distribution,
-            mean_expression=self.state_level, min_expression=self.state_min_level,
-            dispersion=self.state_dispersion,
-            global_non_specific_gene_fraction=self.global_non_specific_gene_fraction,
-            pairwise_non_specific_gene_fraction=self.pairwise_non_specific_gene_fraction,
-            seed=self.seed,
-        )
-
-    def _sim_state_trajectory(self):
-        return self.simulate_trajectory(
-            n_genes=self.n_genes, n_cells=self.n_cells,
-            cell_block_size_ratio=self.trajectory_cell_block_size_ratio,
-            program_num=self.trajectory_program_num,
-            program_structure=self.program_structure,
-            program_on_time_fraction=self.program_on_time_fraction,
-            loop_to=self.trajectory_loop_to,
-            distribution=self.state_distribution,
-            mean_expression=self.state_level, min_expression=self.state_min_level,
-            dispersion=self.state_dispersion,
-            seed=self.seed,
-        )
-
-    def _sim_state_tree(self):
-        return self.simulate_tree(
-            n_genes=self.n_genes, n_cells=self.n_cells,
-            branching_factor=self.tree_branching_factor, depth=self.tree_depth,
-            program_structure=self.program_structure,
-            program_on_time_fraction=self.program_on_time_fraction,
-            program_decay=self.tree_program_decay,
-            program_gap_size=self.program_gap_size,
-            cellcount_decay=self.tree_cellcount_decay,
-            distribution=self.state_distribution,
-            mean_expression=self.state_level, min_expression=self.state_min_level,
-            dispersion=self.state_dispersion,
-            noise_in_block=self.program_noise_in_block,
-            initial_inherited_genes=self.tree_initial_inherited_genes,
-            seed=self.seed,
-        )
-
-
-    def simulate_state(self):
-        try:
-            adata = self._state_sim_map[self.state_type]()
-        except KeyError:
-            raise ValueError(f"Unknown state_type '{self.state_type}'.")
+        adata = ad.concat(adatas, join=join, label='batch_id')
+        adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X
         adata.X = np.nan_to_num(adata.X, nan=0.0)
-        if self.non_neg: adata.X[adata.X < 0] = 0
-        if self.to_int:  adata.X = adata.X.astype(int)
+
+        # Sort genes for consistent ordering
+        sorted_var_names = sort_string_list(adata.var_names)
+        adata = adata[:, sorted_var_names].copy()
+
+        # Make observation names unique
+        adata.obs_names = [f"{b}_{c}" for b, c in zip(adata.obs['batch'], adata.obs_names)]
+        adata.obs_names_make_unique()
+        
+        # Clean up layers and add counts
+        for layer in adata.layers:
+            adata.layers[layer] = np.nan_to_num(adata.layers[layer], nan=0.0)
+        adata.layers['counts'] = adata.X.copy()
+        
+        return adata
+
+
+    # ───────────────── STATE SIMULATION ───────────────────    
+    def simulate_state(self) -> ad.AnnData:
+        """Simulates the ground truth cell states based on the state_type."""
+        try:
+            sim_func = self._state_sim_map[self.state_config.state_type]
+            adata = sim_func()
+        except KeyError:
+            raise ValueError(f"Unknown state_type '{self.state_config.state_type}'.")
+        
+        adata.X = np.nan_to_num(adata.X, nan=0.0)
+        if self.sim_config.non_neg:
+            adata.X[adata.X < 0] = 0
+        if self.sim_config.to_int:
+            adata.X = adata.X.astype(int)
+        
         adata.layers['wt_noise'] = adata.X.copy()
         return adata
 
-    def simulate_clusters(self, n_genes=6, n_cells=12, num_clusters=2, program_structure="uniform", program_on_time_fraction=0.3,
-                      distribution="normal", mean_expression=10, min_expression=1, dispersion=1.0, 
-                      global_non_specific_gene_fraction=0.1, 
-                      pairwise_non_specific_gene_fraction=None,
-                      cluster_key='cluster', permute=False, seed=42):
-        """
-        Simulates gene expression for discrete cell clusters.
+    def _sim_state_cluster(self) -> ad.AnnData:
+        """Dispatcher for cluster simulation."""
+        if not isinstance(self.state_config, ClusterConfig):
+            raise TypeError("state_config must be of type ClusterConfig for clusters.")
+        return self.simulate_clusters(self.state_config)
 
-        Args:
-            n_genes (int or list, optional): Number of genes per cluster or total genes. Defaults to 6.
-            n_cells (int or list, optional): Number of cells per cluster or total cells. Defaults to 12.
-            num_clusters (int, optional): Number of clusters to simulate. Defaults to 2.
-            program_structure (str, optional): Expression program structure ('linear', 'uniform', etc.). Defaults to 'uniform'.
-            program_on_time_fraction (float, optional): Fraction of program duration. Defaults to 0.3.
-            distribution (str, optional): Type of distribution for gene expression. Defaults to 'normal'.
-            mean_expression (float, optional): Mean expression level. Defaults to 10.
-            min_expression (float, optional): Minimum expression level. Defaults to 1.
-            dispersion (float, optional): Dispersion in expression levels. Defaults to 1.0.
-            global_non_specific_gene_fraction (float, optional): Fraction of globally expressed genes. Defaults to 0.1.
-            pairwise_non_specific_gene_fraction (dict, optional): Pairwise-specific genes between cluster pairs. Defaults to None.
-            cluster_key (str, optional): Key for cluster labeling. Defaults to 'cluster'.
-            permute (bool, optional): Whether to shuffle cells. Defaults to False.
-            seed (int, optional): Random seed. Defaults to 42.
+    def _sim_state_trajectory(self) -> ad.AnnData:
+        """Dispatcher for trajectory simulation."""
+        if not isinstance(self.state_config, TrajectoryConfig):
+            raise TypeError("state_config must be of type TrajectoryConfig for trajectories.")
+        return self.simulate_trajectory(self.state_config)
 
-        Returns:
-            AnnData: Simulated dataset with clustered gene expression.
-        """
-        np.random.seed(seed)
+    def _sim_state_tree(self) -> ad.AnnData:
+        """Dispatcher for tree simulation."""
+        if not isinstance(self.state_config, TreeConfig):
+            raise TypeError("state_config must be of type TreeConfig for trees.")
+        return self.simulate_tree(self.state_config)
+
+
+
+    def simulate_clusters(self, cfg: ClusterConfig) -> ad.AnnData:
+        rng = self.rng
+        n_cells  = self.sim_config.n_cells
+        n_genes  = self.sim_config.n_genes
+        k        = cfg.n_states
         
         # Check if n_genes is a list or integer
         if isinstance(n_genes, list):
-            if len(n_genes) != num_clusters:
+            if len(n_genes) != k:
                 raise ValueError("Length of n_genes list must match num_clusters.")
             genes_per_cluster_list = n_genes
         else:
-            genes_per_cluster = n_genes // num_clusters
-            genes_per_cluster_list = [genes_per_cluster] * num_clusters
+            genes_per_cluster = n_genes // k
+            genes_per_cluster_list = [genes_per_cluster] * k
         
         # Check if n_cells is a list or integer
         if isinstance(n_cells, list):
-            if len(n_cells) != num_clusters:
+            if len(n_cells) != k:
                 raise ValueError("Length of n_cells list must match num_clusters.")
             cells_per_cluster_list = n_cells
         else:
-            cells_per_cluster = n_cells // num_clusters
-            cells_per_cluster_list = [cells_per_cluster] * num_clusters
+            cells_per_cluster = n_cells // k
+            cells_per_cluster_list = [cells_per_cluster] * k
         
         total_n_genes = sum(genes_per_cluster_list)
         total_n_cells = sum(cells_per_cluster_list)
-        expression_matrix = np.zeros((total_n_cells, total_n_genes))
+        X = np.zeros((total_n_cells, total_n_genes))
         cell_clusters = []
         gene_offset = 0  # Tracks the starting gene index for each cluster
         cell_offset = 0  # Tracks the starting cell index for each cluster
 
         cluster_gene_indices = {}
         cluster_cell_indices = {}
-        for cluster in range(num_clusters):
+        for cluster in range(k):
             # Define cell range for this cluster based on the supplied list
             cell_start = cell_offset
             cell_end = cell_offset + cells_per_cluster_list[cluster]
@@ -345,347 +264,299 @@ class Simulation:
             cluster_gene_indices[cluster] = gene_indices
             cluster_cell_indices[cluster] = cell_indices
             # Simulate expression for the current cluster
-            expression_matrix = self.simulate_expression_block(
-                expression_matrix, program_structure, gene_indices, cell_indices, mean_expression, min_expression, program_on_time_fraction
+            X = self.simulate_expression_block(
+                X, cfg.program_structure, gene_indices, cell_indices, 
+                cfg.level, 
+                cfg.min_level,
+                cfg.program_on_time_fraction,
             )
             
-            cell_clusters.extend([f"{cluster_key}_{cluster+1}"] * len(cell_indices))
+            cell_clusters.extend([f"cluster_{cluster+1}"] * len(cell_indices))
 
         # Add non-specific genes to the expression matrix
 
-        if pairwise_non_specific_gene_fraction is not None:
+        if cfg.pairwise_non_specific_gene_fraction is not None:
             logger.info("Adding non-specific genes to the expression matrix. Note this will increase gene count compared to the specified value.")
-            for cluster_pairs in pairwise_non_specific_gene_fraction.keys():
-                cluster1, cluster2 = cluster_pairs
-                cluster1_genes = cluster_gene_indices[cluster1]
-                cluster2_genes = cluster_gene_indices[cluster2]
-                union_genes = np.union1d(cluster1_genes, cluster2_genes)
-                num_nonspecific_genes = int(len(union_genes) * pairwise_non_specific_gene_fraction[cluster_pairs])
-                nonspecific_gene_indices = np.random.choice(union_genes, num_nonspecific_genes, replace=False)
-                cluster1_cells = cluster_cell_indices[cluster1]
-                cluster2_cells = cluster_cell_indices[cluster2]
-                union_cells = np.union1d(cluster1_cells, cluster2_cells)
-                expression_matrix = self.simulate_expression_block(
-                    expression_matrix, program_structure, nonspecific_gene_indices, union_cells, mean_expression, min_expression, program_on_time_fraction
+            for (c1, c2), frac in cfg.pairwise_non_specific_gene_fraction.items():
+                union_genes = np.union1d(cluster_gene_indices[c1],
+                                        cluster_gene_indices[c2])
+                n_extra = int(len(union_genes) * frac)
+                extra_g = rng.choice(union_genes, n_extra, replace=False)
+                union_c = np.union1d(cluster_cell_indices[c1],
+                                    cluster_cell_indices[c2])
+                X = self.simulate_expression_block(
+                    X, cfg.program_structure, extra_g, union_c,
+                    cfg.level, cfg.min_level, cfg.program_on_time_fraction
                 )
             
-        if global_non_specific_gene_fraction is not None and global_non_specific_gene_fraction > 0:
-            logger.info("Adding non-specific genes to the expression matrix. Note this will increase gene count compared to the specified value.")
-            num_nonspecific_genes = int(expression_matrix.shape[1] * global_non_specific_gene_fraction)
-            all_genes = np.arange(expression_matrix.shape[1])
-            nonspecific_gene_indices = np.random.choice(all_genes, num_nonspecific_genes, replace=False)
-            expression_matrix = self.simulate_expression_block(
-                expression_matrix, program_structure, nonspecific_gene_indices, np.arange(total_n_cells), mean_expression, min_expression, program_on_time_fraction
+        if cfg.global_non_specific_gene_fraction:
+            n_extra = int(X.shape[1] * cfg.global_non_specific_gene_fraction)
+            extra_g = rng.choice(X.shape[1], n_extra, replace=False)
+            X = self.simulate_expression_block(
+                X, cfg.program_structure, extra_g, np.arange(total_n_cells),
+                cfg.level, cfg.min_level, cfg.program_on_time_fraction
             )
-            # Sort these genes to the end
-            specific_gene_indices = np.setdiff1d(all_genes, nonspecific_gene_indices)
-            expression_matrix = expression_matrix[:, np.concatenate([specific_gene_indices, nonspecific_gene_indices])]
-            
+                
         # Apply distribution to simulate realistic expression values
-        if not isinstance(dispersion, list):
-            expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
+        # ------------------ add noise -------------------
+        if np.isscalar(cfg.dispersion):
+            X_w = self.simulate_distribution(cfg.distribution, X, cfg.dispersion)
         else:
-            expression_matrix_wt_noise = expression_matrix.copy()
-            # For each cluster, apply a different dispersion value
-            for i, disp in enumerate(dispersion):
-                cell_indices = cluster_cell_indices[i]
-                expression_matrix_wt_noise[cell_indices, :] = Simulation.simulate_distribution(distribution, expression_matrix[cell_indices, :], disp)
+            X_w = X.copy()
+            for cluster, disp in enumerate(cfg.dispersion):
+                X_w[cluster_cell_indices[cluster], :] = self.simulate_distribution(
+                    cfg.distribution,
+                    X[cluster_cell_indices[cluster], :],
+                    disp,
+                )
 
+        obs = pd.DataFrame(
+            {"cluster": cell_clusters},
+            index=[f"Cell_{i+1}" for i in range(X.shape[0])]
+        )
+        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(X.shape[1])])
 
-        # Create AnnData object
-        obs = pd.DataFrame({f"{cluster_key}": cell_clusters}, index=[f"Cell_{i+1}" for i in range(total_n_cells)])
-        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(total_n_genes)])
-        adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
-        adata.layers['no_noise'] = expression_matrix
-        
-        if permute:
-            adata = adata[np.random.permutation(adata.obs_names), :]
-        
+        adata = ad.AnnData(X=X_w, obs=obs, var=var)
+        adata.layers["no_noise"] = X
+
         return adata
-
-
-    def simulate_trajectory(self, n_genes=10, n_cells=100, cell_block_size_ratio=0.3,
-                            program_num=3, program_structure="linear", program_on_time_fraction=0.3,
-                            distribution='normal', mean_expression=10, min_expression=0, dispersion=1.0, seed=42,
-                            loop_to = None):
-        """
-        Simulates a continuous trajectory of gene expression.
-
-        Args:
-            n_genes (int, optional): Number of genes. Defaults to 10.
-            n_cells (int, optional): Number of cells. Defaults to 100.
-            cell_block_size_ratio (float, optional): Ratio of cell blocks. Defaults to 0.3.
-            program_num (int, optional): Number of gene programs in the trajectory. Defaults to 3.
-            program_structure (str, optional): Structure of gene programs ('linear', 'bidirectional'). Defaults to 'linear'.
-            program_on_time_fraction (float, optional): Fraction of time the program is on. Defaults to 0.3.
-            distribution (str, optional): Distribution type. Defaults to 'normal'.
-            mean_expression (float, optional): Mean expression level. Defaults to 10.
-            min_expression (float, optional): Minimum expression level. Defaults to 0.
-            dispersion (float, optional): Dispersion of expression. Defaults to 1.0.
-            seed (int, optional): Random seed. Defaults to 42.
-            loop_to (int or list, optional): Defines looping relationships in the trajectory. Defaults to None.
-
-        Returns:
-            AnnData: Simulated dataset with continuous gene expression patterns.
-        """
-        np.random.seed(seed)
-
-        # Simulate a transitional gene program from off to on and back to off
-
-        pseudotime = np.arange(n_cells)
-        cell_block_size = int(n_cells * cell_block_size_ratio)
         
-        program_feature_size = n_genes // program_num + (1 if n_genes % program_num != 0 else 0)
-        ncells_sim = n_cells + cell_block_size
-        expression_matrix = np.zeros((ncells_sim, n_genes))
-
-        if loop_to is not None:
-            if isinstance(loop_to, int):
-                loop_to = [loop_to]
-
-            if isinstance(loop_to, list):
-                assert max(loop_to) < program_num-1, "loop_to should be less than program_num-1"
-                cellgroup_num = program_num + len(loop_to)
-            else:
-                raise ValueError("loop_to should be an integer or a list of integers")
-        else:
-            cellgroup_num = program_num
-
-        gap_size = n_cells / (cellgroup_num - 1)
-
-        for i in range(cellgroup_num):
-            if loop_to is not None and i >= program_num:
-                loop_to_program_idx = loop_to[i - program_num]
-                gene_idx = np.arange(min(loop_to_program_idx * program_feature_size, n_genes), min((loop_to_program_idx + 1) * program_feature_size, n_genes))
-            else:
-                gene_idx = np.arange(min(i * program_feature_size, n_genes), min((i + 1) * program_feature_size, n_genes))
-            
-            cell_start = int(i * gap_size)
-            if cell_start >= ncells_sim or gene_idx.size == 0:
-                break
-            cell_end = min(cell_start + cell_block_size, ncells_sim)
-            cell_indices = np.arange(cell_start, cell_end)
-            
-            expression_matrix = self.simulate_expression_block(expression_matrix, program_structure, gene_idx, cell_indices, mean_expression, min_expression, program_on_time_fraction)
 
 
-        # Cut the expression matrix to the original number of cells
-        expression_matrix = expression_matrix[(cell_block_size//2):(cell_block_size//2 + n_cells), :]
 
-        # Add noise to the expression matrix
-        expression_matrix_wt_noise = Simulation.simulate_distribution(distribution, expression_matrix, dispersion)
-
-        obs = pd.DataFrame({'time': pseudotime}, index=[f"Cell_{i+1}" for i in range(n_cells)])
-        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(n_genes)])
-        adata = ad.AnnData(X=expression_matrix_wt_noise, obs=obs, var=var)
-        adata.layers['no_noise'] = expression_matrix
-        return adata
-
-
-    def simulate_tree(self, n_genes=10, n_cells=100, 
-                        branching_factor=2, depth=3, 
-                        program_structure="linear_increasing",
-                        program_on_time_fraction=0.3,
-                        program_gap_size=1,
-                        program_decay=0.5,
-                        cellcount_decay=1.0,
-                        distribution='normal',
-                        mean_expression=10, min_expression=0, 
-                        dispersion=1.0, seed=42, noise_in_block=True,
-                        initial_inherited_genes=None
-                        ):
+    def simulate_trajectory(self, cfg: TrajectoryConfig) -> ad.AnnData:
         """
-        Simulates hierarchical branching gene expression patterns.
+        Simulate a 1-D pseudotime trajectory with `program_num` expression
+        programs that successively turn on (or loop back, if `cfg.loop_to`
+        is given).  The code is a direct transliteration of your earlier
+        implementation, but all free parameters now come from
 
-        Args:
-            n_genes (int, optional): Number of genes. Defaults to 10.
-            n_cells (int, optional): Number of cells. Defaults to 100.
-            branching_factor (int, optional): Number of branches per level. Defaults to 2.
-            depth (int, optional): Depth of the branching tree. Defaults to 3.
-            program_structure (str, optional): Gene program structure. Defaults to 'linear_increasing'.
-            program_on_time_fraction (float, optional): Program activation time fraction. Defaults to 0.3.
-            program_gap_size (int, optional): Gap size between programs. Defaults to 1.
-            program_decay (float, optional): Decay factor for program effects. Defaults to 0.5.
-            cellcount_decay (float, optional): Decay factor for cell counts. Defaults to 1.0.
-            distribution (str, optional): Expression distribution type. Defaults to 'normal'.
-            mean_expression (float, optional): Mean gene expression level. Defaults to 10.
-            min_expression (float, optional): Minimum gene expression level. Defaults to 0.
-            dispersion (float, optional): Dispersion of expression. Defaults to 1.0.
-            seed (int, optional): Random seed. Defaults to 42.
-            noise_in_block (bool, optional): Whether to add noise within expression blocks. Defaults to True.
-
-        Returns:
-            AnnData: Simulated dataset with hierarchical tree-like gene expression.
+            * self.sim_config … global simulation settings
+            * cfg              … trajectory-specific settings
         """
-        np.random.seed(seed)
-        
-        # Check if branching faactor is a list or integer
-        if isinstance(branching_factor, list):
-            if len(branching_factor) != depth:
-                raise ValueError("Length of branching_factor list must match depth.")
+        rng       = self.rng
+        n_cells   = self.sim_config.n_cells
+        n_genes   = self.sim_config.n_genes
+        prog_num  = cfg.program_num
+
+        # sizing helpers -------------------------------------------------
+        blk_size  = int(n_cells * cfg.cell_block_size_ratio)
+        prog_size = n_genes // prog_num + (n_genes % prog_num > 0)
+        nc_sim    = n_cells + blk_size             # padding on both ends
+
+        X = np.zeros((nc_sim, n_genes))
+
+        # how many cell groups along the trajectory?
+        if cfg.loop_to is None:
+            cell_group_num = prog_num
+            loop_map = {}
         else:
-            branching_factor = [branching_factor] * depth
-        
-        # Keep track of the cell and gene indices
-        cell_counter = 0
-        gene_counter = 0
-        total_depth = depth
+            loop_vec = [cfg.loop_to] if isinstance(cfg.loop_to, int) else cfg.loop_to
+            assert max(loop_vec) < prog_num - 1, "`loop_to` index out of range."
+            cell_group_num = prog_num + len(loop_vec)
+            # map suffix groups → which program they reuse
+            loop_map = {prog_num + i: loop_vec[i] for i in range(len(loop_vec))}
 
-        if(program_decay != 1):
-            logger.warning("Total number of genes will not be equal to n_genes due to program_decay < 1.")
-        if(cellcount_decay != 1):
-            logger.warning("Total number of cells will not be equal to n_cells due to cellcount_decay < 1.")
+        gap = n_cells / (cell_group_num - 1)
 
-        # If n_cells or n_genes is a list, check if the length matches the depth + 1
-        if isinstance(n_cells, list):
-            if len(n_cells) != depth + 1:
-                raise ValueError("Length of n_cells list must match depth + 1.")
-            n_cells_per_branch = n_cells
-        else:
-            # Compute the number of cells for each depth level
-            n_cells_per_branch_base = n_cells // (branching_factor[0] ** depth)
-            n_cells_per_branch = []
-            for i in range(depth+1):
-                n_cells_per_branch.append(max(int(n_cells_per_branch_base * cellcount_decay ** i), 1))
-        
-        if isinstance(n_genes, list):
-            if len(n_genes) != depth + 1:
-                raise ValueError("Length of n_genes list must match depth + 1.")
-            n_genes_per_branch = n_genes
-        else:
-            # Compute the number of genes for each depth level
-            n_genes_per_branch_base = n_genes // (branching_factor[0] ** depth)
-            n_genes_per_branch = []
-            for i in range(depth+1):
-                n_genes_per_branch.append(max(int(n_genes_per_branch_base * program_decay ** i), 1))
+        # build expression block by block --------------------------------
+        for g in range(cell_group_num):
+            # which gene slice is active for this block?
+            p_idx = loop_map.get(g, g)             # loop groups reuse program
+            g_idx = np.arange(p_idx * prog_size,
+                            min((p_idx + 1) * prog_size, n_genes))
 
+            if g_idx.size == 0:
+                continue
 
-        # Recursive function to simulate gene expression for each branch
-        def simulate_branch(depth, branch_path, inherited_genes=None, start_time=0):
-            nonlocal cell_counter, gene_counter, branching_factor, n_cells_per_branch, n_genes_per_branch
-            branch_str = '_'.join(map(str, branch_path)) if branch_path else 'root'
-            #print("Simulating depth:", depth, "branch:", branch_str)
+            c_start = int(g * gap)
+            c_end   = min(c_start + blk_size, nc_sim)
+            c_idx   = np.arange(c_start, c_end)
 
-            # Determine the number of genes and cells for this branch
-            #cur_n_genes = max(int(n_genes_per_branch * program_decay ** (total_depth-depth)),1)
-            #cur_n_cells = max(int(n_cells_per_branch * cellcount_decay ** (total_depth-depth)),1)
-            cur_n_genes = n_genes_per_branch[total_depth-depth]
-            cur_n_cells = n_cells_per_branch[total_depth-depth]
-            
-            cur_branch_genes = [f"gene_{gene_counter + i}" for i in range(cur_n_genes)]
-            cur_branch_cells = [f"cell_{cell_counter + i}" for i in range(cur_n_cells)]
-
-            gene_counter += cur_n_genes
-            cell_counter += cur_n_cells
-
-            #print("depth", depth, "branch_path", branch_path, "gene_counter", gene_counter, "cell_counter", cell_counter)
-            #print("cur_n_genes", cur_n_genes, "cur_n_cells", cur_n_cells)
-            # Simulate linear increasing gene expression for branch-specific genes
-            cur_branch_expression = self.simulate_expression_block(
-                np.zeros((cur_n_cells, cur_n_genes)), 
-                program_structure, 
-                np.arange(cur_n_genes), 
-                np.arange(cur_n_cells), 
-                mean_expression, 
-                min_expression, 
-                on_time_fraction=program_on_time_fraction,
-                gap_size=program_gap_size
+            X = self.simulate_expression_block(
+                X,
+                cfg.program_structure,
+                g_idx,
+                c_idx,
+                cfg.level,
+                cfg.min_level,
+                cfg.program_on_time_fraction,
             )
-            
-            if inherited_genes is not None:
-                # Simulate linear decreasing gene expression for inherited genes
-                #inherited_expression = Simulation.simulate_distribution('normal', mean_expression, dispersion, (cur_n_cells, len(inherited_genes)))
-                inherited_expression = np.array(mean_expression).reshape(1, -1) * np.ones((cur_n_cells, len(inherited_genes)))
-                cur_branch_expression = np.concatenate([inherited_expression, cur_branch_expression], axis=1)
-                cur_branch_genes = inherited_genes + cur_branch_genes
 
-            # Create an AnnData object for the current branch
-            adata = sc.AnnData(cur_branch_expression)
-            adata.obs_names = cur_branch_cells
-            adata.var_names = cur_branch_genes
-            adata.obs['branch'] = branch_str
-            adata.obs['depth'] = depth
-            adata.obs['time'] = np.arange(cur_n_cells) + start_time
-            end_time = start_time + cur_n_cells
-            adata.layers['no_noise'] = cur_branch_expression
+        # centre crop back to `n_cells`
+        X = X[blk_size // 2 : blk_size // 2 + n_cells, :]
 
-            if noise_in_block:
-                adata.X = Simulation.simulate_distribution(distribution, cur_branch_expression, dispersion)
+        # add stochastic noise ------------------------------------------
+        X_w = self.simulate_distribution(cfg.distribution, X, cfg.dispersion)
 
-            # Base case: if depth is 0, return the adata
-            if depth == 0:
-                return adata
-            
-            # Given current depth, get branching factor
-            cur_branching_factor = branching_factor[total_depth-depth]
-            #expression_matrix[cell_idx, gene_idx] = np.random.normal(mean_expression, dispersion, (n_cells_per_branch, num_gene_per_branch))[0]
-            # Recursively simulate sub-branches
-            for i in range(cur_branching_factor):
-                new_branch_path = branch_path + [i]
-                new_adata = simulate_branch(depth - 1, new_branch_path, inherited_genes=cur_branch_genes, start_time=end_time)
-                adata = ordered_concat([adata, new_adata], join='outer')
+        # build AnnData --------------------------------------------------
+        obs = pd.DataFrame(
+            {"time": np.arange(n_cells)},
+            index=[f"Cell_{i+1}" for i in range(n_cells)],
+        )
+        var = pd.DataFrame(index=[f"Gene_{i+1}" for i in range(n_genes)])
+
+        adata = ad.AnnData(X=X_w, obs=obs, var=var)
+        adata.layers["no_noise"] = X
+
+        return adata
+
+
+
+    def simulate_tree(self, cfg: TreeConfig) -> ad.AnnData:
+        """
+        Simulate a hierarchical branching process (gene-expression tree).
+
+        All numeric parameters are taken from `self.sim_config`
+        (n_cells, n_genes, global seed) and from `cfg` (tree settings).
+        The core algorithm is the same as in the original implementation.
+        """
+        # -------- shorthand handles ----------------------------------
+        rng        = self.rng                          # already seeded
+        n_cells    = self.sim_config.n_cells
+        n_genes    = self.sim_config.n_genes
+        depth      = cfg.depth
+        bf         = cfg.branching_factor              # branching factor(s)
+
+        # -------- normalise branching-factor vector ------------------
+        if isinstance(bf, list):
+            if len(bf) != depth:
+                raise ValueError("Length of branching_factor must equal depth")
+            bf_vec = bf
+        else:
+            bf_vec = [bf] * depth
+
+        # -------- helper vectors for #genes / #cells per level -------
+        # programme/gene decay
+        base_g  = n_genes // (bf_vec[0] ** depth)
+        g_per   = [max(int(base_g  * cfg.program_decay  ** d), 1) for d in range(depth + 1)]
+        # cell-count decay
+        base_c  = n_cells // (bf_vec[0] ** depth)
+        c_per   = [max(int(base_c  * cfg.cellcount_decay ** d), 1) for d in range(depth + 1)]
+
+        # -------- counters so that gene / cell names are unique ------
+        gene_ctr = 0
+        cell_ctr = 0
+
+        def _branch(level: int,
+                    path: list[int],
+                    inherited_genes: list[str] | None,
+                    start_time: int) -> ad.AnnData:
+            nonlocal gene_ctr, cell_ctr
+
+            branch_tag = "_".join(map(str, path)) if path else "root"
+            n_g = g_per[depth - level]
+            n_c = c_per[depth - level]
+
+            # ---- gene & cell labels for this branch -----------------
+            genes = [f"gene_{gene_ctr + i}" for i in range(n_g)]
+            cells = [f"cell_{cell_ctr + i}" for i in range(n_c)]
+            gene_ctr += n_g
+            cell_ctr += n_c
+
+            # ---- simulate expression for branch-specific genes ------
+            X = self.simulate_expression_block(
+                np.zeros((n_c, n_g)),
+                cfg.program_structure,
+                np.arange(n_g),
+                np.arange(n_c),
+                cfg.level,
+                cfg.min_level,
+                cfg.program_on_time_fraction,
+                gap_size=cfg.program_gap_size,
+            )
+
+            # ---- append inherited genes (constant expression) -------
+            if inherited_genes:
+                inh_block = np.full((n_c, len(inherited_genes)), cfg.level)
+                X = np.hstack([inh_block, X])
+                genes = inherited_genes + genes
+
+            # ---- build AnnData for this branch ----------------------
+            adata = sc.AnnData(X)
+            adata.obs_names = cells
+            adata.var_names = genes
+            adata.obs["branch"] = branch_tag
+            adata.obs["depth"]  = level
+            adata.obs["time"]   = np.arange(n_c) + start_time
+            adata.layers["no_noise"] = X.copy()
+
+            # optional within-block noise
+            if cfg.noise_in_block:
+                adata.X = self.simulate_distribution(
+                    cfg.distribution, X, cfg.dispersion
+                )
+
+            # ---- recurse if we’re not at a leaf ---------------------
+            if level > 0:
+                next_start = start_time + n_c
+                for i in range(bf_vec[depth - level]):
+                    child = _branch(
+                        level - 1,
+                        path + [i],
+                        inherited_genes=genes,
+                        start_time=next_start,
+                    )
+                    adata = ordered_concat([adata, child], join="outer")
 
             return adata
-            
-        adata = simulate_branch(depth, branch_path=[], inherited_genes=initial_inherited_genes)
+
+        # -------- kick off recursion from the root -------------------
+        adata = _branch(depth, [], cfg.initial_inherited_genes, start_time=0)
+
+        # -------- post-processing ------------------------------------
         adata.X = np.nan_to_num(adata.X, nan=0.0)
-        for key in adata.layers.keys():
+        for key in adata.layers:
             adata.layers[key] = np.nan_to_num(adata.layers[key], nan=0.0)
-    
-        if not noise_in_block:
-            adata.X = Simulation.simulate_distribution(distribution, adata.layers['no_noise'], dispersion)
+
+        if not cfg.noise_in_block:
+            adata.X = self.simulate_distribution(
+                cfg.distribution, adata.layers["no_noise"], cfg.dispersion
+            )
+
         return adata
-    
 
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Batch simulation methods
-    # ─────────────────────────────────────────────────────────────────────────────
 
-    def simulate_batch(self, adata, *, cell_indices=None, cell_proportion=0.3,
-                    batch_name='batch_1', effect_type='batch_specific_features',
-                    distribution='normal', level=1.0, dispersion=0.1,
-                    batch_feature_frac=0.1, seed=42):
-        """
-        Apply a batch‑specific effect (chosen by `effect_type`) to a slice of `adata`.
-        Returns (batch_adata, batch_adata_pre).
-        """
+
+    # ────────────────── BATCH SIMULATION ───────────────────
+
+    def simulate_batch(self, adata: ad.AnnData, batch_idx: int, seed: int) -> Tuple[ad.AnnData, ad.AnnData]:
+        """Applies a batch-specific effect to a subset of data."""
         rng = np.random.default_rng(seed)
-
-        # pick which cells belong to this batch
-        if not (0 < cell_proportion <= 1):
-            raise ValueError("cell_proportion must be in (0, 1].")
-        if cell_indices is None:
-            n_cells = int(adata.n_obs * cell_proportion)
-            cell_indices = np.sort(rng.choice(adata.n_obs, n_cells, replace=False))
-
+        
+        # Determine cells for this batch
+        cell_proportion = self.batch_config.cell_proportion[batch_idx]
+        n_cells = int(adata.n_obs * cell_proportion)
+        #cell_indices = rng.choice(adata.n_obs, n_cells, replace=False)
+        cell_indices = np.sort(rng.choice(adata.n_obs, n_cells, replace=False))
+        
         batch_adata_pre = adata[cell_indices].copy()
-        batch_adata_pre.obs['batch'] = batch_name
+        batch_adata_pre.obs['batch'] = f"batch_{batch_idx+1}"
         batch_adata = batch_adata_pre.copy()
-
-        # apply the requested effect via lookup table
+        
+        # Apply the corresponding batch effect
+        effect_type = self.batch_config.effect_type[batch_idx]
         try:
             effect_fn = self._batch_effect_map[effect_type]
-
-            result = effect_fn(                   # ← might return a new AnnData
-                batch_adata,
-                distribution=distribution,
-                level=level,
-                dispersion=dispersion,
-                batch_feature_frac=batch_feature_frac,
-                batch_name=batch_name,
-                rng=rng,
-            )
-            if isinstance(result, ad.AnnData):    # use it if we got one
-                batch_adata = result
+            effect_params = {
+                "distribution": self.batch_config.distribution[batch_idx],
+                "level": self.batch_config.level[batch_idx],
+                "dispersion": self.batch_config.dispersion[batch_idx],
+                "batch_feature_frac": self.batch_config.feature_frac[batch_idx],
+                "batch_name": f"batch_{batch_idx+1}",
+                "rng": rng,
+            }
+            result = effect_fn(batch_adata, **effect_params)
+            if isinstance(result, ad.AnnData):
+                batch_adata = result # Use the new object if one was returned
         except KeyError:
             raise ValueError(f"Unknown batch effect type '{effect_type}'")
 
-        # optional post‑processing
-        if self.non_neg:
+        if self.sim_config.non_neg:
             batch_adata.X[batch_adata.X < 0] = 0
-        if self.to_int:
+        if self.sim_config.to_int:
             batch_adata.X = batch_adata.X.astype(int)
-
+            
         return batch_adata, batch_adata_pre
 
     def _be_variance_inflation(self, adata, *, dispersion, rng, **_):
@@ -787,9 +658,7 @@ class Simulation:
 
 
 
-    # ─────────────────────────────────────────────────────────────────────────────
-    # Helper methods
-    # ─────────────────────────────────────────────────────────────────────────────
+    # ────────────────── HELPER METHODS ───────────────────
     def simulate_expression_block(self, expression_matrix, structure, gene_idx, cell_idx, mean_expression, min_expression, on_time_fraction = 0.3, gap_size=None):
         ncells = len(cell_idx)
         assert(on_time_fraction <= 1), "on_time_fraction should be less than or equal to 1"
@@ -953,25 +822,5 @@ class Simulation:
         p = theta / (theta + mu)
         r = theta
         return nbinom.rvs(r, p, size=size)
-
-    @staticmethod
-    def _to_list(value, n, *,  default=None, dtype=float):
-        from collections.abc import Sequence
-        """
-        Normalise scalars / sequences / numpy arrays to a python list of length `n`.
-        """
-        if value is None:
-            return [default] * n
-        if isinstance(value, np.ndarray):
-            value = value.tolist()
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            if len(value) != n:
-                raise ValueError(
-                    f"Length must be {n}; got {len(value)}."
-                )
-            return list(value)
-        # scalar → broadcast
-        return [dtype(value)] * n
-
 
 
