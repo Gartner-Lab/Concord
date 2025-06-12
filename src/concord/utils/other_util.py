@@ -79,9 +79,9 @@ class MemoryProfiler:
         except ImportError:
             return 0.0
 
-        if device.startswith('cuda') and hasattr(torch, 'cuda') and torch.cuda.is_available():
+        if str(device).startswith('cuda') and hasattr(torch, 'cuda') and torch.cuda.is_available():
             return torch.cuda.max_memory_allocated() / 1024**2
-        elif device.startswith('mps') and hasattr(torch, 'mps') and torch.backends.mps.is_available():
+        elif str(device).startswith('mps') and hasattr(torch, 'mps') and torch.backends.mps.is_available():
             # PyTorch MPS doesn't have max_memory_allocated; can only get total used
             return torch.mps.current_allocated_memory() / 1024**2
         return 0.0
@@ -93,7 +93,7 @@ class MemoryProfiler:
         except ImportError:
             return
 
-        if device.startswith('cuda') and hasattr(torch, 'cuda') and torch.cuda.is_available():
+        if str(device).startswith('cuda') and hasattr(torch, 'cuda') and torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
-        elif device.startswith('mps') and hasattr(torch, 'mps') and torch.backends.mps.is_available():
+        elif str(device).startswith('mps') and hasattr(torch, 'mps') and torch.backends.mps.is_available():
             torch.mps.empty_cache()
