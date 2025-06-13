@@ -51,6 +51,7 @@ class DataLoaderManager:
                     use_sampler=True,
                     sampler_emb=None,
                     sampler_knn=300, 
+                    sampler_domain_minibatch_strategy='proportional',
                     p_intra_knn=0.3, p_intra_domain=None,
                     min_p_intra_domain=1.0, max_p_intra_domain=1.0,
                     clr_mode='aug', 
@@ -99,6 +100,7 @@ class DataLoaderManager:
         self.use_sampler = use_sampler
         self.sampler_emb = sampler_emb
         self.sampler_knn = sampler_knn
+        self.sampler_domain_minibatch_strategy = sampler_domain_minibatch_strategy
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
         self.p_intra_domain_dict = None
@@ -233,6 +235,7 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids, 
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
+                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
                     neighborhood=self.neighborhood, 
                     device=self.device
                 )
@@ -257,6 +260,7 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids[train_indices],
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
+                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
                     neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
@@ -266,6 +270,7 @@ class DataLoaderManager:
                     domain_ids=self.domain_ids[val_indices],
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
+                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
                     neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
