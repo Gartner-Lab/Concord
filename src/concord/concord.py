@@ -121,6 +121,7 @@ class Concord:
             norm_type="layer_norm",  # Default normalization type
             sampler_emb="X_pca",
             sampler_knn=None, # Default neighborhood size, can be adjusted
+            sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
             dist_metric='euclidean',
             p_intra_knn=0.3,
             p_intra_domain=0.95,
@@ -347,6 +348,7 @@ class Concord:
             use_sampler=use_sampler,
             sampler_emb=self.config.sampler_emb, 
             sampler_knn=self.config.sampler_knn,
+            sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
