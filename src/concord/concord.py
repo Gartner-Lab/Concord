@@ -164,7 +164,8 @@ class Concord:
             self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
             self.p_intra_domain = 1.0
 
-        self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
+        self.config.unique_domains = self.adata.obs[self.config.domain_key].cat.categories.tolist()
+        self.config.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
 
         if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
             logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
@@ -185,31 +186,31 @@ class Concord:
                 raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
 
-            self.unique_classes = self.adata.obs[self.config.class_key].cat.categories
-            self.unique_classes_code = [code for code, _ in enumerate(self.unique_classes)]
+            self.config.unique_classes = self.adata.obs[self.config.class_key].cat.categories.tolist()
+            self.config.unique_classes_code = [code for code, _ in enumerate(self.config.unique_classes)]
             if self.config.unlabeled_class is not None:
-                if self.config.unlabeled_class in self.unique_classes:
-                    self.unlabeled_class_code = self.unique_classes.get_loc(self.config.unlabeled_class)
-                    self.unique_classes_code = self.unique_classes_code[self.unique_classes_code != self.unlabeled_class_code]
-                    self.unique_classes = self.unique_classes[self.unique_classes != self.config.unlabeled_class]
+                if self.config.unlabeled_class in self.config.unique_classes:
+                    self.config.unlabeled_class_code = self.config.unique_classes.get_loc(self.config.unlabeled_class)
+                    self.config.unique_classes_code = self.config.unique_classes_code[self.config.unique_classes_code != self.config.unlabeled_class_code]
+                    self.config.unique_classes = self.config.unique_classes[self.config.unique_classes != self.config.unlabeled_class]
                 else:
                     raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
             else:
-                self.unlabeled_class_code = None
+                self.config.unlabeled_class_code = None
 
-            self.num_classes = len(self.unique_classes_code)
+            self.config.num_classes = len(self.config.unique_classes_code)
         else:
-            self.unique_classes = None
-            self.unique_classes_code = None
-            self.unlabeled_class_code = None
-            self.num_classes = None
+            self.config.unique_classes = None
+            self.config.unique_classes_code = None
+            self.config.unlabeled_class_code = None
+            self.config.num_classes = None
 
         # Compute the number of categories for each covariate
-        self.covariate_num_categories = {}
+        self.config.covariate_num_categories = {}
         for covariate_key in self.config.covariate_embedding_dims.keys():
             if covariate_key in self.adata.obs:
                 ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
-                self.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
+                self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
         
         # to be used by chunkloader for data transformation
         self.preprocessor = Preprocessor(
@@ -266,11 +267,11 @@ class Concord:
         hidden_dim = self.config.latent_dim
 
         self.model = ConcordModel(input_dim, hidden_dim, 
-                                  num_domains=self.num_domains,
-                                  num_classes=self.num_classes,
+                                  num_domains=self.config.num_domains,
+                                  num_classes=self.config.num_classes,
                                   domain_embedding_dim=self.config.domain_embedding_dim,
                                   covariate_embedding_dims=self.config.covariate_embedding_dims,
-                                  covariate_num_categories=self.covariate_num_categories,
+                                  covariate_num_categories=self.config.covariate_num_categories,
                                   #encoder_append_cov=self.config.encoder_append_cov,
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
@@ -307,8 +308,8 @@ class Concord:
                                schedule_ratio=self.config.schedule_ratio,
                                use_classifier=self.config.use_classifier, 
                                classifier_weight=self.config.classifier_weight,
-                               unique_classes=self.unique_classes_code,
-                               unlabeled_class=self.unlabeled_class_code,
+                               unique_classes=self.config.unique_classes_code,
+                               unlabeled_class=self.config.unlabeled_class_code,
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
                                clr_mode=self.config.clr_mode, 
@@ -318,7 +319,7 @@ class Concord:
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_dataloader(self, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
+    def init_dataloader(self, adata=None, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
         """
         Initializes the data loader for training and evaluation.
 
@@ -331,6 +332,7 @@ class Concord:
         Raises:
             ValueError: If `train_frac < 1.0` and contrastive loss mode is 'nn'.
         """
+        adata_to_load = adata if adata is not None else self.adata
         if train_frac < 1.0 and self.config.clr_mode == 'nn':
             raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
         self.data_manager = DataLoaderManager(
@@ -353,20 +355,20 @@ class Concord:
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
             preprocess=self.preprocessor if preprocess else None,
-            num_cores=self.num_classes, 
+            num_cores=self.config.num_classes, 
             device=self.config.device
         )
 
         if self.config.chunked:
             self.loader = ChunkLoader(
-                adata=self.adata,
+                adata=adata_to_load,
                 chunk_size=self.config.chunk_size,
                 data_manager=self.data_manager
             )
             self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
-            train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(self.adata)
-            self.loader = [(train_dataloader, val_dataloader, np.arange(self.adata.shape[0]))]
+            train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
+            self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
 
 
     def train(self, save_model=True, patience=2):
@@ -514,8 +516,8 @@ class Concord:
                 if decoder_domain is not None:
                     logger.info(f"Projecting data back to expression space of specified domain: {decoder_domain}")
                     # map domain to actual domain id used in the model
-                    fixed_domain_id = torch.tensor([self.adata.obs[self.config.domain_key].cat.categories.get_loc(decoder_domain)], dtype=torch.long).to(
-                        self.config.device)
+                    decoder_domain_code = self.config.unique_domains.index(decoder_domain)
+                    fixed_domain_id = torch.tensor([decoder_domain_code], dtype=torch.long, device=self.config.device)
                 else:
                     if self.config.use_decoder:
                         logger.info("No domain specified for decoding. Using the same domain as the input data.")
@@ -592,11 +594,11 @@ class Concord:
                     for key in latent_matrices.keys():
                         latent_matrices[key] = latent_matrices[key][sorted_indices]
 
-            if return_class and self.unique_classes is not None:
-                class_preds = self.unique_classes[class_preds] if class_preds is not None else None
-                class_true = self.unique_classes[class_true] if class_true is not None else None
+            if return_class and self.config.unique_classes is not None:
+                class_preds = self.config.unique_classes[class_preds] if class_preds is not None else None
+                class_true = self.config.unique_classes[class_true] if class_true is not None else None
                 if return_class_prob and class_probs is not None:
-                    class_probs = pd.DataFrame(class_probs, columns=self.unique_classes)
+                    class_probs = pd.DataFrame(class_probs, columns=self.config.unique_classes)
 
             return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
 
@@ -654,7 +656,7 @@ class Concord:
         if class_probs is not None:
             class_probs.index = self.adata.obs.index
             for col in class_probs.columns:
-                self.adata.obs[f'class_prob_{col}'] = class_probs[col]
+                self.adata.obs[output_key+f'_class_prob_{col}'] = class_probs[col]
 
     def get_domain_embeddings(self):
         """
@@ -759,13 +761,6 @@ class Concord:
         instance.save_dir = model_dir
         instance.adata = None  # No adata object at load time
         
-        # Manually set attributes that are derived in __init__ from the adata object,
-        # but are now fixed by the saved configuration.
-        instance.num_domains = len(instance.config.to_dict().get('domain_key', [])) # A bit of a placeholder
-        instance.num_classes = len(instance.config.to_dict().get('unique_classes', []))
-        instance.unique_classes = instance.config.to_dict().get('unique_classes')
-        instance.covariate_num_categories = instance.config.to_dict().get('covariate_num_categories', {})
-        
         instance.pretrained_model = model_file
         # --- 4. Initialize the model with the loaded config and load weights ---
         instance.init_model()
@@ -777,6 +772,7 @@ class Concord:
 
 
     def predict_new(self, adata_new: 'AnnData', input_layer_key="X", preprocess=True,
+                    output_key="Concord_pred",
                     return_decoded=False, decoder_domain=None, return_latent=False,
                     return_class=True, return_class_prob=True):
         """
@@ -794,15 +790,14 @@ class Concord:
         if self.model is None:
             raise RuntimeError("Model has not been loaded or initialized. Call `Concord.load()` first.")
 
-        # --- 1. Validate that new data has the required features ---
+        # Validate that new data has the required features
         missing_features = set(self.config.input_feature) - set(adata_new.var_names)
         if missing_features:
             raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
                              f"required by the model. Missing features: {list(missing_features)[:5]}...")
         
-        self.adata = adata_new  # Set the new data as the current adata object
-        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
-        # --- 3. Run prediction ---
+        self.init_dataloader(adata=adata_new, input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
+        # Run prediction
         logger.info("Generating predictions for the new data...")
         embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(
             loader=self.loader, # Pass the dataloader for the new data
@@ -814,17 +809,40 @@ class Concord:
             return_class_prob=return_class_prob
         )
         
-        # --- 4. Package and return results ---
-        results = {
-            'embeddings': embeddings,
-            'decoded': decoded,
-            'class_predictions': class_preds,
-            'class_probabilities': class_probs,
-            'class_true': class_true, # Ground truth from the new data, if available
-            'latent_variables': latent_matrices
-        }
+        # add results to adata_new object
+        adata_new.obsm[output_key] = embeddings
+        if return_decoded:
+            if decoder_domain is not None:
+                save_key = f"{output_key}_decoded_{decoder_domain}"
+            else:
+                save_key = f"{output_key}_decoded"
+            adata_new.layers[save_key] = decoded
+        if return_latent:
+            for key, val in latent_matrices.items():
+                adata_new.obsm[output_key+'_'+key] = val
+        if class_true is not None:
+            adata_new.obs[output_key+'_class_true'] = class_true
+        if class_preds is not None:
+            adata_new.obs[output_key+'_class_pred'] = class_preds
+        if class_probs is not None:
+            class_probs.index = adata_new.obs.index
+            for col in class_probs.columns:
+                adata_new.obs[output_key+f'_class_prob_{col}'] = class_probs[col]
         
-        return results
+        logger.info("Predictions completed and stored in the new AnnData object in following keys:")
+        logger.info(f" - {output_key} in obsm for embeddings")
+        if return_decoded:
+            logger.info(f" - {save_key} in layers for decoded gene expression")
+        if return_latent:
+            for key in latent_matrices.keys():
+                logger.info(f" - {output_key}_{key} in obsm for latent variables of {key}")
+        if class_true is not None:
+            logger.info(f" - {output_key}_class_true in obs for true class labels")
+        if class_preds is not None:
+            logger.info(f" - {output_key}_class_pred in obs for predicted class labels")
+        if class_probs is not None:
+            for col in class_probs.columns:
+                logger.info(f" - {output_key}_class_prob_{col} in obs for class probabilities of {col}")
 
 
     
