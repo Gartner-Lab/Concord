@@ -14,32 +14,8 @@ logger = logging.getLogger(__name__)
 
 class DataLoaderManager:
     """
-    Manages data loading for training and evaluation, including optional sampling.
-
-    This class handles embedding computation, k-NN graph construction, domain-aware 
-    sampling, and splits data into train/validation sets when needed.
-
-    Attributes:
-        input_layer_key (str): Key for input layer in AnnData.
-        domain_key (str): Key for domain labels in `adata.obs`.
-        class_key (str, optional): Key for class labels in `adata.obs`. Defaults to None.
-        covariate_keys (list, optional): List of covariate keys in `adata.obs`. Defaults to None.
-        batch_size (int): Batch size for data loading.
-        train_frac (float): Fraction of data used for training.
-        use_sampler (bool): Whether to use a custom sampler.
-        sampler_emb (str): Key for embeddings used in sampling.
-        sampler_knn (int): Number of k-nearest neighbors for sampling.
-        p_intra_knn (float): Probability of intra-cluster sampling.
-        p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
-        clr_mode (str): Contrastive learning mode.
-        dist_metric (str): Distance metric for k-NN graph.
-        pca_n_comps (int): Number of PCA components used in embedding computation.
-        use_faiss (bool): Whether to use FAISS for fast k-NN computation.
-        use_ivf (bool): Whether to use IVF indexing for FAISS.
-        ivf_nprobe (int): Number of probes for IVF-Faiss.
-        preprocess (callable, optional): Preprocessing function for `adata`.
-        num_cores (int, optional): Number of CPU cores for parallel processing.
-        device (torch.device): Device for computation (CPU or CUDA).
+    Manages data loading for CONCORD, including optional preprocessing and sampling.
+    This class handles the standard workflow of total-count normalization and log1p transformation.
     """
     def __init__(self, input_layer_key, domain_key, 
                     class_key=None, covariate_keys=None,
@@ -51,7 +27,6 @@ class DataLoaderManager:
                     sampler_domain_minibatch_strategy='proportional',
                     domain_coverage=None,
                     p_intra_knn=0.3, p_intra_domain=None,
-                    clr_mode='aug', 
                     dist_metric='euclidean',
                     pca_n_comps=50, 
                     use_faiss=True, 
@@ -75,7 +50,6 @@ class DataLoaderManager:
             sampler_knn (int, optional): Number of neighbors for k-NN sampling. Defaults to 300.
             p_intra_knn (float, optional): Probability of intra-cluster sampling. Defaults to 0.3.
             p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
-            clr_mode (str, optional): Contrastive learning mode. Defaults to 'aug'.
             dist_metric (str, optional): Distance metric for k-NN. Defaults to 'euclidean'.
             pca_n_comps (int, optional): Number of PCA components. Defaults to 50.
             use_faiss (bool, optional): Whether to use FAISS. Defaults to True.
@@ -100,7 +74,6 @@ class DataLoaderManager:
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
         self.p_intra_domain_dict = None
-        self.clr_mode = clr_mode
         self.pca_n_comps = pca_n_comps
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf

@@ -23,8 +23,6 @@ class Trainer:
         unlabeled_class (int or None): Label representing unlabeled samples.
         use_decoder (bool): Whether to use a decoder for reconstruction loss.
         decoder_weight (float): Weighting factor for reconstruction loss.
-        clr_mode (str): Contrastive learning mode ('aug' or 'nn').
-        use_clr (bool): Whether contrastive learning is enabled.
         clr_weight (float): Weighting factor for contrastive loss.
         importance_penalty_weight (float): Weighting for feature importance penalty.
         importance_penalty_type (str): Type of regularization for importance penalty.
@@ -41,7 +39,7 @@ class Trainer:
                  unique_classes=None,
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
-                 clr_mode='aug', clr_temperature=0.5, clr_weight=1.0,
+                 clr_temperature=0.5, clr_weight=1.0,
                  importance_penalty_weight=0, importance_penalty_type='L1'):
         """
         Initializes the Trainer.
@@ -59,7 +57,6 @@ class Trainer:
             unlabeled_class (int or None, optional): Label for unlabeled data. Default is None.
             use_decoder (bool, optional): Whether to use a decoder. Default is True.
             decoder_weight (float, optional): Weight for decoder loss. Default is 1.0.
-            clr_mode (str, optional): Contrastive learning mode ('aug', 'nn'). Default is 'aug'.
             clr_temperature (float, optional): Temperature for contrastive loss. Default is 0.5.
             clr_weight (float, optional): Weight for contrastive loss. Default is 1.0.
             importance_penalty_weight (float, optional): Weight for importance penalty. Default is 0.
@@ -75,8 +72,6 @@ class Trainer:
         self.unlabeled_class = unlabeled_class 
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
-        self.clr_mode = clr_mode
-        self.use_clr = clr_mode is not None
         self.clr_weight = clr_weight
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
@@ -109,15 +104,9 @@ class Trainer:
         # Contrastive loss
         loss_clr = torch.tensor(0.0)
 
-        if self.clr_mode == 'aug':
-            outputs_aug = self.model(inputs, domain_labels, covariate_tensors)
-            loss_clr = self.clr_criterion(outputs['encoded'], outputs_aug['encoded'])
-            loss_clr *= self.clr_weight
-        elif self.clr_mode == 'nn':
-            assert inputs.size(0) % 2 == 0, "Batch size must be even for nearest neighbor contrastive loss"
-            batch_size_actual = inputs.size(0) // 2
-            loss_clr = self.clr_criterion(outputs['encoded'][:batch_size_actual], outputs['encoded'][batch_size_actual:])
-            loss_clr *= self.clr_weight
+        outputs_aug = self.model(inputs, domain_labels, covariate_tensors)
+        loss_clr = self.clr_criterion(outputs['encoded'], outputs_aug['encoded'])
+        loss_clr *= self.clr_weight
 
         # Reconstruction loss
         loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
@@ -202,7 +191,7 @@ class Trainer:
             total_loss += loss.item()
             total_mse += loss_mse.item()
             total_classifier += loss_classifier.item() if self.use_classifier else 0
-            total_clr += loss_clr.item() if self.use_clr else 0
+            total_clr += loss_clr.item() 
             total_importance_penalty += loss_penalty.item() if self.model.use_importance_mask else 0
 
             if class_pred is not None and class_labels is not None:
