@@ -704,6 +704,128 @@ class Concord:
 
 
 
+    @classmethod
+    def load(cls, model_dir: str, device=None) -> 'Concord':
+        """
+        Loads a pre-trained CONCORD model from a directory.
+
+        This method finds the config.json and final_model.pt files within the
+        specified directory, initializes the Concord object, and loads the model weights.
+
+        Args:
+            model_dir (str): Path to the directory where the model and config were saved.
+            device (torch.device, optional): The device to load the model onto. 
+                                             If None, uses the device from the saved config.
+
+        Returns:
+            A pre-trained, ready-to-use Concord object.
+            
+        Raises:
+            FileNotFoundError: If the model or config file cannot be found.
+        """
+        from concord.utils import load_json
+        model_dir = Path(model_dir)
+        
+        # --- 1. Find the config and model files ---
+        config_files = list(model_dir.glob("config_*.json"))
+        if not config_files:
+            raise FileNotFoundError(f"No 'config_*.json' file found in {model_dir}")
+        # Use the most recently created file if multiple exist
+        config_file = max(config_files, key=lambda p: p.stat().st_mtime)
+
+        model_files = list(model_dir.glob("final_model_*.pt"))
+        if not model_files:
+            raise FileNotFoundError(f"No 'final_model_*.pt' file found in {model_dir}")
+        model_file = max(model_files, key=lambda p: p.stat().st_mtime)
+
+        logger.info(f"Loading configuration from: {config_file}")
+        logger.info(f"Loading model weights from: {model_file}")
+
+        # --- 2. Load the configuration ---
+        with open(config_file, 'r') as f:
+            concord_args = load_json(str(config_file))
+            concord_args['pretrained_model'] = model_file
+        
+        # Override device if specified by user
+        if device:
+            concord_args['device'] = device
+        
+        # --- 3. Create and configure the Concord object ---
+        # We create a "skeletal" object without an AnnData object, as we are
+        # loading a pre-trained model and will predict on new data later.
+        # We bypass the complex __init__ by using __new__ and manually setting attributes.
+        instance = cls.__new__(cls)
+        instance.config = Config(concord_args)
+        instance.save_dir = model_dir
+        instance.adata = None  # No adata object at load time
+        
+        # Manually set attributes that are derived in __init__ from the adata object,
+        # but are now fixed by the saved configuration.
+        instance.num_domains = len(instance.config.to_dict().get('domain_key', [])) # A bit of a placeholder
+        instance.num_classes = len(instance.config.to_dict().get('unique_classes', []))
+        instance.unique_classes = instance.config.to_dict().get('unique_classes')
+        instance.covariate_num_categories = instance.config.to_dict().get('covariate_num_categories', {})
+        
+        instance.pretrained_model = model_file
+        # --- 4. Initialize the model with the loaded config and load weights ---
+        instance.init_model()
+        
+        logger.info("Pre-trained Concord model loaded successfully.")
+        
+        return instance
+
+
+
+    def predict_new(self, adata_new: 'AnnData', input_layer_key="X", preprocess=True,
+                    return_decoded=False, decoder_domain=None, return_latent=False,
+                    return_class=True, return_class_prob=True):
+        """
+        Generates predictions for a new, unseen AnnData object using the loaded model.
+
+        Args:
+            adata_new (AnnData): The new data to predict on.
+            input_layer_key (str): The key in adata.layers to use as input.
+            preprocess (bool): Whether to apply preprocessing.
+            (See `predict` method for other arguments)
+
+        Returns:
+            dict: A dictionary containing the requested outputs ('embeddings', 'decoded', etc.).
+        """
+        if self.model is None:
+            raise RuntimeError("Model has not been loaded or initialized. Call `Concord.load()` first.")
+
+        # --- 1. Validate that new data has the required features ---
+        missing_features = set(self.config.input_feature) - set(adata_new.var_names)
+        if missing_features:
+            raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
+                             f"required by the model. Missing features: {list(missing_features)[:5]}...")
+        
+        self.adata = adata_new  # Set the new data as the current adata object
+        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
+        # --- 3. Run prediction ---
+        logger.info("Generating predictions for the new data...")
+        embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(
+            loader=self.loader, # Pass the dataloader for the new data
+            sort_by_indices=False, # Prediction is already in order
+            return_decoded=return_decoded,
+            decoder_domain=decoder_domain,
+            return_latent=return_latent,
+            return_class=return_class,
+            return_class_prob=return_class_prob
+        )
+        
+        # --- 4. Package and return results ---
+        results = {
+            'embeddings': embeddings,
+            'decoded': decoded,
+            'class_predictions': class_preds,
+            'class_probabilities': class_probs,
+            'class_true': class_true, # Ground truth from the new data, if available
+            'latent_variables': latent_matrices
+        }
+        
+        return results
+
 
     
 
