@@ -143,7 +143,6 @@ def run_concord(
     mode="default",  # Options: "default", "decoder", "class", "naive"
     n_epochs=10,
     batch_size=64,
-    min_p_intra_domain=None,
 ):
     from ..concord import Concord
 
@@ -158,7 +157,6 @@ def run_concord(
         "use_classifier": mode == "class",
         "use_decoder": mode == "decoder",
         "domain_embedding_dim": 8,
-        "min_p_intra_domain": min_p_intra_domain,
         "seed": seed,
         "verbose": False,
         "device": device,
@@ -271,7 +269,7 @@ def run_integration_methods_pipeline(
             adata, layer='X', preprocess=False, batch_key=batch_key,
             class_key=class_key, output_key="concord_class",
             latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, min_p_intra_domain=0.7, mode="class"), "concord_class")
+            seed=seed, mode="class"), "concord_class")
 
     # Concord decoder
     if "concord_decoder" in methods:
@@ -279,7 +277,7 @@ def run_integration_methods_pipeline(
             adata, layer='X', preprocess=False, batch_key=batch_key,
             class_key=class_key, output_key="concord_decoder",
             latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, min_p_intra_domain=0.7, mode="decoder"), "concord_decoder")
+            seed=seed, mode="decoder"), "concord_decoder")
 
     # Contrastive naive
     if "contrastive" in methods:

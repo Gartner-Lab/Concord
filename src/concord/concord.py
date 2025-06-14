@@ -122,11 +122,10 @@ class Concord:
             sampler_emb="X_pca",
             sampler_knn=None, # Default neighborhood size, can be adjusted
             sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
+            domain_coverage = None,
             dist_metric='euclidean',
             p_intra_knn=0.3,
             p_intra_domain=0.95,
-            min_p_intra_domain=0.9,
-            max_p_intra_domain=1.0,
             pca_n_comps=50,
             use_faiss=True,
             use_ivf=True,
@@ -166,12 +165,6 @@ class Concord:
             self.p_intra_domain = 1.0
 
         self.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
-
-        # User must set p_intra_domain = 1.0 or min_p_intra_domain to 1.0 to use this feature
-        # if self.config.encoder_append_cov:
-        #     if self.config.p_intra_domain != 1.0:
-        #         if self.config.min_p_intra_domain != 1.0:
-        #             raise ValueError("User must set p_intra_domain = 1.0 when encoder_append_cov is True, otherwise set it to False.")
 
         if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
             logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
@@ -349,11 +342,11 @@ class Concord:
             sampler_emb=self.config.sampler_emb, 
             sampler_knn=self.config.sampler_knn,
             sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
+            domain_coverage=self.config.domain_coverage,
+            
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
-            min_p_intra_domain=self.config.min_p_intra_domain,
-            max_p_intra_domain=self.config.max_p_intra_domain,
             clr_mode=self.config.clr_mode, 
             pca_n_comps=self.config.pca_n_comps,
             use_faiss=self.config.use_faiss, 

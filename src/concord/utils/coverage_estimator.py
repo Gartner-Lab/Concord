@@ -1,73 +1,82 @@
 import numpy as np
 from .. import logger
 
-def calculate_domain_coverage(adata, domain_key=None, neighborhood=None, k=100, basis='X_pca', pca_n_comps=50, metric='euclidean'):
+import pandas as pd
+import numpy as np
+import logging
 
-    if neighborhood is None:
-        from ..model.knn import Neighborhood
-        from ..utils.anndata_utils import get_adata_basis
-        # Compute neighborhood
-        logger.info(f"Computing neighborhood graph for coverage estimation using {basis}.")
-        emb = get_adata_basis(adata, basis=basis, pca_n_comps=pca_n_comps)
-        neighborhood = Neighborhood(emb=emb, k=k, metric=metric)
+logger = logging.getLogger(__name__)
 
-    domain_labels = adata.obs[domain_key]
-    unique_domains = domain_labels.unique()
 
-    # Calculate the indices for each domain
-    domain_coverage = {}
-    total_points = adata.n_obs
 
-    for domain in unique_domains:
-        domain_indices = np.where(domain_labels == domain)[0]
-        domain_neighbor_indices = neighborhood.get_knn(domain_indices)
+def calculate_domain_coverage_by_cluster(
+    adata, 
+    domain_key, 
+    cluster_key, 
+    enrichment_threshold=0.2
+):
+    """
+    Calculates the manifold coverage for each domain based on its representation across discrete clusters.
 
-        # Flatten and deduplicate indices
-        unique_neighbors = set(domain_neighbor_indices.flatten())
+    A domain is considered to "cover" a cluster if its presence in that cluster is
+    greater than what would be expected by random chance, adjusted for both domain
+    size and cluster size (i.e., enrichment > threshold). The final coverage score
+    for a domain is the fraction of total clusters it covers.
 
-        # Calculate coverage
-        coverage = len(unique_neighbors) / total_points
-        domain_coverage[domain] = coverage
+    Args:
+        adata (AnnData): The annotated data matrix.
+        domain_key (str): The key in `adata.obs` for the domain/batch labels.
+        cluster_key (str): The key in `adata.obs` for the pre-computed cluster labels (e.g., 'leiden').
+        enrichment_threshold (float, optional): The minimum enrichment score for a domain
+            to be considered as "covering" a cluster. Defaults to 1.0, meaning the domain
+            is more present than expected by random chance.
 
+    Returns:
+        dict: A dictionary mapping each domain to its coverage score (a float between 0 and 1).
+    """
+    if cluster_key not in adata.obs.columns:
+        raise ValueError(f"Cluster key '{cluster_key}' not found in adata.obs.")
+    if domain_key not in adata.obs.columns:
+        raise ValueError(f"Domain key '{domain_key}' not found in adata.obs.")
+
+    logger.info(f"Calculating domain coverage using clusters from '{cluster_key}'...")
+
+    # Step 1: Create a contingency table of observed counts (domains vs clusters)
+    contingency_table = pd.crosstab(adata.obs[domain_key], adata.obs[cluster_key])
+    
+    # Step 2: Calculate the expected counts
+    domain_counts = contingency_table.sum(axis=1)
+    cluster_counts = contingency_table.sum(axis=0)
+    total_cells = domain_counts.sum()
+
+    # Use numpy.outer to efficiently calculate the expected matrix
+    expected_counts = np.outer(domain_counts, cluster_counts) / total_cells
+    
+    # Add a small epsilon to avoid division by zero
+    epsilon = 1e-9
+    
+    # Step 3: Calculate the enrichment matrix
+    enrichment_matrix = contingency_table.values / (expected_counts + epsilon)
+    
+    # Step 4: Identify which clusters are "covered" by each domain based on the threshold
+    # This results in a boolean matrix
+    covered_clusters_matrix = enrichment_matrix > enrichment_threshold
+    
+    # Step 5: Calculate the final coverage score for each domain
+    num_covered_clusters = covered_clusters_matrix.sum(axis=1)
+    total_clusters = len(cluster_counts)
+    
+    coverage_scores_array = num_covered_clusters / total_clusters
+
+    # Convert the NumPy array back to a pandas Series, using the domain names as the index
+    coverage_scores_series = pd.Series(coverage_scores_array, index=domain_counts.index)
+
+    # Now, convert the correctly-labeled Series to a dictionary
+    domain_coverage = coverage_scores_series.to_dict()
+    
+    logger.info(f"Domain coverage scores: {domain_coverage}")
+    
     return domain_coverage
 
 
-def coverage_to_p_intra(domain_labels, coverage=None, min_p_intra_domain = 0.5, max_p_intra_domain = 1.0, scale_to_min_max=True):
-        """
-            Convert coverage values top_intra values, with optional scaling and capping.
-
-            Args:
-                domain_labels (pd.Series or similar): A categorical series of domain labels.
-                coverage (dict): Dictionary with domain keys and coverage values.
-                min_p_intra_domain (float): Minimum allowed p_intra value.
-                max_p_intra_domain (float): Maximum allowed p_intra value.
-                scale_to_min_max (bool): Whether to scale the values to the range [min_p_intra_domain, max_p_intra_domain].
-
-            Returns:
-                dict: p_intra_domain_dict with domain codes as keys and p_intra values as values.
-        """
-
-        unique_domains = domain_labels.cat.categories
-
-        if coverage is None:
-            raise ValueError("Coverage dictionary must be provided.")
-        missing_domains = set(unique_domains) - set(coverage.keys())
-        if missing_domains:
-            raise ValueError(f"Coverage values are missing for the following domains: {missing_domains}")
-
-        p_intra_domain_dict = coverage.copy()
-
-        if scale_to_min_max:
-            p_intra_domain_dict = {
-                domain: min_p_intra_domain + (max_p_intra_domain - min_p_intra_domain) * value
-                for domain, value in p_intra_domain_dict.items()
-            }
-        else:
-            # Cap values to the range [min_p_intra_domain, max_p_intra_domain]
-            p_intra_domain_dict = {
-                domain: max(min(value, max_p_intra_domain), min_p_intra_domain)
-                for domain, value in p_intra_domain_dict.items()
-            }
-
-        return p_intra_domain_dict
 

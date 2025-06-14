@@ -3,7 +3,6 @@ from .sampler import ConcordSampler
 from .anndataset import AnnDataset
 from .knn import Neighborhood
 from ..utils.value_check import validate_probability, validate_probability_dict_compatible
-from ..utils.coverage_estimator import calculate_domain_coverage, coverage_to_p_intra
 from torch.utils.data import DataLoader
 import numpy as np
 import scanpy as sc
@@ -32,8 +31,6 @@ class DataLoaderManager:
         sampler_knn (int): Number of k-nearest neighbors for sampling.
         p_intra_knn (float): Probability of intra-cluster sampling.
         p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
-        min_p_intra_domain (float): Minimum probability for intra-domain sampling.
-        max_p_intra_domain (float): Maximum probability for intra-domain sampling.
         clr_mode (str): Contrastive learning mode.
         dist_metric (str): Distance metric for k-NN graph.
         pca_n_comps (int): Number of PCA components used in embedding computation.
@@ -52,8 +49,8 @@ class DataLoaderManager:
                     sampler_emb=None,
                     sampler_knn=300, 
                     sampler_domain_minibatch_strategy='proportional',
+                    domain_coverage=None,
                     p_intra_knn=0.3, p_intra_domain=None,
-                    min_p_intra_domain=1.0, max_p_intra_domain=1.0,
                     clr_mode='aug', 
                     dist_metric='euclidean',
                     pca_n_comps=50, 
@@ -78,8 +75,6 @@ class DataLoaderManager:
             sampler_knn (int, optional): Number of neighbors for k-NN sampling. Defaults to 300.
             p_intra_knn (float, optional): Probability of intra-cluster sampling. Defaults to 0.3.
             p_intra_domain (float or dict, optional): Probability of intra-domain sampling.
-            min_p_intra_domain (float, optional): Minimum probability for intra-domain sampling. Defaults to 1.0.
-            max_p_intra_domain (float, optional): Maximum probability for intra-domain sampling. Defaults to 1.0.
             clr_mode (str, optional): Contrastive learning mode. Defaults to 'aug'.
             dist_metric (str, optional): Distance metric for k-NN. Defaults to 'euclidean'.
             pca_n_comps (int, optional): Number of PCA components. Defaults to 50.
@@ -101,11 +96,10 @@ class DataLoaderManager:
         self.sampler_emb = sampler_emb
         self.sampler_knn = sampler_knn
         self.sampler_domain_minibatch_strategy = sampler_domain_minibatch_strategy
+        self.domain_coverage = domain_coverage
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
         self.p_intra_domain_dict = None
-        self.min_p_intra_domain = min_p_intra_domain
-        self.max_p_intra_domain = max_p_intra_domain
         self.clr_mode = clr_mode
         self.pca_n_comps = pca_n_comps
         self.use_faiss = use_faiss
@@ -152,21 +146,7 @@ class DataLoaderManager:
                 logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
                 self.p_intra_domain = {unique_domains[0]: 1.0}
             else:
-                if self.min_p_intra_domain >= 1.0:
-                    logger.info(f"p_intra_domain is set to 1.0 as min_p_intra_domain >= 1.0.")
-                    self.p_intra_domain = {domain: 1.0 for domain in unique_domains}
-                else:
-                    logger.info(f"Calculating each domain's coverage of the global manifold using {self.sampler_emb}.")
-                    domain_coverage = calculate_domain_coverage(
-                        adata=self.adata, domain_key=self.domain_key, neighborhood=self.neighborhood
-                    )
-                    logger.info(f"Converting coverage {domain_coverage} to p_intra_domain...")
-                    self.p_intra_domain = coverage_to_p_intra(
-                        self.domain_labels, coverage=domain_coverage, 
-                        min_p_intra_domain=self.min_p_intra_domain, 
-                        max_p_intra_domain=self.max_p_intra_domain,
-                        scale_to_min_max=True # Always true unless user runs himself
-                    )
+                raise ValueError("Multiple domains detected but p_intra_domain is not specified. Please provide p_intra_domain as a float or a dictionary mapping each domain to a probability.")
         else:
             validate_probability_dict_compatible(self.p_intra_domain, "p_intra_domain")
             if not isinstance(self.p_intra_domain, dict):
@@ -236,6 +216,7 @@ class DataLoaderManager:
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
                     domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
+                    domain_coverage=self.domain_coverage,
                     neighborhood=self.neighborhood, 
                     device=self.device
                 )
@@ -261,6 +242,7 @@ class DataLoaderManager:
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
                     domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
+                    domain_coverage=self.domain_coverage,
                     neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
@@ -271,6 +253,7 @@ class DataLoaderManager:
                     p_intra_knn=self.p_intra_knn, 
                     p_intra_domain_dict=self.p_intra_domain_dict,
                     domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
+                    domain_coverage=self.domain_coverage,
                     neighborhood=None, # Not used if train-val split
                     device=self.device
                 )
