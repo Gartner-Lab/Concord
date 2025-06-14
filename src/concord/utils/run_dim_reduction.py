@@ -258,7 +258,6 @@ def run_dimensionality_reduction_pipeline(
         'adata': adata,
         'input_feature': None,
         'latent_dim': n_components,
-        'min_p_intra_domain': concord_min_pid,
         'n_epochs': concord_epochs,
         'domain_key': None,
         'seed': seed,

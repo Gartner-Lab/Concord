@@ -22,6 +22,7 @@ class ConcordSampler(Sampler):
                  min_batch_size=4, 
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
+                 domain_coverage=None,
                  device=None):
         """
         Initializes the ConcordSampler.
@@ -45,10 +46,16 @@ class ConcordSampler(Sampler):
 
         self.domain_minibatch_strategy = domain_minibatch_strategy
         self.domain_minibatch_min_count = domain_minibatch_min_count
-        allowed_strategies = ['proportional', 'equal']
+        self.domain_coverage = domain_coverage 
+
+        allowed_strategies = ['proportional', 'equal', 'coverage']
         if self.domain_minibatch_strategy not in allowed_strategies:
             raise ValueError(f"domain_minibatch_strategy must be one of {allowed_strategies}")
-
+        
+        # Add validation for the coverage strategy
+        if self.domain_minibatch_strategy == 'coverage' and self.domain_coverage is None:
+            raise ValueError("domain_coverage dictionary must be provided when using the 'coverage' strategy.")
+        
         self.unique_domains, self.domain_counts = torch.unique(self.domain_ids, return_counts=True)
         self.valid_batches = None
 
@@ -74,6 +81,25 @@ class ConcordSampler(Sampler):
             equal_num_batches = max(self.domain_minibatch_min_count, int(np.median(all_proportional_batches)))
             for domain in self.unique_domains:
                 num_batches_map[domain.item()] = equal_num_batches
+
+        elif self.domain_minibatch_strategy == 'coverage':
+            total_batches_in_epoch = len(self.domain_ids) // self.batch_size
+            total_coverage = sum(self.domain_coverage.values())
+            
+            if total_coverage == 0:
+                logger.warning("Total domain coverage is 0. Falling back to 'proportional' minibatch strategy.")
+                original_strategy = self.domain_minibatch_strategy
+                self.domain_minibatch_strategy = 'proportional'
+                num_batches_map = self._calculate_num_batches_per_domain()
+                self.domain_minibatch_strategy = original_strategy
+                return num_batches_map
+
+            for domain in self.unique_domains:
+                domain_id = domain.item()
+                coverage_score = self.domain_coverage.get(domain_id, 0)
+                proportion = coverage_score / total_coverage
+                num_batches = max(self.domain_minibatch_min_count, int(proportion * total_batches_in_epoch))
+                num_batches_map[domain_id] = num_batches
 
         return num_batches_map
 
