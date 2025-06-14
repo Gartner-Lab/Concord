@@ -108,7 +108,6 @@ class Concord:
             use_decoder=False, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
-            clr_mode="aug", # Consider fix
             clr_temperature=0.5,
             clr_weight=1.0,
             use_classifier=False,
@@ -312,7 +311,6 @@ class Concord:
                                unlabeled_class=self.config.unlabeled_class_code,
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
-                               clr_mode=self.config.clr_mode, 
                                clr_temperature=self.config.clr_temperature,
                                clr_weight=self.config.clr_weight,
                                importance_penalty_weight=self.config.importance_penalty_weight,
@@ -333,8 +331,7 @@ class Concord:
             ValueError: If `train_frac < 1.0` and contrastive loss mode is 'nn'.
         """
         adata_to_load = adata if adata is not None else self.adata
-        if train_frac < 1.0 and self.config.clr_mode == 'nn':
-            raise ValueError("Nearest neighbor contrastive loss is not supported for training fraction less than 1.0.")
+
         self.data_manager = DataLoaderManager(
             input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
@@ -349,7 +346,6 @@ class Concord:
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
-            clr_mode=self.config.clr_mode, 
             pca_n_comps=self.config.pca_n_comps,
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
@@ -771,7 +767,7 @@ class Concord:
 
 
 
-    def predict_new(self, adata_new: 'AnnData', input_layer_key="X", preprocess=True,
+    def predict_adata(self, adata_new: 'AnnData', input_layer_key="X", preprocess=True,
                     output_key="Concord_pred",
                     return_decoded=False, decoder_domain=None, return_latent=False,
                     return_class=True, return_class_prob=True):
