@@ -2,11 +2,11 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from .model.model import ConcordModel
-from .utils.preprocessor import Preprocessor
-from .utils.anndata_utils import ensure_categorical
+from .utils.anndata_utils import ensure_categorical, check_adata_X
 from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, set_seed
+from .utils.value_check import validate_probability_dict_compatible
 from .model.trainer import Trainer
 import numpy as np
 import scanpy as sc
@@ -15,6 +15,7 @@ import copy
 import json
 from . import logger
 from . import set_verbose_mode
+
 
 class Config:
     def __init__(self, config_dict):
@@ -92,6 +93,8 @@ class Concord:
             seed=0,
             project_name="concord",
             input_feature=None,
+            normalize_total=False, # default adata.X should be normalized
+            log1p=False,
             batch_size=64,
             n_epochs=10,
             lr=1e-2,
@@ -133,12 +136,21 @@ class Concord:
             classifier_freeze_param=False,
             chunked=False,
             chunk_size=10000,
-            #encoder_append_cov=False, # Should always be False for now
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         )
 
         self.setup_config(**kwargs)
         set_seed(self.config.seed)
+
+        detected_format = check_adata_X(self.adata)
+        if detected_format == 'raw' and not self.config.normalize_total:
+            logger.warning("Input data in adata.X appears to be raw counts. "
+                           "CONCORD performs best on normalized and log-transformed data. "
+                           "Consider setting normalize_total=True and log1p=True.")
+        elif detected_format == 'normalized' and (self.config.normalize_total or self.config.log1p):
+            logger.warning("Input data in adata.X appears to be already normalized, "
+                           "but preprocessing flags (normalize_total or log1p) are set to True. "
+                           "This may lead to unexpected results. Please ensure this is intended.")
 
         if self.config.sampler_knn is None:
             self.config.sampler_knn = self.adata.n_obs // 10 
@@ -161,22 +173,20 @@ class Concord:
             logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
             self.config.domain_key = 'tmp_domain_label'
             self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
-            self.p_intra_domain = 1.0
+            self.config.p_intra_domain = 1.0
 
         self.config.unique_domains = self.adata.obs[self.config.domain_key].cat.categories.tolist()
         self.config.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
 
+        validate_probability_dict_compatible(self.config.p_intra_domain, "p_intra_domain")
+        if self.config.num_domains == 1:
+            logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
+            self.config.p_intra_domain = 1.0
+
+        validate_probability_dict_compatible(self.config.p_intra_knn, "p_intra_knn")
         if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
             logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
             self.config.p_intra_knn = 0
-
-        # Check if batch_size conflicts with p_intra_knn
-        batch_knn_count = int(self.config.p_intra_knn * self.config.batch_size)
-        if self.config.p_intra_knn > 0 and batch_knn_count > self.config.sampler_knn:
-            logger.warning(f"p_intra_knn * batch_size ({batch_knn_count}) is greater than sampler_knn ({self.config.sampler_knn}). This will cause actual sampling ratio not matching specified p_intra_knn.")
-            logger.warning(f"You should either set batch_size to be smaller than sampler_knn/p_intra_knn ({int(self.config.sampler_knn/self.config.p_intra_knn)})")
-            logger.warning(f"or set sampler_knn to be greater than p_intra_knn * batch_size ({batch_knn_count}).")
-            #self.config.p_intra_knn = 0
 
         if self.config.use_classifier:
             if self.config.class_key is None:
@@ -211,15 +221,6 @@ class Concord:
                 ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
                 self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
         
-        # to be used by chunkloader for data transformation
-        self.preprocessor = Preprocessor(
-            use_key="X",
-            normalize_total=1e4,
-            result_normed_key="X_normed",
-            log1p=True,
-            result_log1p_key="X_log1p"
-        )
-
 
     def get_default_params(self):
         """
@@ -317,13 +318,11 @@ class Concord:
                                importance_penalty_type=self.config.importance_penalty_type)
 
 
-    def init_dataloader(self, adata=None, input_layer_key='X_log1p', preprocess=True, train_frac=1.0, use_sampler=True):
+    def init_dataloader(self, adata=None, train_frac=1.0, use_sampler=True):
         """
         Initializes the data loader for training and evaluation.
 
         Args:
-            input_layer_key (str, optional): Key in `adata.layers` to use as input. Defaults to 'X_log1p'.
-            preprocess (bool, optional): Whether to apply preprocessing. Defaults to True.
             train_frac (float, optional): Fraction of data to use for training. Defaults to 1.0.
             use_sampler (bool, optional): Whether to use the probabilistic sampler. Defaults to True.
 
@@ -333,9 +332,11 @@ class Concord:
         adata_to_load = adata if adata is not None else self.adata
 
         self.data_manager = DataLoaderManager(
-            input_layer_key=input_layer_key, domain_key=self.config.domain_key, 
+            domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
             feature_list=self.config.input_feature,
+            normalize_total=self.config.normalize_total, 
+            log1p=self.config.log1p,    
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
             sampler_emb=self.config.sampler_emb, 
@@ -350,7 +351,6 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            preprocess=self.preprocessor if preprocess else None,
             num_cores=self.config.num_classes, 
             device=self.config.device
         )
@@ -599,7 +599,7 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
 
 
-    def encode_adata(self, input_layer_key="X_log1p", output_key="Concord", preprocess=True, 
+    def encode_adata(self, output_key="Concord", 
                      return_decoded=False, decoder_domain=None,
                      return_latent=False, 
                      return_class=True, return_class_prob=True, 
@@ -608,9 +608,7 @@ class Concord:
         Encodes an AnnData object using the CONCORD model.
 
         Args:
-            input_layer_key (str, optional): Input layer key. Defaults to 'X_log1p'.
             output_key (str, optional): Output key for storing results in AnnData. Defaults to 'Concord'.
-            preprocess (bool, optional): Whether to apply preprocessing. Defaults to True.
             return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
             decoder_domain (str, optional): Specifies domain for decoding. Defaults to None.
             return_latent (bool, optional): Whether to return latent variables. Defaults to False.
@@ -622,13 +620,13 @@ class Concord:
         # Initialize the model
         self.init_model()
         # Initialize the dataloader
-        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=self.config.train_frac, use_sampler=True)
+        self.init_dataloader(train_frac=self.config.train_frac, use_sampler=True)
         # Initialize the trainer
         self.init_trainer()
         # Train the model
         self.train(save_model=save_model)
         # Reinitialize the dataloader without using the sampler
-        self.init_dataloader(input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
+        self.init_dataloader(train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
         encoded, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(self.loader, 
@@ -766,8 +764,7 @@ class Concord:
         return instance
 
 
-
-    def predict_adata(self, adata_new: 'AnnData', input_layer_key="X", preprocess=True,
+    def predict_adata(self, adata_new: 'AnnData', 
                     output_key="Concord_pred",
                     return_decoded=False, decoder_domain=None, return_latent=False,
                     return_class=True, return_class_prob=True):
@@ -776,8 +773,6 @@ class Concord:
 
         Args:
             adata_new (AnnData): The new data to predict on.
-            input_layer_key (str): The key in adata.layers to use as input.
-            preprocess (bool): Whether to apply preprocessing.
             (See `predict` method for other arguments)
 
         Returns:
@@ -792,7 +787,7 @@ class Concord:
             raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
                              f"required by the model. Missing features: {list(missing_features)[:5]}...")
         
-        self.init_dataloader(adata=adata_new, input_layer_key=input_layer_key, preprocess=preprocess, train_frac=1.0, use_sampler=False)
+        self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
         # Run prediction
         logger.info("Generating predictions for the new data...")
         embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(
@@ -841,5 +836,4 @@ class Concord:
                 logger.info(f" - {output_key}_class_prob_{col} in obs for class probabilities of {col}")
 
 
-    
 

@@ -90,20 +90,11 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         if 'counts' in adata.layers:
             exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['counts'].T)
         else:
+            logger.info("Counts data (adata.layers['counts']) not found. Please make sure you save a copy of raw data in adata.layers['counts'].")
             exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
         
-        # Convert the normalized expression matrix (adata.layers['X_log1p']) to a sparse matrix in R
-        if 'X_log1p' in adata.layers:
-            norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['X_log1p'].T)
-        else:
-            # TODO use preprocessor to check if data is already normalized and log transformed.
-            logger.info("Normalized expression data (adata.layers['X_log1p']) not found. Renormalize and log transforming.")
-            tmp_adata = adata.copy()
-            if 'counts' in adata.layers:
-                tmp_adata.X = tmp_adata.layers['counts'].copy()
-            sc.pp.normalize_total(tmp_adata, target_sum=1e4)
-            sc.pp.log1p(tmp_adata)
-            norm_exprs_sparse_r = convert_to_sparse_r_matrix(tmp_adata.X.T)
+        # Convert the normalized expression matrix to a sparse matrix in R
+        norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
         
         # Convert phenoData and featureData to R
         fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)

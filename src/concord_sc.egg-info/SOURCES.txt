@@ -40,7 +40,7 @@ src/concord/utils/cellxgene.py
 src/concord/utils/coverage_estimator.py
 src/concord/utils/doublet_utils.py
 src/concord/utils/enrichment_analysis.py
-src/concord/utils/estimate_aug_mask_prob.py
+src/concord/utils/estimate_dropout_rate.py
 src/concord/utils/evaluator.py
 src/concord/utils/feature_selector.py
 src/concord/utils/geometry.py
@@ -48,7 +48,6 @@ src/concord/utils/importance_analysis.py
 src/concord/utils/io.py
 src/concord/utils/other_util.py
 src/concord/utils/path_analysis.py
-src/concord/utils/preprocessor.py
 src/concord/utils/run_dim_reduction.py
 src/concord/utils/run_integration_methods.py
 src/concord/utils/simulation.py

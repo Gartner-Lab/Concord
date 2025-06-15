@@ -11,7 +11,6 @@ class ChunkLoader:
 
     Attributes:
         adata (AnnData): The annotated data matrix.
-        input_layer_key (str): Key for the input layer in `adata`.
         domain_key (str): Key for domain labels in `adata.obs`.
         class_key (str, optional): Key for class labels in `adata.obs`.
         covariate_keys (list, optional): List of keys for covariates in `adata.obs`.
@@ -29,7 +28,6 @@ class ChunkLoader:
         p_intra_domain (float): Probability of sampling within the same domain.
         p_intra_class (float): Probability of sampling within the same class.
         drop_last (bool): Whether to drop the last batch if it is smaller than batch_size.
-        preprocess (callable, optional): Preprocessing function to apply to the dataset.
         device (torch.device): Device on which to load data (CPU or CUDA).
         total_samples (int): Total number of samples in the dataset.
         num_chunks (int): Number of chunks required to load the full dataset.
@@ -43,7 +41,7 @@ class ChunkLoader:
         __iter__: Initializes the chunk iterator.
         __next__: Retrieves the next chunk of data.
     """
-    def __init__(self, adata, input_layer_key, domain_key, 
+    def __init__(self, adata, domain_key, 
                  class_key=None, covariate_keys=None,
                  chunk_size=10000, batch_size=32, train_frac=0.9,
                  sampler_mode="domain",
@@ -51,13 +49,12 @@ class ChunkLoader:
                  sampler_knn=300, p_intra_knn=0.3, p_intra_domain=1.0,
                  use_faiss=True, use_ivf=False, ivf_nprobe=8,
                  class_weights=None, p_intra_class=0.3, drop_last=True,
-                 preprocess=None, device=None):
+                 device=None):
         """
         Initializes the ChunkLoader.
 
         Args:
             adata (AnnData): The annotated data matrix.
-            input_layer_key (str): Key for the input layer in `adata`.
             domain_key (str): Key for domain labels in `adata.obs`.
             class_key (str, optional): Key for class labels in `adata.obs`. Default is None.
             covariate_keys (list, optional): List of covariate keys in `adata.obs`. Default is None.
@@ -75,11 +72,9 @@ class ChunkLoader:
             class_weights (dict, optional): Dictionary of class weights for balancing. Default is None.
             p_intra_class (float, optional): Probability of sampling within the same class. Default is 0.3.
             drop_last (bool, optional): Whether to drop the last batch if it is smaller than `batch_size`. Default is True.
-            preprocess (callable, optional): Function to preprocess the dataset. Default is None.
             device (torch.device, optional): Device on which to load data (CPU/GPU). Default is CUDA if available.
         """
         self.adata = adata
-        self.input_layer_key = input_layer_key
         self.domain_key = domain_key
         self.class_key = class_key
         self.covariate_keys = covariate_keys
@@ -97,7 +92,6 @@ class ChunkLoader:
         self.p_intra_domain = p_intra_domain
         self.p_intra_class = p_intra_class
         self.drop_last = drop_last
-        self.preprocess = preprocess
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.total_samples = self.adata.shape[0]
         self.num_chunks = (self.total_samples + chunk_size - 1) // chunk_size
@@ -137,7 +131,7 @@ class ChunkLoader:
         chunk_adata = self.adata[chunk_indices].to_memory()
 
         dataloader_manager = DataLoaderManager(
-            chunk_adata, self.input_layer_key, self.domain_key, 
+            chunk_adata, self.domain_key, 
             class_key=self.class_key, covariate_keys=self.covariate_keys, 
             batch_size=self.batch_size, train_frac=self.train_frac,
             sampler_mode=self.sampler_mode, sampler_emb=self.sampler_emb, 
@@ -145,7 +139,7 @@ class ChunkLoader:
             p_intra_domain=self.p_intra_domain, use_faiss=self.use_faiss, 
             use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe, 
             class_weights=self.class_weights, p_intra_class=self.p_intra_class, 
-            drop_last=self.drop_last, preprocess=self.preprocess, device=self.device
+            drop_last=self.drop_last, device=self.device
         )
         train_dataloader, val_dataloader, data_structure = dataloader_manager.anndata_to_dataloader()
 
