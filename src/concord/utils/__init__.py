@@ -3,7 +3,6 @@ from .doublet_utils import *
 from .doublet_utils import *
 from .io import *
 from .other_util import *
-from .preprocessor import *
 from .importance_analysis import *
 from .enrichment_analysis import *
 from .batch_analysis import *
@@ -15,7 +14,7 @@ from .run_dim_reduction import *
 from .coverage_estimator import *
 from .feature_selector import *
 from .benchmark import *
-from .estimate_aug_mask_prob import *
+from .estimate_dropout_rate import *
 from .visCello import *
 from .simulation import *
 from .tda import *

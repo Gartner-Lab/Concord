@@ -4,21 +4,10 @@ import numpy as np
 from scipy.sparse import issparse
 import matplotlib.pyplot as plt
 import seaborn as sns
-from .preprocessor import Preprocessor
 from ..model.knn import Neighborhood
 from .. import logger
 
-def estimate_aug_mask_prob(adata, input_feature=None, k=3, nbr_emb = 'X_pca',  metric='euclidean', n_samples = 3000, pca_n_comps=50, use_faiss=False, use_ivf=False, ivf_nprobe=8, return_mean=True, plotting=False):
-
-    preprocessor = Preprocessor(
-        use_key="X",
-        feature_list=input_feature,
-        normalize_total=1e4,
-        result_normed_key="X_normed",
-        log1p=True,
-        result_log1p_key="X_log1p"
-    )
-    preprocessor(adata)
+def estimate_dropout_rate(adata, k=3, nbr_emb = 'X_pca',  metric='euclidean', n_samples = 3000, pca_n_comps=50, use_faiss=False, use_ivf=False, ivf_nprobe=8, return_mean=True, plotting=False):
 
     if nbr_emb not in adata.obsm:
         if nbr_emb == 'X_pca':

@@ -1,6 +1,6 @@
-Metadata-Version: 2.4
+Metadata-Version: 2.1
 Name: concord-sc
-Version: 0.9.7
+Version: 0.9.9
 Summary: CONCORD: Contrastive Learning for Cross-domain Reconciliation and Discovery
 Home-page: https://github.com/Gartner-Lab/Concord
 Author: Qin Zhu
@@ -33,18 +33,6 @@ Requires-Dist: Pillow>=10.0.0; extra == "optional"
 Requires-Dist: plottable>=0.1; extra == "optional"
 Requires-Dist: requests>=2.0; extra == "optional"
 Requires-Dist: rpy2>=3.5; extra == "optional"
-Dynamic: author
-Dynamic: author-email
-Dynamic: classifier
-Dynamic: description
-Dynamic: description-content-type
-Dynamic: home-page
-Dynamic: license
-Dynamic: license-file
-Dynamic: provides-extra
-Dynamic: requires-dist
-Dynamic: requires-python
-Dynamic: summary
 
 # CONCORD: COntrastive learNing for Cross-dOmain Reconciliation and Discovery
 
@@ -131,7 +119,9 @@ import scanpy as sc
 import torch
 # Load and prepare example data
 adata = sc.datasets.pbmc3k_processed()
-adata = adata.raw.to_adata()  # Store raw counts in adata.X, by default Concord will run standard total count normalization and log transformation internally, not necessary if you want to use your normalized data in adata.X, if so, specify 'X' in cur_ccd.encode_adata(input_layer_key='X', output_key='Concord')
+adata = adata.raw.to_adata()  # Suppose you have raw counts in adata.X, then we recommend do normalization and log1p transformation before running CONCORD
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
 ```
 
 ### Run CONCORD:

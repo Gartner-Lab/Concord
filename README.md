@@ -83,7 +83,9 @@ import scanpy as sc
 import torch
 # Load and prepare example data
 adata = sc.datasets.pbmc3k_processed()
-adata = adata.raw.to_adata()  # Store raw counts in adata.X, by default Concord will run standard total count normalization and log transformation internally, not necessary if you want to use your normalized data in adata.X, if so, specify 'X' in cur_ccd.encode_adata(input_layer_key='X', output_key='Concord')
+adata = adata.raw.to_adata()  # Suppose you have raw counts in adata.X, then we recommend do normalization and log1p transformation before running CONCORD
+sc.pp.normalize_total(adata, target_sum=1e4)
+sc.pp.log1p(adata)
 ```
 
 ### Run CONCORD:

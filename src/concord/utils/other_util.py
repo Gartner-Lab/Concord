@@ -49,7 +49,6 @@ def sort_string_list(string_list):
 
 
 
-
 class Timer:
     def __enter__(self):
         self.start = time.time()

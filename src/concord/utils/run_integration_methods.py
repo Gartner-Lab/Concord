@@ -130,8 +130,6 @@ def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels
 
 def run_concord(
     adata,
-    layer="X",
-    preprocess=False,
     batch_key="batch",
     class_key=None,
     output_key="Concord",
@@ -143,7 +141,6 @@ def run_concord(
     mode="default",  # Options: "default", "decoder", "class", "naive"
     n_epochs=10,
     batch_size=64,
-    min_p_intra_domain=None,
 ):
     from ..concord import Concord
 
@@ -158,7 +155,6 @@ def run_concord(
         "use_classifier": mode == "class",
         "use_decoder": mode == "decoder",
         "domain_embedding_dim": 8,
-        "min_p_intra_domain": min_p_intra_domain,
         "seed": seed,
         "verbose": False,
         "device": device,
@@ -166,7 +162,7 @@ def run_concord(
     }
 
     model = Concord(**kwargs)
-    model.encode_adata(input_layer_key=layer, output_key=output_key, preprocess=preprocess, return_decoded=return_corrected)
+    model.encode_adata(output_key=output_key, return_decoded=return_corrected)
 
 
 def run_integration_methods_pipeline(
@@ -261,30 +257,30 @@ def run_integration_methods_pipeline(
     # Concord default
     if "concord" in methods:
         profiled_run("concord", lambda: run_concord(
-            adata, layer='X', preprocess=False, batch_key=batch_key,
+            adata, batch_key=batch_key,
             output_key="concord", latent_dim=latent_dim,
             return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord")
 
     # Concord class
     if "concord_class" in methods:
         profiled_run("concord_class", lambda: run_concord(
-            adata, layer='X', preprocess=False, batch_key=batch_key,
+            adata, batch_key=batch_key,
             class_key=class_key, output_key="concord_class",
             latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, min_p_intra_domain=0.7, mode="class"), "concord_class")
+            seed=seed, mode="class"), "concord_class")
 
     # Concord decoder
     if "concord_decoder" in methods:
         profiled_run("concord_decoder", lambda: run_concord(
-            adata, layer='X', preprocess=False, batch_key=batch_key,
+            adata, batch_key=batch_key,
             class_key=class_key, output_key="concord_decoder",
             latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, min_p_intra_domain=0.7, mode="decoder"), "concord_decoder")
+            seed=seed, mode="decoder"), "concord_decoder")
 
     # Contrastive naive
     if "contrastive" in methods:
         profiled_run("contrastive", lambda: run_concord(
-            adata, layer='X', preprocess=False, batch_key=None,
+            adata, batch_key=None,
             output_key="contrastive", latent_dim=latent_dim,
             return_corrected=return_corrected, device=device, seed=seed, mode="naive"), "contrastive")
         
