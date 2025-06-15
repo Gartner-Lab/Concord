@@ -383,3 +383,53 @@ def ordered_concat(
     reordered_adata = concatenated_adata[:, final_gene_order].copy()
 
     return reordered_adata
+
+
+def check_adata_X(adata, n_samples=100):
+    """
+    Quickly and memory-efficiently checks adata.X to guess if it contains
+    raw counts or normalized values. This version is safe for both 
+    in-memory and backed AnnData objects.
+    """
+    from scipy.sparse import issparse
+    import numpy as np
+
+    if adata.n_obs == 0:
+        return 'empty'
+
+    # --- This is the robust way to handle both in-memory and backed data ---
+    # 1. Take a small slice of the AnnData object itself.
+    # This efficiently reads a small chunk into memory, regardless of mode.
+    n_rows_to_sample = min(n_samples, adata.n_obs)
+    adata_subset = adata[:n_rows_to_sample, :]
+    
+    # 2. Now, X_sample is a standard in-memory matrix (sparse or dense)
+    X_sample = adata_subset.X
+    # --- End robust slicing ---
+
+    if issparse(X_sample):
+        # We can now safely access .data on the small in-memory sample
+        n_stored = X_sample.nnz
+        if n_stored == 0:
+            return 'empty'
+        
+        n_to_sample = min(n_samples, n_stored)
+        data_sample = X_sample.data[:n_to_sample] # Simple slice is fine here
+    else: # Dense case 
+        # The subset is already small, so we can work with it directly
+        non_zero_subset = X_sample[X_sample > 0]
+        if non_zero_subset.size == 0:
+            return 'empty'
+        
+        n_to_sample = min(n_samples, non_zero_subset.size)
+        # Use simple slicing for consistency and speed
+        data_sample = non_zero_subset[:n_to_sample]
+
+    # Your simplified heuristic
+    is_integer = np.all(np.isclose(data_sample, np.round(data_sample)))
+
+    if is_integer:
+        return 'raw'
+    else:
+        return 'normalized'
+    

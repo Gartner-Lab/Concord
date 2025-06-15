@@ -18,7 +18,7 @@ class ConcordSampler(Sampler):
                  domain_ids, 
                  neighborhood, 
                  p_intra_knn=0.3, 
-                 p_intra_domain_dict=None, 
+                 p_intra_domain=.95, 
                  min_batch_size=4, 
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
@@ -32,13 +32,13 @@ class ConcordSampler(Sampler):
             domain_ids (torch.Tensor): Tensor of domain labels for each sample.
             neighborhood (Neighborhood): Precomputed k-NN index.
             p_intra_knn (float, optional): Probability of selecting samples from k-NN neighborhoods. Default is 0.3.
-            p_intra_domain_dict (dict, optional): Dictionary mapping domain indices to intra-domain probabilities. Default is None.
+            p_intra_domain (dict, optional): Probability of selecting samples from the same domain.
             min_batch_size (int, optional): Minimum allowed batch size. Default is 4.
             device (torch.device, optional): Device to store tensors. Defaults to GPU if available.
         """
         self.batch_size = batch_size
         self.p_intra_knn = p_intra_knn
-        self.p_intra_domain_dict = p_intra_domain_dict
+        self.p_intra_domain = p_intra_domain
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.domain_ids = domain_ids
         self.neighborhood = neighborhood
@@ -140,15 +140,17 @@ class ConcordSampler(Sampler):
             if len(domain_indices) == 0: continue # Skip domains with no cells
 
             out_domain_indices = torch.where(self.domain_ids != domain)[0]
-            p_intra_domain = self.p_intra_domain_dict.get(domain.item())
             num_batches_domain = num_batches_per_domain[domain.item()]
             
             # Sample within knn neighborhood if p_intra_knn > 0
             if self.p_intra_knn == 0:
-                batch_global_in_domain_count = int(p_intra_domain * self.batch_size)
+                batch_global_in_domain_count = int(self.p_intra_domain * self.batch_size)
                 batch_global_out_domain_count = self.batch_size - batch_global_in_domain_count
                 batch_knn = torch.empty(num_batches_domain, 0, dtype=torch.long, device=self.device)
             else:
+                # Check if neighborhood is available
+                if self.neighborhood is None:
+                    raise ValueError("Neighborhood must be provided to sample from k-NN neighborhoods.")
                 core_sample_indices = torch.randint(len(domain_indices), (num_batches_domain,))
                 core_samples = domain_indices[core_sample_indices]
 
@@ -160,9 +162,9 @@ class ConcordSampler(Sampler):
                 knn_out_domain = torch.where(~domain_mask, knn_around_core, torch.tensor(-1, device=self.device))
 
                 batch_knn_count = int(self.p_intra_knn * self.batch_size)
-                batch_knn_in_domain_count = int(p_intra_domain * batch_knn_count)
+                batch_knn_in_domain_count = int(self.p_intra_domain * batch_knn_count)
                 batch_knn_out_domain_count = batch_knn_count - batch_knn_in_domain_count
-                batch_global_in_domain_count = int(p_intra_domain * (self.batch_size - batch_knn_count))
+                batch_global_in_domain_count = int(self.p_intra_domain * (self.batch_size - batch_knn_count))
                 batch_global_out_domain_count = self.batch_size - batch_knn_count - batch_global_in_domain_count
 
                 #print(f"batch_knn_count: {batch_knn_count}, batch_knn_in_domain_count: {batch_knn_in_domain_count}, batch_knn_out_domain_count: {batch_knn_out_domain_count}, batch_global_in_domain_count: {batch_global_in_domain_count}, batch_global_out_domain_count: {batch_global_out_domain_count}")

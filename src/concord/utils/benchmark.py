@@ -62,7 +62,7 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
 
 
                 # Encode adata and store the results in adata.obsm
-                cur_ccd.encode_adata(input_layer_key="X_log1p", output_key=output_key_final, return_decoded=return_decoded)
+                cur_ccd.encode_adata(output_key=output_key_final, return_decoded=return_decoded)
                 adata.obsm[output_key_final] = cur_ccd.adata.obsm[output_key_final]
 
                 if trace_memory:
