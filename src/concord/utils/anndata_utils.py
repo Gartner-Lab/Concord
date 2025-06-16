@@ -396,16 +396,9 @@ def check_adata_X(adata, n_samples=100):
 
     if adata.n_obs == 0:
         return 'empty'
-
-    # --- This is the robust way to handle both in-memory and backed data ---
-    # 1. Take a small slice of the AnnData object itself.
-    # This efficiently reads a small chunk into memory, regardless of mode.
-    n_rows_to_sample = min(n_samples, adata.n_obs)
-    adata_subset = adata[:n_rows_to_sample, :]
     
-    # 2. Now, X_sample is a standard in-memory matrix (sparse or dense)
-    X_sample = adata_subset.X
-    # --- End robust slicing ---
+    n_rows_to_sample = min(n_samples, adata.n_obs)
+    X_sample = adata.X[:n_rows_to_sample, :]
 
     if issparse(X_sample):
         # We can now safely access .data on the small in-memory sample

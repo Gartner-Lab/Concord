@@ -51,28 +51,47 @@ class Concord:
         trainer (Trainer): Handles model training.
         loader (DataLoaderManager or ChunkLoader): Data loading utilities.
     """
-    def __init__(self, adata, save_dir='save/', inplace=True, verbose=False, **kwargs):
+    def __init__(self, adata, save_dir='save/', copy_adata=False, verbose=False, **kwargs):
         """
         Initializes the Concord framework.
 
         Args:
             adata (AnnData): Input single-cell data in AnnData format.
             save_dir (str, optional): Directory to save model outputs. Defaults to 'save/'.
-            inplace (bool, optional): If True, modifies `adata` in place. Defaults to True.
+            copy_adata (bool, optional): If True, a copy of `adata` is made before 
+                any modifications. The final results are then copied back to the
+                original `adata` object. If False (default), operates directly on the 
+                provided `adata` object, which is more memory-efficient but may
+                alter it (e.g., through feature subsetting).
             verbose (bool, optional): Enable verbose logging. Defaults to False.
             **kwargs: Additional configuration parameters.
-
-        Raises:
-            ValueError: If `inplace` is set to True on a backed AnnData object.
         """
         set_verbose_mode(verbose)
+
+        self._adata_original = adata # reference to the original AnnData object
+        self.copy_adata = copy_adata
+
         if adata.isbacked:
-            logger.warning("Input AnnData object is backed. With same amount of epochs, Concord will perform better when adata is loaded into memory.")
-            if inplace:
-                raise ValueError("Inplace mode is not supported for backed AnnData object. Set inplace to False.")
+            logger.info("Running CONCORD on a backed AnnData object. ")
+            if not copy_adata:
+                logger.warning("Input AnnData object is in backed mode. Preprocessing will not modify the file on disk.")
+            
+            if adata.is_view:
+                raise ValueError(
+                    "CONCORD does not support operating on a view of a backed AnnData object. "
+                    "This is due to limitations in modifying on-disk data structures. \n"
+                    "Please either use the full backed AnnData object directly, or load your "
+                    "desired subset into memory first using `adata_view.to_memory()`."
+                )
+            
             self.adata = adata
         else:
-            self.adata = adata if inplace else adata.copy()
+            if copy_adata:
+                logger.info("Creating a copy of the AnnData object to work on. Final results will be copied back.")
+                self.adata = adata.copy()
+            else:
+                logger.info("Operating directly on the provided AnnData object. Object may be modified.")
+                self.adata = adata
 
         self.config = None
         self.loader = None
@@ -343,7 +362,6 @@ class Concord:
             sampler_knn=self.config.sampler_knn,
             sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
             domain_coverage=self.config.domain_coverage,
-            
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
@@ -355,14 +373,18 @@ class Concord:
             device=self.config.device
         )
 
+        self.data_structure = self.data_manager.data_structure
+
         if self.config.chunked:
+            logger.info(f"Using chunked loading with chunk size: {self.config.chunk_size}")
+            # Create the ChunkLoader and pass it the persistent data_manager
             self.loader = ChunkLoader(
                 adata=adata_to_load,
                 chunk_size=self.config.chunk_size,
                 data_manager=self.data_manager
             )
-            self.data_structure = self.loader.data_structure  # Retrieve data_structure
         else:
+            logger.info("Loading all data into memory.")
             train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
             self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
 
@@ -599,6 +621,38 @@ class Concord:
             return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
 
 
+
+    def _add_results_to_adata(self, adata_to_update, results_tuple, output_key, decoder_domain=None):
+        """A helper function to add prediction results to an AnnData object."""
+        
+        embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = results_tuple
+        
+        adata_to_update.obsm[output_key] = embeddings
+        if decoded is not None and len(decoded) > 0:
+            if decoder_domain is not None:
+                save_key = f"{output_key}_decoded_{decoder_domain}"
+            else:
+                save_key = f"{output_key}_decoded"
+            adata_to_update.layers[save_key] = decoded
+
+        if latent_matrices is not None and len(latent_matrices) > 0:
+            for key, val in latent_matrices.items():
+                adata_to_update.obsm[f"{output_key}_{key}"] = val
+        
+        if class_true is not None and len(class_true) > 0:
+            adata_to_update.obs[f"{output_key}_class_true"] = class_true
+
+        if class_preds is not None and len(class_preds) > 0:
+            adata_to_update.obs[f"{output_key}_class_pred"] = class_preds
+        
+        if class_probs is not None and not class_probs.empty:
+            class_probs.index = adata_to_update.obs.index
+            for col in class_probs.columns:
+                adata_to_update.obs[f"{output_key}_class_prob_{col}"] = class_probs[col]
+
+        logger.info(f"Predictions added to AnnData object with base key '{output_key}'.")
+
+
     def encode_adata(self, output_key="Concord", 
                      return_decoded=False, decoder_domain=None,
                      return_latent=False, 
@@ -629,28 +683,18 @@ class Concord:
         self.init_dataloader(train_frac=1.0, use_sampler=False)
         
         # Predict and store the results
-        encoded, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(self.loader, 
-                                                                                               return_decoded=return_decoded, decoder_domain=decoder_domain,
-                                                                                               return_latent=return_latent,
-                                                                                               return_class=return_class, return_class_prob=return_class_prob)
-        self.adata.obsm[output_key] = encoded
-        if return_decoded:
-            if decoder_domain is not None:
-                save_key = f"{output_key}_decoded_{decoder_domain}"
-            else:
-                save_key = f"{output_key}_decoded"
-            self.adata.layers[save_key] = decoded
-        if return_latent:
-            for key, val in latent_matrices.items():
-                self.adata.obsm[output_key+'_'+key] = val
-        if class_true is not None:
-            self.adata.obs[output_key+'_class_true'] = class_true
-        if class_preds is not None:
-            self.adata.obs[output_key+'_class_pred'] = class_preds
-        if class_probs is not None:
-            class_probs.index = self.adata.obs.index
-            for col in class_probs.columns:
-                self.adata.obs[output_key+f'_class_prob_{col}'] = class_probs[col]
+        results_tuple = self.predict(self.loader, 
+                                     return_decoded=return_decoded, decoder_domain=decoder_domain,
+                                     return_latent=return_latent,
+                                     return_class=return_class, return_class_prob=return_class_prob)
+        
+        self._add_results_to_adata(self.adata, results_tuple, output_key, decoder_domain=decoder_domain)
+
+        if self.copy_adata:
+            logger.info(f"Copying results back to the original AnnData object.")
+            self._add_results_to_adata(self._adata_original, results_tuple, output_key, decoder_domain=decoder_domain)
+        
+            
 
     def get_domain_embeddings(self):
         """
@@ -790,7 +834,7 @@ class Concord:
         self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
         # Run prediction
         logger.info("Generating predictions for the new data...")
-        embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = self.predict(
+        results_tuple = self.predict(
             loader=self.loader, # Pass the dataloader for the new data
             sort_by_indices=False, # Prediction is already in order
             return_decoded=return_decoded,
@@ -800,40 +844,7 @@ class Concord:
             return_class_prob=return_class_prob
         )
         
-        # add results to adata_new object
-        adata_new.obsm[output_key] = embeddings
-        if return_decoded:
-            if decoder_domain is not None:
-                save_key = f"{output_key}_decoded_{decoder_domain}"
-            else:
-                save_key = f"{output_key}_decoded"
-            adata_new.layers[save_key] = decoded
-        if return_latent:
-            for key, val in latent_matrices.items():
-                adata_new.obsm[output_key+'_'+key] = val
-        if class_true is not None:
-            adata_new.obs[output_key+'_class_true'] = class_true
-        if class_preds is not None:
-            adata_new.obs[output_key+'_class_pred'] = class_preds
-        if class_probs is not None:
-            class_probs.index = adata_new.obs.index
-            for col in class_probs.columns:
-                adata_new.obs[output_key+f'_class_prob_{col}'] = class_probs[col]
-        
-        logger.info("Predictions completed and stored in the new AnnData object in following keys:")
-        logger.info(f" - {output_key} in obsm for embeddings")
-        if return_decoded:
-            logger.info(f" - {save_key} in layers for decoded gene expression")
-        if return_latent:
-            for key in latent_matrices.keys():
-                logger.info(f" - {output_key}_{key} in obsm for latent variables of {key}")
-        if class_true is not None:
-            logger.info(f" - {output_key}_class_true in obs for true class labels")
-        if class_preds is not None:
-            logger.info(f" - {output_key}_class_pred in obs for predicted class labels")
-        if class_probs is not None:
-            for col in class_probs.columns:
-                logger.info(f" - {output_key}_class_prob_{col} in obs for class probabilities of {col}")
+        self._add_results_to_adata(adata_new, results_tuple, output_key, decoder_domain=decoder_domain)
 
 
 
