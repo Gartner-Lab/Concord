@@ -72,6 +72,24 @@ class DataLoaderManager:
         self.nbrs = None
         self.sampler = None
 
+        self.data_structure = self._get_data_structure()
+
+    
+    def _get_data_structure(self):
+        """
+        Determines the structure of the data to be returned by the dataset.
+        This logic is now owned by the manager, not the dataset.
+        """
+        structure = ['input']
+        if self.domain_key is not None:
+            structure.append('domain')
+        if self.class_key is not None:
+            structure.append('class')
+        if self.covariate_keys:
+            structure.extend(self.covariate_keys)
+        structure.append('idx')
+        return structure
+
 
     def compute_embedding_and_knn(self, emb_key='X_pca'):
         """
@@ -115,11 +133,12 @@ class DataLoaderManager:
         self.domain_labels = self.adata.obs[self.domain_key]
         self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)
         
-        dataset = AnnDataset(self.adata, input_layer_key='X', 
-                domain_key=self.domain_key, class_key=self.class_key, 
-                covariate_keys=self.covariate_keys, device=self.device)
-        
-        self.data_structure = dataset.get_data_structure()
+        dataset = AnnDataset(self.adata, 
+                             data_structure=self.data_structure,
+                             input_layer_key='X', 
+                             domain_key=self.domain_key, 
+                             class_key=self.class_key, 
+                             covariate_keys=self.covariate_keys, device=self.device)
 
         if self.use_sampler:
             if self.p_intra_knn > 0.0:

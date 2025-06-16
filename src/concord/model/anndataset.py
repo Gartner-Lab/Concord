@@ -27,9 +27,8 @@ class AnnDataset(Dataset):
         class_labels (torch.Tensor, optional): Tensor containing class labels if provided.
         covariate_tensors (dict): A dictionary containing tensors for covariate labels.
         indices (np.ndarray): Array of dataset indices.
-        data_structure (list): A list describing the dataset structure.
     """
-    def __init__(self, adata, input_layer_key='X', domain_key='domain', class_key=None, covariate_keys=None, device=None):
+    def __init__(self, adata, data_structure, input_layer_key='X', domain_key='domain', class_key=None, covariate_keys=None, device=None):
         """
         Initializes the AnnDataset.
 
@@ -45,6 +44,7 @@ class AnnDataset(Dataset):
             ValueError: If domain or class key is not found in `adata.obs`.
         """
         self.adata = adata
+        self.data_structure = data_structure
         self.input_layer_key = input_layer_key
         self.domain_key = domain_key
         self.class_key = class_key
@@ -67,9 +67,8 @@ class AnnDataset(Dataset):
             for key in self.covariate_keys
         }
 
-        self.data_structure = self._init_data_structure()
-
         logger.info(f"Initialized dataset with {len(self.indices)} samples. Data structure: {self.data_structure}")
+
 
     def _get_data_matrix(self):
         """
@@ -86,6 +85,7 @@ class AnnDataset(Dataset):
         else:
             return self.adata.layers[self.input_layer_key].toarray() if issparse(self.adata.layers[self.input_layer_key]) else \
             self.adata.layers[self.input_layer_key]
+
 
     def get_embedding(self, embedding_key, idx):
         """
@@ -108,6 +108,7 @@ class AnnDataset(Dataset):
         else:
             raise ValueError(f"Embedding key '{embedding_key}' not found in adata")
 
+
     def get_domain_labels(self, idx):
         """
         Retrieves the domain labels for a given index.
@@ -121,6 +122,7 @@ class AnnDataset(Dataset):
         if self.domain_labels is not None:
             return self.domain_labels[idx]
         return None
+    
 
     def get_class_labels(self, idx):
         """
@@ -135,31 +137,7 @@ class AnnDataset(Dataset):
         if self.class_labels is not None:
             return self.class_labels[idx]
         return None
-
-    def _init_data_structure(self):
-        """
-        Initializes the structure of the dataset.
-
-        Returns:
-            list: A list defining the dataset structure.
-        """
-        structure = ['input']
-        if self.domain_key is not None:
-            structure.append('domain')
-        if self.class_key is not None:
-            structure.append('class')
-        structure.extend(self.covariate_keys)
-        structure.append('idx')
-        return structure
-
-    def get_data_structure(self):
-        """
-        Returns the data structure of the dataset.
-
-        Returns:
-            list: A list defining the dataset structure.
-        """
-        return self.data_structure
+    
 
     def __len__(self):
         """
@@ -169,6 +147,7 @@ class AnnDataset(Dataset):
             int: The dataset size.
         """
         return len(self.indices)
+    
 
     def __getitem__(self, idx):
         """
@@ -199,11 +178,13 @@ class AnnDataset(Dataset):
 
         return tuple(items)
 
+
     def shuffle_indices(self):
         """
         Shuffles dataset indices.
         """
         np.random.shuffle(self.indices)
+
 
     def subset(self, idx):
         """
