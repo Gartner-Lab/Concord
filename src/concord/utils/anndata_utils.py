@@ -227,7 +227,7 @@ def subset_adata_to_obsm_indices(adata, obsm):
 
 
 
-def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
+def get_adata_basis(adata, basis='X_pca'):
     """
     Retrieve a specific embedding from an AnnData object.
 
@@ -236,8 +236,6 @@ def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
             The AnnData object containing embeddings.
         basis : str, optional
             Key in `.obsm` specifying the embedding (default: "X_pca").
-        pca_n_comps : int, optional
-            Number of principal components if PCA needs to be computed.
 
     Returns:
         np.ndarray
@@ -251,14 +249,7 @@ def get_adata_basis(adata, basis='X_pca', pca_n_comps=50):
     elif basis in adata.layers:
         emb = adata.layers[basis].astype(np.float32)
     else:
-        if basis == 'X_pca':
-            pca_n_comps = pca_n_comps if pca_n_comps < min(adata.n_vars, adata.n_obs) else min(adata.n_vars, adata.n_obs) - 1
-            logger.info("PCA embedding not found in adata.obsm. Running PCA...")
-            sc.tl.pca(adata, svd_solver='arpack', n_comps=pca_n_comps)
-            logger.info("PCA completed.")
-            emb = adata.obsm['X_pca'].astype(np.float32)
-        else:
-            raise ValueError(f"Embedding '{basis}' not found in adata.obsm or adata.layers.")
+        raise ValueError(f"Embedding '{basis}' not found in adata.obsm or adata.layers.")
     
     return emb
 

@@ -26,33 +26,6 @@ class nt_xent_loss(nn.Module):
         return loss
 
 
-class nt_bxent_loss(nn.Module):
-    def __init__(self, temperature=0.5):
-        super().__init__()
-        self.temperature = temperature
-
-    def forward(self, x, target):
-        # Cosine similarity
-        xcs = F.cosine_similarity(x[None,:,:], x[:,None,:], dim=-1)
-        xcs[torch.eye(x.size(0)).bool()] = float("inf")
-        xcs = (xcs / self.temperature).sigmoid()
-        loss = F.binary_cross_entropy(xcs, target, reduction="none").to(x.device)
-        
-        target_pos = target.bool().to(x.device)
-        target_neg = ~target_pos
-        
-        loss_pos = torch.zeros(x.size(0), x.size(0)).to(x.device).masked_scatter(target_pos, loss[target_pos])
-        loss_neg = torch.zeros(x.size(0), x.size(0)).to(x.device).masked_scatter(target_neg, loss[target_neg])
-
-        loss_pos = loss_pos.sum(dim=1)
-        loss_neg = loss_neg.sum(dim=1)
-        num_pos = target.sum(dim=1)
-        num_neg = x.size(0) - num_pos
-
-        return ((loss_pos / num_pos) + (loss_neg / num_neg)).mean()
-
-
-
 def importance_penalty_loss(importance_weights, penalty_weight=0.1, norm_type='L1'):
     if penalty_weight == 0:
         return torch.tensor(0.0, device=importance_weights.device)

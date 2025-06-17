@@ -2,6 +2,7 @@ import torch
 from .sampler import ConcordSampler
 from .anndataset import AnnDataset
 from .knn import Neighborhood
+from ..utils.anndata_utils import get_adata_basis
 from torch.utils.data import DataLoader
 import numpy as np
 import scanpy as sc
@@ -26,14 +27,14 @@ class DataLoaderManager:
                  batch_size=32, 
                  train_frac=0.9,
                  use_sampler=True,
-                 sampler_emb=None,
+                 sampler_hard_negative_strategy='knn',
                  sampler_knn=300, 
+                 sampler_emb=None,
                  sampler_domain_minibatch_strategy='proportional',
                  domain_coverage=None,
                  p_intra_knn=0.3, 
                  p_intra_domain=0.95,
                  dist_metric='euclidean',
-                 pca_n_comps=50, 
                  use_faiss=True, 
                  use_ivf=False,
                  ivf_nprobe=8,
@@ -52,12 +53,12 @@ class DataLoaderManager:
         self.train_frac = train_frac
         self.use_sampler = use_sampler
         self.sampler_emb = sampler_emb
+        self.sampler_hard_negative_strategy = sampler_hard_negative_strategy
         self.sampler_knn = sampler_knn
         self.sampler_domain_minibatch_strategy = sampler_domain_minibatch_strategy
         self.domain_coverage = domain_coverage
         self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
-        self.pca_n_comps = pca_n_comps
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
@@ -68,9 +69,9 @@ class DataLoaderManager:
         # Dynamically set based on adata
         self.adata = None
         self.data_structure = None
-        self.knn_index = None
-        self.nbrs = None
-        self.sampler = None
+        self.neighborhood = None
+        self.train_sampler = None
+        self.val_sampler = None
 
         self.data_structure = self._get_data_structure()
 
@@ -89,20 +90,31 @@ class DataLoaderManager:
             structure.extend(self.covariate_keys)
         structure.append('idx')
         return structure
+    
+
+    def compute_neighborhood(self, adata, emb_key): # Pass adata and emb_key
+        logger.info(f"Computing k-NN graph using embedding from '{emb_key}'...")
+        emb = get_adata_basis(adata, basis=emb_key)
+        self.neighborhood = Neighborhood(
+            emb=emb, k=self.sampler_knn, use_faiss=self.use_faiss, 
+            use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe, metric=self.dist_metric
+        )
 
 
-    def compute_embedding_and_knn(self, emb_key='X_pca'):
-        """
-        Constructs a k-NN graph based on existing embedding or PCA (of not exist, compute automatically).
-
-        Args:
-            emb_key (str, optional): Key for embedding basis. Defaults to 'X_pca'.
-        """
-        # Get embedding for current adata
-        from ..utils.anndata_utils import get_adata_basis
-        emb = get_adata_basis(self.adata, basis=emb_key, pca_n_comps=self.pca_n_comps)
-        # Initialize KNN
-        self.neighborhood = Neighborhood(emb=emb, k=self.sampler_knn, use_faiss=self.use_faiss, use_ivf=self.use_ivf, ivf_nprobe=self.ivf_nprobe, metric=self.dist_metric)
+    def build_sampler(self, SamplerClass, indices=None, neighborhood=None):
+        domain_ids = self.domain_ids if indices is None else self.domain_ids[indices]
+        sampler = SamplerClass(
+            batch_size=self.batch_size, 
+            domain_ids=domain_ids, 
+            hard_negative_strategy=self.sampler_hard_negative_strategy,
+            p_intra_knn=self.p_intra_knn, 
+            p_intra_domain=self.p_intra_domain,
+            domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
+            domain_coverage=self.domain_coverage,
+            neighborhood=neighborhood,
+            device=self.device
+        )
+        return sampler
 
 
     def anndata_to_dataloader(self, adata):
@@ -141,68 +153,31 @@ class DataLoaderManager:
                              covariate_keys=self.covariate_keys, device=self.device)
 
         if self.use_sampler:
-            if self.p_intra_knn > 0.0:
-                self.compute_embedding_and_knn(self.sampler_emb)
-            SamplerClass = ConcordSampler
-        else:
-            SamplerClass = None
+            if self.train_frac == 1.0:
+                if self.sampler_hard_negative_strategy == 'knn' and self.p_intra_knn > 0.0:
+                    self.compute_neighborhood(self.adata, self.sampler_emb)
 
-        if self.train_frac == 1.0:
-            if self.use_sampler:
-                self.sampler = SamplerClass(
-                    batch_size=self.batch_size, 
-                    domain_ids=self.domain_ids, 
-                    p_intra_knn=self.p_intra_knn, 
-                    p_intra_domain=self.p_intra_domain,
-                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
-                    domain_coverage=self.domain_coverage,
-                    neighborhood=self.neighborhood, 
-                    device=self.device
-                )
-                full_dataloader = DataLoader(dataset, batch_sampler=self.sampler)
+                self.train_sampler = self.build_sampler(ConcordSampler, neighborhood=self.neighborhood)
+                train_dataloader = DataLoader(dataset, batch_sampler=self.train_sampler)
+                val_dataloader = None
             else:
-                self.sampler = None
-                full_dataloader = DataLoader(dataset, batch_size=self.batch_size)
-            return full_dataloader, None, self.data_structure
-        else:
-            train_size = int(self.train_frac * len(dataset))
-            indices = np.arange(len(dataset))
-            np.random.shuffle(indices)
-            train_indices = indices[:train_size]
-            val_indices = indices[train_size:]
+                train_size = int(self.train_frac * len(dataset))
+                indices = np.arange(len(dataset))
+                np.random.shuffle(indices)
+                train_indices = indices[:train_size]
+                val_indices = indices[train_size:]
+                train_dataset = dataset.subset(train_indices)
+                val_dataset = dataset.subset(val_indices)
 
-            train_dataset = dataset.subset(train_indices)
-            val_dataset = dataset.subset(val_indices)
+                self.train_sampler = self.build_sampler(ConcordSampler, indices=train_indices, neighborhood=None)
+                self.val_sampler = self.build_sampler(ConcordSampler, indices=val_indices, neighborhood=None)
+                train_dataloader = DataLoader(train_dataset, batch_sampler=self.train_sampler)
+                val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler)
+        else: 
+            train_dataloader = DataLoader(dataset, batch_size=self.batch_size)
+            val_dataloader = None
 
-            if self.use_sampler:
-                train_sampler = SamplerClass(
-                    batch_size=self.batch_size, 
-                    domain_ids=self.domain_ids[train_indices],
-                    p_intra_knn=self.p_intra_knn, 
-                    p_intra_domain=self.p_intra_domain,
-                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
-                    domain_coverage=self.domain_coverage,
-                    neighborhood=None, # Not used if train-val split
-                    device=self.device
-                )
-
-                val_sampler = SamplerClass(
-                    batch_size=self.batch_size, 
-                    domain_ids=self.domain_ids[val_indices],
-                    p_intra_knn=self.p_intra_knn, 
-                    p_intra_domain=self.p_intra_domain,
-                    domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
-                    domain_coverage=self.domain_coverage,
-                    neighborhood=None, # Not used if train-val split
-                    device=self.device
-                )
-                train_dataloader = DataLoader(train_dataset, batch_sampler=train_sampler)
-                val_dataloader = DataLoader(val_dataset, batch_sampler=val_sampler)
-            else:
-                train_dataloader = DataLoader(train_dataset, batch_size=self.batch_size)
-                val_dataloader = DataLoader(val_dataset, batch_size=self.batch_size)
-
-            return train_dataloader, val_dataloader, self.data_structure
+        return train_dataloader, val_dataloader, self.data_structure
 
 
 
