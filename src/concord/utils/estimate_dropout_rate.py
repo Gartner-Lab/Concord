@@ -7,16 +7,10 @@ import seaborn as sns
 from ..model.knn import Neighborhood
 from .. import logger
 
-def estimate_dropout_rate(adata, k=3, nbr_emb = 'X_pca',  metric='euclidean', n_samples = 3000, pca_n_comps=50, use_faiss=False, use_ivf=False, ivf_nprobe=8, return_mean=True, plotting=False):
+def estimate_dropout_rate(adata, k=3, nbr_emb = 'X_pca',  metric='euclidean', n_samples = 3000, use_faiss=False, use_ivf=False, ivf_nprobe=8, return_mean=True, plotting=False):
 
     if nbr_emb not in adata.obsm:
-        if nbr_emb == 'X_pca':
-            logger.info("PCA embedding not found in adata.obsm. Running PCA...")
-            sc.tl.pca(adata, svd_solver='arpack', n_comps=pca_n_comps)
-            logger.info("PCA completed.")
-            emb = adata.obsm['X_pca'].astype(np.float32)
-        else:
-            raise ValueError(f"Embedding '{nbr_emb}' not found in adata.obsm.")
+        raise ValueError(f"Embedding '{nbr_emb}' not found in adata.obsm.")
     else:
         logger.info(f"Using existing embedding '{nbr_emb}' from adata.obsm")
         emb = adata.obsm[nbr_emb].astype(np.float32)

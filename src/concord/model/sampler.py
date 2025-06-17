@@ -20,6 +20,7 @@ class ConcordSampler(Sampler):
                  p_intra_knn=0.3, 
                  p_intra_domain=.95, 
                  min_batch_size=4, 
+                 hard_negative_strategy='knn',
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
                  domain_coverage=None,
@@ -37,16 +38,21 @@ class ConcordSampler(Sampler):
             device (torch.device, optional): Device to store tensors. Defaults to GPU if available.
         """
         self.batch_size = batch_size
-        self.p_intra_knn = p_intra_knn
         self.p_intra_domain = p_intra_domain
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.domain_ids = domain_ids
-        self.neighborhood = neighborhood
         self.min_batch_size = min_batch_size
-
         self.domain_minibatch_strategy = domain_minibatch_strategy
         self.domain_minibatch_min_count = domain_minibatch_min_count
         self.domain_coverage = domain_coverage 
+        
+        self.hard_negative_strategy = hard_negative_strategy
+        self.p_intra_knn = p_intra_knn
+        self.neighborhood = neighborhood
+        if self.p_intra_knn > 0 and self.neighborhood is None:
+            raise ValueError(
+                "A neighborhood graph must be provided when p_intra_knn > 0."
+            )
 
         allowed_strategies = ['proportional', 'equal', 'coverage']
         if self.domain_minibatch_strategy not in allowed_strategies:
@@ -102,6 +108,7 @@ class ConcordSampler(Sampler):
                 num_batches_map[domain_id] = num_batches
 
         return num_batches_map
+
 
     # Function to permute non- -1 values and push -1 values to the end
     @staticmethod
@@ -213,6 +220,7 @@ class ConcordSampler(Sampler):
             self.valid_batches = self._generate_batches()
         for batch in self.valid_batches:
             yield batch.tolist()
+
 
     def __len__(self):
         """

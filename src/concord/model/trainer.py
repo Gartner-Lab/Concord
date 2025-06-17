@@ -35,6 +35,7 @@ class Trainer:
         _compute_averages: Computes average losses over an epoch.
     """
     def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
+                 sampler_hard_negative_strategy='knn',
                  use_classifier=False, classifier_weight=1.0, 
                  unique_classes=None,
                  unlabeled_class=None,
@@ -66,6 +67,8 @@ class Trainer:
         self.data_structure = data_structure
         self.device = device
         self.logger = logger
+
+        self.sampler_hard_negative_strategy = sampler_hard_negative_strategy
         self.use_classifier = use_classifier
         self.classifier_weight = classifier_weight
         self.unique_classes = unique_classes

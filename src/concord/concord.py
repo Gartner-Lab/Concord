@@ -2,7 +2,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from .model.model import ConcordModel
-from .utils.anndata_utils import ensure_categorical, check_adata_X
+from .model.knn import Neighborhood
+from .utils.anndata_utils import ensure_categorical, check_adata_X, get_adata_basis
 from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, set_seed
@@ -110,7 +111,6 @@ class Concord:
 
         self.default_params = dict(
             seed=0,
-            project_name="concord",
             input_feature=None,
             normalize_total=False, # default adata.X should be normalized
             log1p=False,
@@ -140,19 +140,21 @@ class Concord:
             importance_penalty_type='L1',
             dropout_prob=0.1,
             norm_type="layer_norm",  # Default normalization type
-            sampler_emb="X_pca",
+
+            sampler_hard_negative_strategy='knn',
+            knn_warmup_epochs=3, # Number of epochs to warm up KNN sampling
             sampler_knn=None, # Default neighborhood size, can be adjusted
+            sampler_emb=None,
             sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
             domain_coverage = None,
             dist_metric='euclidean',
             p_intra_knn=0.3,
             p_intra_domain=0.95,
-            pca_n_comps=50,
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
+
             pretrained_model=None,
-            classifier_freeze_param=False,
             chunked=False,
             chunk_size=10000,
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -239,6 +241,8 @@ class Concord:
             if covariate_key in self.adata.obs:
                 ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
                 self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
+
+        self.preprocessed = False
         
 
     def get_default_params(self):
@@ -325,6 +329,7 @@ class Concord:
                                logger=logger,
                                lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
+                               sampler_hard_negative_strategy=self.config.sampler_hard_negative_strategy,
                                use_classifier=self.config.use_classifier, 
                                classifier_weight=self.config.classifier_weight,
                                unique_classes=self.config.unique_classes_code,
@@ -350,22 +355,29 @@ class Concord:
         """
         adata_to_load = adata if adata is not None else self.adata
 
+        if self.preprocessed:
+            normalize_total = False
+            log1p = False
+        else:
+            normalize_total = self.config.normalize_total
+            log1p = self.config.log1p
+
         self.data_manager = DataLoaderManager(
             domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
             feature_list=self.config.input_feature,
-            normalize_total=self.config.normalize_total, 
-            log1p=self.config.log1p,    
+            normalize_total=normalize_total,
+            log1p=log1p,    
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
-            sampler_emb=self.config.sampler_emb, 
+            sampler_hard_negative_strategy=self.config.sampler_hard_negative_strategy,
+            sampler_emb=self.config.sampler_emb,
             sampler_knn=self.config.sampler_knn,
             sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
             domain_coverage=self.config.domain_coverage,
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
-            pca_n_comps=self.config.pca_n_comps,
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
@@ -387,6 +399,7 @@ class Concord:
             logger.info("Loading all data into memory.")
             train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
             self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
+            self.preprocessed = True  # Mark as preprocessed since we loaded the data into memory
 
 
     def train(self, save_model=True, patience=2):
@@ -397,12 +410,45 @@ class Concord:
             save_model (bool, optional): Whether to save the trained model. Defaults to True.
             patience (int, optional): Number of epochs to wait for improvement before early stopping. Defaults to 2.
         """
+        use_knn_sampler = self.config.sampler_hard_negative_strategy == 'knn' and self.config.p_intra_knn > 0
+        original_p_intra_knn = self.config.p_intra_knn
+
+        # A warm-up is needed ONLY if using the knn_sampler AND no initial embedding is provided.
+        is_warmup_active = (
+            use_knn_sampler and
+            self.config.sampler_emb is None and
+            self.config.knn_warmup_epochs > 0
+        )
+
+        if is_warmup_active:
+            if self.config.knn_warmup_epochs >= self.config.n_epochs:
+                raise ValueError("knn_warmup_epochs must be less than n_epochs.")
+            logger.info(f"Starting {self.config.knn_warmup_epochs} warm-up epochs with k-NN sampling disabled.")
+            self.config.p_intra_knn = 0.0
+        else:
+            self.config.knn_warmup_epochs = 0
+
+        self.init_dataloader(train_frac=self.config.train_frac, use_sampler=True)
+        self.init_trainer()
+
         best_val_loss = float('inf')
         best_model_state = None
         epochs_without_improvement = 0
 
         for epoch in range(self.config.n_epochs):
             logger.info(f'Starting epoch {epoch + 1}/{self.config.n_epochs}')
+
+            # DYNAMIC KNN UPDATE (after warm-up is complete)
+            if is_warmup_active and epoch == self.config.knn_warmup_epochs:
+                logger.info("Warm-up complete. Computing k-NN graph on learned embeddings.")
+                self.init_dataloader(self.adata, train_frac=1.0, use_sampler=False)
+                embeddings, *_ = self.predict(self.loader)
+                self.adata.obsm['X_concord_warmup'] = embeddings
+                self.config.p_intra_knn = original_p_intra_knn
+                self.config.sampler_emb = 'X_concord_warmup'
+                # reinitiate the dataloader with the updated p_intra_knn
+                self.init_dataloader(adata=self.adata, train_frac=self.config.train_frac, use_sampler=True)
+                
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
                 logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {epoch + 1}')
                 if train_dataloader is not None:
@@ -671,29 +717,23 @@ class Concord:
             save_model (bool, optional): Whether to save the model after training. Defaults to True.
         """
 
-        # Initialize the model
         self.init_model()
-        # Initialize the dataloader
-        self.init_dataloader(train_frac=self.config.train_frac, use_sampler=True)
-        # Initialize the trainer
-        self.init_trainer()
-        # Train the model
         self.train(save_model=save_model)
-        # Reinitialize the dataloader without using the sampler
-        self.init_dataloader(train_frac=1.0, use_sampler=False)
+        self.init_dataloader(adata=self.adata, train_frac=1.0, use_sampler=False)
         
-        # Predict and store the results
-        results_tuple = self.predict(self.loader, 
-                                     return_decoded=return_decoded, decoder_domain=decoder_domain,
-                                     return_latent=return_latent,
-                                     return_class=return_class, return_class_prob=return_class_prob)
+        results_tuple = self.predict(
+            self.loader, 
+            return_decoded=return_decoded, decoder_domain=decoder_domain,
+            return_latent=return_latent, return_class=return_class, 
+            return_class_prob=return_class_prob
+        )
         
+        # --- 4. SAVE RESULTS ---
         self._add_results_to_adata(self.adata, results_tuple, output_key, decoder_domain=decoder_domain)
 
         if self.copy_adata:
-            logger.info(f"Copying results back to the original AnnData object.")
+            logger.info("Copying results back to the original AnnData object.")
             self._add_results_to_adata(self._adata_original, results_tuple, output_key, decoder_domain=decoder_domain)
-        
             
 
     def get_domain_embeddings(self):
@@ -710,6 +750,7 @@ class Concord:
         domain_df = pd.DataFrame(domain_embeddings, index=unique_domain_categories)
         return domain_df
     
+
     def get_covariate_embeddings(self):
         """
         Retrieves covariate embeddings from the trained model.
@@ -727,6 +768,7 @@ class Concord:
                 covariate_df = pd.DataFrame(covariate_embeddings, index=unique_covariate_categories)
                 covariate_dfs[covariate_key] = covariate_df
         return covariate_dfs
+
 
     def save_model(self, model, save_path):
         """
@@ -831,9 +873,9 @@ class Concord:
             raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
                              f"required by the model. Missing features: {list(missing_features)[:5]}...")
         
+        self.preprocessed = False # Use the same preprocessing as during training
         self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
-        # Run prediction
-        logger.info("Generating predictions for the new data...")
+
         results_tuple = self.predict(
             loader=self.loader, # Pass the dataloader for the new data
             sort_by_indices=False, # Prediction is already in order
