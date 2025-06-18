@@ -20,7 +20,6 @@ class ConcordSampler(Sampler):
                  p_intra_knn=0.3, 
                  p_intra_domain=.95, 
                  min_batch_size=4, 
-                 hard_negative_strategy='knn',
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
                  domain_coverage=None,
@@ -45,8 +44,6 @@ class ConcordSampler(Sampler):
         self.domain_minibatch_strategy = domain_minibatch_strategy
         self.domain_minibatch_min_count = domain_minibatch_min_count
         self.domain_coverage = domain_coverage 
-        
-        self.hard_negative_strategy = hard_negative_strategy
         self.p_intra_knn = p_intra_knn
         self.neighborhood = neighborhood
         if self.p_intra_knn > 0 and self.neighborhood is None:

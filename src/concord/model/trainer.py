@@ -3,7 +3,7 @@ import torch
 from torch import nn, optim
 from tqdm import tqdm
 from ..utils.evaluator import log_classification
-from .loss import nt_xent_loss, importance_penalty_loss
+from .loss import NTXent_general, importance_penalty_loss
 
 class Trainer:
     """
@@ -34,13 +34,13 @@ class Trainer:
         _run_epoch: Handles training or validation for one epoch.
         _compute_averages: Computes average losses over an epoch.
     """
-    def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
-                 sampler_hard_negative_strategy='knn',
+    def __init__(self, model, data_structure, 
+                 device, logger, lr, schedule_ratio,
                  use_classifier=False, classifier_weight=1.0, 
                  unique_classes=None,
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
-                 clr_temperature=0.5, clr_weight=1.0,
+                 clr_temperature=0.5, clr_weight=1.0, clr_beta=0.0,
                  importance_penalty_weight=0, importance_penalty_type='L1'):
         """
         Initializes the Trainer.
@@ -67,8 +67,6 @@ class Trainer:
         self.data_structure = data_structure
         self.device = device
         self.logger = logger
-
-        self.sampler_hard_negative_strategy = sampler_hard_negative_strategy
         self.use_classifier = use_classifier
         self.classifier_weight = classifier_weight
         self.unique_classes = unique_classes
@@ -76,13 +74,15 @@ class Trainer:
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
         self.clr_weight = clr_weight
+        self.clr_temperature = clr_temperature
+        self.clr_beta = clr_beta
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
 
         self.classifier_criterion = nn.CrossEntropyLoss() if use_classifier else None
         self.mse_criterion = nn.MSELoss() if use_decoder else None
 
-        self.clr_criterion = nt_xent_loss(temperature=clr_temperature)
+        self.clr_criterion = NTXent_general(temperature=self.clr_temperature, beta=self.clr_beta)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
@@ -100,21 +100,23 @@ class Trainer:
         Returns:
             tuple: Loss components (total loss, classification loss, MSE loss, contrastive loss, importance penalty loss).
         """
-        outputs = self.model(inputs, domain_labels, covariate_tensors)
-        class_pred = outputs.get('class_pred')
-        decoded = outputs.get('decoded')
 
         # Contrastive loss
-        loss_clr = torch.tensor(0.0)
+        loss_clr = torch.tensor(0.0, device=self.device)
+        outputs = self.model(inputs, domain_labels, covariate_tensors)
+        z1 = outputs['encoded']
+        with torch.no_grad():
+            z2 = self.model.encode(inputs)
 
-        outputs_aug = self.model(inputs, domain_labels, covariate_tensors)
-        loss_clr = self.clr_criterion(outputs['encoded'], outputs_aug['encoded'])
+        loss_clr = self.clr_criterion(z1, z2)
         loss_clr *= self.clr_weight
 
         # Reconstruction loss
-        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
+        decoded = outputs.get('decoded')
+        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0, device=self.device)
 
         # Classifier loss
+        class_pred = outputs.get('class_pred')
         loss_classifier = torch.tensor(0.0, device=self.device)
         if class_pred is not None and class_labels is not None:
             labeled_mask = (class_labels != self.unlabeled_class).to(self.device) if self.unlabeled_class is not None else torch.ones_like(class_labels, dtype=torch.bool, device=self.device)
@@ -131,7 +133,7 @@ class Trainer:
             importance_weights = self.model.get_importance_weights()
             loss_penalty = importance_penalty_loss(importance_weights, self.importance_penalty_weight, self.importance_penalty_type)
         else:
-            loss_penalty = torch.tensor(0.0)
+            loss_penalty = torch.tensor(0.0, device=self.device)
 
         loss = loss_classifier + loss_mse + loss_clr + loss_penalty
 

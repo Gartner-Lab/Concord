@@ -131,6 +131,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_temperature=0.5,
+            clr_beta=0.0,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
@@ -138,10 +139,8 @@ class Concord:
             use_importance_mask=False,
             importance_penalty_weight=0,
             importance_penalty_type='L1',
-            dropout_prob=0.1,
+            dropout_prob=0.0, # Default just SIMCLR augmentation, no internal dropout
             norm_type="layer_norm",  # Default normalization type
-
-            sampler_hard_negative_strategy='knn',
             knn_warmup_epochs=3, # Number of epochs to warm up KNN sampling
             sampler_knn=None, # Default neighborhood size, can be adjusted
             sampler_emb=None,
@@ -176,6 +175,11 @@ class Concord:
         if self.config.sampler_knn is None:
             self.config.sampler_knn = self.adata.n_obs // 10 
             logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+
+        if self.config.clr_beta > 0:
+            logger.info(f"Using NT-Xent loss with beta={self.config.clr_beta}. This will apply hard-negative weighting to the contrastive loss.")
+            if self.config.p_intra_domain < 1.0:
+                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 1.0 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best results.")
 
         # Checks to convert None values to default values
         if self.config.input_feature is None:
@@ -329,7 +333,6 @@ class Concord:
                                logger=logger,
                                lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
-                               sampler_hard_negative_strategy=self.config.sampler_hard_negative_strategy,
                                use_classifier=self.config.use_classifier, 
                                classifier_weight=self.config.classifier_weight,
                                unique_classes=self.config.unique_classes_code,
@@ -337,6 +340,7 @@ class Concord:
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
                                clr_temperature=self.config.clr_temperature,
+                               clr_beta=self.config.clr_beta,
                                clr_weight=self.config.clr_weight,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
@@ -370,7 +374,6 @@ class Concord:
             log1p=log1p,    
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
-            sampler_hard_negative_strategy=self.config.sampler_hard_negative_strategy,
             sampler_emb=self.config.sampler_emb,
             sampler_knn=self.config.sampler_knn,
             sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
@@ -381,7 +384,6 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            num_cores=self.config.num_classes, 
             device=self.config.device
         )
 
@@ -410,7 +412,7 @@ class Concord:
             save_model (bool, optional): Whether to save the trained model. Defaults to True.
             patience (int, optional): Number of epochs to wait for improvement before early stopping. Defaults to 2.
         """
-        use_knn_sampler = self.config.sampler_hard_negative_strategy == 'knn' and self.config.p_intra_knn > 0
+        use_knn_sampler = self.config.p_intra_knn > 0
         original_p_intra_knn = self.config.p_intra_knn
 
         # A warm-up is needed ONLY if using the knn_sampler AND no initial embedding is provided.
@@ -502,7 +504,7 @@ class Concord:
 
 
 
-    def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_latent=False, return_class=True, return_class_prob=True):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_class=True, return_class_prob=True):  
         """
         Runs inference on a dataset.
 
@@ -511,7 +513,6 @@ class Concord:
             sort_by_indices (bool, optional): Whether to return results in original cell order. Defaults to False.
             return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
             decoder_domain (str, optional): Specifies a domain for decoding. Defaults to None.
-            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
             return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
             return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
 
@@ -525,8 +526,6 @@ class Concord:
         embeddings = []
         decoded_mtx = []
         indices = []
-
-        latent_matrices = {}
         
         if isinstance(loader, list) or type(loader).__name__ == 'ChunkLoader':
             all_embeddings = []
@@ -535,15 +534,13 @@ class Concord:
             all_class_probs = [] if return_class_prob else None
             all_class_true = []
             all_indices = []
-            all_latent_matrices = {}
 
             for chunk_idx, (dataloader, _, ck_indices) in enumerate(loader):
                 logger.info(f'Predicting for chunk {chunk_idx + 1}/{len(loader)}')
-                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true, ck_latent = self.predict(dataloader, 
+                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true = self.predict(dataloader, 
                                                                                         sort_by_indices=True, 
                                                                                         return_decoded=return_decoded, 
                                                                                         decoder_domain=decoder_domain,
-                                                                                        return_latent=return_latent,
                                                                                         return_class=return_class,
                                                                                         return_class_prob=return_class_prob)
                 all_embeddings.append(ck_embeddings)
@@ -555,11 +552,6 @@ class Concord:
                     all_class_probs.append(ck_class_probs)
                 if ck_class_true is not None:
                     all_class_true.extend(ck_class_true)
-                if return_latent:
-                    for key in ck_latent.keys():
-                        if key not in all_latent_matrices:
-                            all_latent_matrices[key] = []
-                        all_latent_matrices[key].append(ck_latent[key])
 
             all_indices = np.array(all_indices)
             sorted_indices = np.argsort(all_indices)
@@ -571,10 +563,7 @@ class Concord:
             if return_class_prob:
                 all_class_probs = pd.concat(all_class_probs).iloc[sorted_indices].reset_index(drop=True) if all_class_probs else None
             
-            if return_latent:
-                for key in all_latent_matrices.keys():
-                    all_latent_matrices[key] = np.concatenate(all_latent_matrices[key], axis=0)[sorted_indices]
-            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true, all_latent_matrices
+            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true
         else:
             with torch.no_grad():
                 if decoder_domain is not None:
@@ -605,7 +594,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs, domain_ids, covariate_tensors, return_latent=return_latent)
+                    outputs = self.model(inputs, domain_ids, covariate_tensors)
                     if 'class_pred' in outputs and return_class:
                         class_preds_tensor = outputs['class_pred']
                         class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy()) # TODO May need fix
@@ -615,12 +604,6 @@ class Concord:
                         embeddings.append(outputs['encoded'].cpu().numpy())
                     if 'decoded' in outputs and return_decoded:
                         decoded_mtx.append(outputs['decoded'].cpu().numpy())
-                    if 'latent' in outputs and return_latent:
-                        latent = outputs['latent']
-                        for key, val in latent.items():
-                            if key not in latent_matrices:
-                                latent_matrices[key] = []
-                            latent_matrices[key].append(val.cpu().numpy())   
                             
 
             if not embeddings:
@@ -631,10 +614,6 @@ class Concord:
 
             if decoded_mtx:
                 decoded_mtx = np.concatenate(decoded_mtx, axis=0)
-
-            if return_latent:
-                for key in latent_matrices.keys():
-                    latent_matrices[key] = np.concatenate(latent_matrices[key], axis=0)
 
             # Convert predictions and true labels to numpy arrays
             class_preds = np.array(class_preds) if class_preds else None
@@ -654,9 +633,6 @@ class Concord:
                     class_probs = class_probs[sorted_indices]
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
-                if return_latent:
-                    for key in latent_matrices.keys():
-                        latent_matrices[key] = latent_matrices[key][sorted_indices]
 
             if return_class and self.config.unique_classes is not None:
                 class_preds = self.config.unique_classes[class_preds] if class_preds is not None else None
@@ -664,14 +640,14 @@ class Concord:
                 if return_class_prob and class_probs is not None:
                     class_probs = pd.DataFrame(class_probs, columns=self.config.unique_classes)
 
-            return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
+            return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
 
     def _add_results_to_adata(self, adata_to_update, results_tuple, output_key, decoder_domain=None):
         """A helper function to add prediction results to an AnnData object."""
         
-        embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = results_tuple
+        embeddings, decoded, class_preds, class_probs, class_true = results_tuple
         
         adata_to_update.obsm[output_key] = embeddings
         if decoded is not None and len(decoded) > 0:
@@ -680,10 +656,6 @@ class Concord:
             else:
                 save_key = f"{output_key}_decoded"
             adata_to_update.layers[save_key] = decoded
-
-        if latent_matrices is not None and len(latent_matrices) > 0:
-            for key, val in latent_matrices.items():
-                adata_to_update.obsm[f"{output_key}_{key}"] = val
         
         if class_true is not None and len(class_true) > 0:
             adata_to_update.obs[f"{output_key}_class_true"] = class_true
@@ -699,9 +671,8 @@ class Concord:
         logger.info(f"Predictions added to AnnData object with base key '{output_key}'.")
 
 
-    def encode_adata(self, output_key="Concord", 
+    def fit_transform(self, output_key="Concord", 
                      return_decoded=False, decoder_domain=None,
-                     return_latent=False, 
                      return_class=True, return_class_prob=True, 
                      save_model=True):
         """
@@ -711,7 +682,6 @@ class Concord:
             output_key (str, optional): Output key for storing results in AnnData. Defaults to 'Concord'.
             return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
             decoder_domain (str, optional): Specifies domain for decoding. Defaults to None.
-            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
             return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
             return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
             save_model (bool, optional): Whether to save the model after training. Defaults to True.
@@ -724,7 +694,7 @@ class Concord:
         results_tuple = self.predict(
             self.loader, 
             return_decoded=return_decoded, decoder_domain=decoder_domain,
-            return_latent=return_latent, return_class=return_class, 
+            return_class=return_class, 
             return_class_prob=return_class_prob
         )
         
@@ -852,7 +822,7 @@ class Concord:
 
     def predict_adata(self, adata_new: 'AnnData', 
                     output_key="Concord_pred",
-                    return_decoded=False, decoder_domain=None, return_latent=False,
+                    return_decoded=False, decoder_domain=None,
                     return_class=True, return_class_prob=True):
         """
         Generates predictions for a new, unseen AnnData object using the loaded model.
@@ -881,7 +851,6 @@ class Concord:
             sort_by_indices=False, # Prediction is already in order
             return_decoded=return_decoded,
             decoder_domain=decoder_domain,
-            return_latent=return_latent,
             return_class=return_class,
             return_class_prob=return_class_prob
         )

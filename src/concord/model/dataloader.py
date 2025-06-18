@@ -27,7 +27,6 @@ class DataLoaderManager:
                  batch_size=32, 
                  train_frac=0.9,
                  use_sampler=True,
-                 sampler_hard_negative_strategy='knn',
                  sampler_knn=300, 
                  sampler_emb=None,
                  sampler_domain_minibatch_strategy='proportional',
@@ -38,7 +37,6 @@ class DataLoaderManager:
                  use_faiss=True, 
                  use_ivf=False,
                  ivf_nprobe=8,
-                 num_cores=None,
                  device=None):
         """
         Initializes the DataLoaderManager.
@@ -53,7 +51,6 @@ class DataLoaderManager:
         self.train_frac = train_frac
         self.use_sampler = use_sampler
         self.sampler_emb = sampler_emb
-        self.sampler_hard_negative_strategy = sampler_hard_negative_strategy
         self.sampler_knn = sampler_knn
         self.sampler_domain_minibatch_strategy = sampler_domain_minibatch_strategy
         self.domain_coverage = domain_coverage
@@ -62,7 +59,6 @@ class DataLoaderManager:
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
-        self.num_cores = num_cores
         self.device = device
         self.dist_metric = dist_metric
 
@@ -106,7 +102,6 @@ class DataLoaderManager:
         sampler = SamplerClass(
             batch_size=self.batch_size, 
             domain_ids=domain_ids, 
-            hard_negative_strategy=self.sampler_hard_negative_strategy,
             p_intra_knn=self.p_intra_knn, 
             p_intra_domain=self.p_intra_domain,
             domain_minibatch_strategy=self.sampler_domain_minibatch_strategy,
@@ -154,7 +149,7 @@ class DataLoaderManager:
 
         if self.use_sampler:
             if self.train_frac == 1.0:
-                if self.sampler_hard_negative_strategy == 'knn' and self.p_intra_knn > 0.0:
+                if self.p_intra_knn > 0.0:
                     self.compute_neighborhood(self.adata, self.sampler_emb)
 
                 self.train_sampler = self.build_sampler(ConcordSampler, neighborhood=self.neighborhood)
