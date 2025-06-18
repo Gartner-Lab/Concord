@@ -198,7 +198,8 @@ class ConcordModel(nn.Module):
         """
         if self.use_importance_mask:
             #return torch.softmax(self.importance_mask, dim=0) * self.input_dim
-            return torch.relu(self.importance_mask)
+            #return torch.relu(self.importance_mask)
+            return torch.sigmoid(self.importance_mask)
         else:
             raise ValueError("Importance mask is not used in this model.")
 

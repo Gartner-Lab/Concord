@@ -192,8 +192,10 @@ class Concord:
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
             self.config.input_feature = self.adata.var_names.tolist()
 
-        if self.config.importance_penalty_weight == 0 and self.config.use_importance_mask:
-            logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
+        if self.config.use_importance_mask:
+            logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
+            if self.config.importance_penalty_weight == 0.0:
+                logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
 
         if self.config.domain_key is not None:
             if(self.config.domain_key not in self.adata.obs.columns):
