@@ -118,13 +118,13 @@ def run_dimensionality_reduction_pipeline(
         'save_dir': save_dir
     }
     if "Concord" in methods:
-        time_log['Concord'] = safe_run("Concord", Concord(use_decoder=False, **concord_args).encode_adata, output_key='Concord')
+        time_log['Concord'] = safe_run("Concord", Concord(use_decoder=False, **concord_args).fit_transform, output_key='Concord')
 
     if "Concord-decoder" in methods:
-        time_log['Concord-decoder'] = safe_run("Concord-decoder", Concord(use_decoder=True, **concord_args).encode_adata, output_key='Concord-decoder')
+        time_log['Concord-decoder'] = safe_run("Concord-decoder", Concord(use_decoder=True, **concord_args).fit_transform, output_key='Concord-decoder')
 
     if "Concord-pknn0" in methods:
-        time_log['Concord-pknn0'] = safe_run("Concord-pknn0", Concord(use_decoder=False, p_intra_knn=0.0, **concord_args).encode_adata, output_key='Concord-pknn0')
+        time_log['Concord-pknn0'] = safe_run("Concord-pknn0", Concord(use_decoder=False, p_intra_knn=0.0, **concord_args).fit_transform, output_key='Concord-pknn0')
     # Save the time log
     time_log_path = os.path.join(save_dir, "dimensionality_reduction_timelog.json")
     with open(time_log_path, "w") as f:
