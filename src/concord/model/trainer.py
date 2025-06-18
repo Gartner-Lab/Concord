@@ -2,8 +2,8 @@
 import torch
 from torch import nn, optim
 from tqdm import tqdm
-from ..utils.evaluator import log_classification
 from .loss import NTXent_general, importance_penalty_loss
+
 
 class Trainer:
     """
@@ -218,7 +218,7 @@ class Trainer:
         )
         
         if self.use_classifier:
-            log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
+            self._log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
 
         return avg_loss
 
@@ -230,4 +230,27 @@ class Trainer:
         avg_classifier = total_classifier / dataloader_len
         avg_importance_penalty = total_importance_penalty / dataloader_len
         return avg_loss, avg_mse, avg_clr, avg_classifier, avg_importance_penalty
+    
+
+    def _log_classification(epoch, phase, preds, labels, unique_classes, logger):
+        from sklearn.metrics import classification_report
+        
+        unique_classes_str = [str(cls) for cls in unique_classes]
+        report = classification_report(y_true=labels, y_pred=preds, labels=unique_classes, output_dict=True)
+        accuracy = report['accuracy']
+        precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes_str}
+        recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes_str}
+        f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in unique_classes_str}
+
+        # Create formatted strings for logging
+        precision_str = ", ".join([f"{label}: {value:.2f}" for label, value in precision.items()])
+        recall_str = ", ".join([f"{label}: {value:.2f}" for label, value in recall.items()])
+        f1_str = ", ".join([f"{label}: {value:.2f}" for label, value in f1.items()])
+
+        # Log to console
+        logger.info(
+            f'Epoch: {epoch:3d} | {phase.capitalize()} accuracy: {accuracy:5.2f} | precision: {precision_str} | recall: {recall_str} | f1: {f1_str}')
+
+        return accuracy, precision, recall, f1
+
     

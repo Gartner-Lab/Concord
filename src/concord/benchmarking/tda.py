@@ -1,7 +1,6 @@
 
 # Code to compute persistent homology of data
 import numpy as np
-from ..plotting.pl_tda import plot_persistence_diagram, plot_betti_curves
 
 def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2]):
     """

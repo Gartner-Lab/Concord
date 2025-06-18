@@ -1,10 +1,9 @@
 
 import pandas as pd
-from .other_util import Timer
 import logging
 import numpy as np
-from .. import logger
-
+import logging
+logger = logging.getLogger(__name__)
 
 def count_total_runs(param_grid):
     total_runs = 0
@@ -18,8 +17,8 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
     import json
     from pathlib import Path
     from copy import deepcopy
-    from .timer import Timer
-    from .anndata_utils import save_obsm_to_hdf5
+    from .time_memory import Timer
+    from ..utils.anndata_utils import save_obsm_to_hdf5
     import tracemalloc
 
     total_runs = count_total_runs(param_grid)
@@ -397,7 +396,7 @@ def benchmark_geometry(adata, keys,
 
     # Pseudotime correlation
     if 'pseudotime' in eval_metrics:
-        from .path_analysis import shortest_path_on_knn_graph, compute_pseudotime_from_shortest_path
+        from ..utils.path_analysis import shortest_path_on_knn_graph, compute_pseudotime_from_shortest_path
         logger.info("Computing pseudotime correlation")
         if start_point is None or end_point is None:
             raise ValueError("start_point and end_point must be specified for pseudotime computation.")
