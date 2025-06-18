@@ -181,6 +181,11 @@ class Concord:
             if self.config.p_intra_domain < 1.0:
                 logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 1.0 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best results.")
 
+        if self.config.clr_temperature <= 0 or self.config.clr_temperature > 1:
+            raise ValueError("clr_temperature must be in the range (0, 1]. "
+                             "This is a scaling factor for the contrastive loss. "
+                             "Consider setting it to a value between 0.2 to 0.6 for best results.")
+        
         # Checks to convert None values to default values
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
