@@ -162,5 +162,5 @@ def run_concord(
     }
 
     model = Concord(**kwargs)
-    model.encode_adata(output_key=output_key, return_decoded=return_corrected)
+    model.fit_transform(output_key=output_key, return_decoded=return_corrected)
 

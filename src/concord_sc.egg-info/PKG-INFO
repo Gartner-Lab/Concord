@@ -141,7 +141,7 @@ cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device)
 # cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
-cur_ccd.encode_adata(output_key='Concord')
+cur_ccd.fit_transform(output_key='Concord')
 ```
 
 ### Visualization:

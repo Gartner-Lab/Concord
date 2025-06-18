@@ -1,13 +1,10 @@
 
-
-
-# file: concord/eval/linear_probe.py
 """
 Drop-in linear-probe evaluation for AnnData objects.
 
 Example
 -------
-from concord.eval.linear_probe import LinearProbeEvaluator
+from concord.benchmarking import LinearProbeEvaluator
 
 evaluator = LinearProbeEvaluator(
     adata=my_adata,
