@@ -3,26 +3,36 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+import math
+    
 
-
-# SimCLR contrastive loss function
-class nt_xent_loss(nn.Module):
-    def __init__(self, temperature=0.5):
+class NTXent_general(nn.Module):
+    def __init__(self, temperature=0.5, beta=0.0):
         super().__init__()
-        self.temperature = temperature
+        self.T, self.beta = temperature, beta
 
     def forward(self, z_i, z_j):
-        batch_size = z_i.shape[0]
-        z = torch.cat((z_i, z_j), dim=0)
-        z = nn.functional.normalize(z, dim=1)
+        B = z_i.size(0)
+        z = F.normalize(torch.cat([z_i, z_j], dim=0), dim=1)     # 2B × d
+        logits = z @ z.T / self.T                                # 2B × 2B
+        pos_idx = (torch.arange(2*B, device=z.device) + B) % (2*B)
 
-        similarity_matrix = torch.matmul(z, z.T) / self.temperature
-        mask = torch.eye(batch_size * 2, dtype=torch.bool).to(z.device)
-        labels = torch.cat([torch.arange(batch_size) for _ in range(2)], dim=0).to(z.device)
-        labels = (labels.unsqueeze(0) == labels.unsqueeze(1)).float()
-        labels = labels.masked_fill(mask, 0)
+        # -------- hard-negative weighting --------
+        if self.beta > 0:
+            neg_mask = torch.ones_like(logits, dtype=torch.bool)
+            neg_mask.fill_diagonal_(False)
+            neg_mask[torch.arange(2*B, device=z.device), pos_idx] = False
 
-        loss = nn.CrossEntropyLoss()(similarity_matrix.masked_fill(mask, -float('inf')), labels.argmax(dim=1))
+            neg_logits = logits[neg_mask].view(2*B, -1)                # (2B,2B-2)
+            m = neg_logits.size(1)                                     # 2B-2
+            log_Z_beta = (torch.logsumexp(self.beta * neg_logits, 1, keepdim=True)
+                          - math.log(m))                               # average
+            neg_logits = (self.beta + 1) * neg_logits - log_Z_beta
+            logits[neg_mask] = neg_logits.reshape(-1)
+
+        # -------- cross-entropy NT-Xent --------
+        logits.fill_diagonal_(float('-inf'))
+        loss = F.cross_entropy(logits, pos_idx)
         return loss
 
 
