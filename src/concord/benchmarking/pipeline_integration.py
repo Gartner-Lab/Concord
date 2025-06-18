@@ -83,7 +83,7 @@ def run_integration_methods_pipeline(
 
         # Run UMAP separately, not part of the profiling
         if compute_umap and output_key is not None:
-            from .run_dim_reduction import run_umap
+            from ..utils.dim_reduction import run_umap
             try:
                 logger.info(f"Running UMAP on {output_key}...")
                 run_umap(adata, source_key=output_key, result_key=f"{output_key}_UMAP", **umap_params)
@@ -127,7 +127,7 @@ def run_integration_methods_pipeline(
             sc.tl.pca(adata, n_comps=latent_dim)
         adata.obsm["unintegrated"] = adata.obsm["X_pca"]
         if compute_umap:
-            from .run_dim_reduction import run_umap
+            from ..utils.dim_reduction import run_umap
             logger.info("Running UMAP on unintegrated...")
             run_umap(adata, source_key="unintegrated", result_key="unintegrated_UMAP", **umap_params)
 
