@@ -8,7 +8,6 @@ import logging
 import matplotlib.pyplot as plt
 import time
 from ..model.knn import Neighborhood
-from .other_util import Timer
 
 
 logger = logging.getLogger(__name__)
@@ -95,11 +94,9 @@ def iff_select(adata,
             
             if grouping == 'cluster':
                 emb = adata.obsm[emb_key]
-                with Timer() as timer:
-                    sc.pp.neighbors(adata, use_rep=emb_key)
-                    sc.tl.leiden(adata, resolution=1.0)
-                    cluster_series = pd.Series(adata.obs['leiden'])
-                logger.info(f"Took {timer.interval:.2f} seconds to compute leiden cluster.")
+                sc.pp.neighbors(adata, use_rep=emb_key)
+                sc.tl.leiden(adata, resolution=1.0)
+                cluster_series = pd.Series(adata.obs['leiden'])
     else:
         if len(grouping) != adata.shape[0]:
             raise ValueError("Length of grouping must match the number of cells.")
@@ -109,15 +106,13 @@ def iff_select(adata,
     expr_clus_frac = None
     if isinstance(grouping, str) and grouping == 'knn':
         emb = adata.obsm[emb_key]
-        with Timer() as timer:
-            neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf, metric=metric)
-            core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
-            knn_indices = neighborhood.get_knn(core_samples)
-            expr_clus_frac = pd.DataFrame({
-                f'knn_{i}': (adata[knn, :].X > 0).mean(axis=0).A1
-                for i, knn in enumerate(knn_indices)
-            }, index=adata.var_names)
-        logger.info(f"Took {timer.interval:.2f} seconds to compute neighborhood.")
+        neighborhood = Neighborhood(emb=emb, k=k, use_faiss=use_faiss, use_ivf=use_ivf, metric=metric)
+        core_samples = np.random.choice(np.arange(emb.shape[0]), size=min(knn_samples, emb.shape[0]), replace=False)
+        knn_indices = neighborhood.get_knn(core_samples)
+        expr_clus_frac = pd.DataFrame({
+            f'knn_{i}': (adata[knn, :].X > 0).mean(axis=0).A1
+            for i, knn in enumerate(knn_indices)
+        }, index=adata.var_names)
     else:
         use_clus = cluster_series.value_counts()[cluster_series.value_counts() >= cluster_min_cell_num].index.tolist()
         expr_clus_frac = pd.DataFrame({
@@ -132,10 +127,7 @@ def iff_select(adata,
     logger.info(f"Selecting informative features from {len(use_g)} robustly detected features.")
 
     expr_clus_frac = expr_clus_frac.loc[use_g]
-
-    with Timer() as timer:
-        gene_clus_gini = expr_clus_frac.apply(gini_coefficient, axis=1)
-    logger.info(f"Took {timer.interval:.2f} seconds to compute gini coefficient.")
+    gene_clus_gini = expr_clus_frac.apply(gini_coefficient, axis=1)
 
     if gini_cut_qt is not None or gini_cut is not None:
         logger.info("Selecting informative features based on gini coefficient ...")

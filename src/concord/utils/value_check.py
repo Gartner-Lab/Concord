@@ -1,6 +1,5 @@
 
 
-
 def validate_probability(prob, name):
     if prob is not None:
         if not (0.0 <= prob <= 1.0):
