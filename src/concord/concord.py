@@ -141,14 +141,14 @@ class Concord:
             importance_penalty_type='L1',
             dropout_prob=0.0, # Default just SIMCLR augmentation, no internal dropout
             norm_type="layer_norm",  # Default normalization type
-            knn_warmup_epochs=3, # Number of epochs to warm up KNN sampling
+            knn_warmup_epochs=2, # Number of epochs to warm up KNN sampling
             sampler_knn=None, # Default neighborhood size, can be adjusted
             sampler_emb=None,
             sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
             domain_coverage = None,
             dist_metric='euclidean',
             p_intra_knn=0.3,
-            p_intra_domain=0.95,
+            p_intra_domain=0.98,
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
