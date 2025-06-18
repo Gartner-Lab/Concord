@@ -1,4 +1,4 @@
-__version__ = "0.9.10"
+__version__ = "0.9.12"
 import logging
 import sys
 
@@ -45,5 +45,5 @@ def lazy_import(module_name, install_instructions=None):
             message += f" Please install it with: {install_instructions}"
         raise ImportError(message)
         
-from . import ml, pl, ul
+from . import ml, pl, ul, bm, sm
 from .concord import Concord

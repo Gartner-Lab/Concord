@@ -6,7 +6,7 @@ from scipy import sparse as sp
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any, Union, Tuple
-from .anndata_utils import ordered_concat
+from ..utils.anndata_utils import ordered_concat
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ class Simulation:
 
     def _finalize_anndata(self, adatas: List[ad.AnnData], join: str) -> ad.AnnData:
         """Concatenate, sort, and clean a list of AnnData objects."""
-        from .other_util import sort_string_list # Assuming this utility exists
+        from ..utils.other_util import sort_string_list # Assuming this utility exists
 
         adata = ad.concat(adatas, join=join, label='batch_id')
         adata.X = adata.X.toarray() if sp.issparse(adata.X) else adata.X

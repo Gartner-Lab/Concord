@@ -2,8 +2,8 @@
 import torch
 from torch import nn, optim
 from tqdm import tqdm
-from ..utils.evaluator import log_classification
-from .loss import nt_xent_loss, importance_penalty_loss
+from .loss import NTXent_general, importance_penalty_loss
+
 
 class Trainer:
     """
@@ -34,12 +34,13 @@ class Trainer:
         _run_epoch: Handles training or validation for one epoch.
         _compute_averages: Computes average losses over an epoch.
     """
-    def __init__(self, model, data_structure, device, logger, lr, schedule_ratio,
+    def __init__(self, model, data_structure, 
+                 device, logger, lr, schedule_ratio,
                  use_classifier=False, classifier_weight=1.0, 
                  unique_classes=None,
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
-                 clr_temperature=0.5, clr_weight=1.0,
+                 clr_temperature=0.5, clr_weight=1.0, clr_beta=0.0,
                  importance_penalty_weight=0, importance_penalty_type='L1'):
         """
         Initializes the Trainer.
@@ -73,13 +74,15 @@ class Trainer:
         self.use_decoder = use_decoder
         self.decoder_weight = decoder_weight
         self.clr_weight = clr_weight
+        self.clr_temperature = clr_temperature
+        self.clr_beta = clr_beta
         self.importance_penalty_weight = importance_penalty_weight
         self.importance_penalty_type = importance_penalty_type
 
         self.classifier_criterion = nn.CrossEntropyLoss() if use_classifier else None
         self.mse_criterion = nn.MSELoss() if use_decoder else None
 
-        self.clr_criterion = nt_xent_loss(temperature=clr_temperature)
+        self.clr_criterion = NTXent_general(temperature=self.clr_temperature, beta=self.clr_beta)
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
@@ -97,21 +100,23 @@ class Trainer:
         Returns:
             tuple: Loss components (total loss, classification loss, MSE loss, contrastive loss, importance penalty loss).
         """
-        outputs = self.model(inputs, domain_labels, covariate_tensors)
-        class_pred = outputs.get('class_pred')
-        decoded = outputs.get('decoded')
 
         # Contrastive loss
-        loss_clr = torch.tensor(0.0)
+        loss_clr = torch.tensor(0.0, device=self.device)
+        outputs = self.model(inputs, domain_labels, covariate_tensors)
+        z1 = outputs['encoded']
+        with torch.no_grad():
+            z2 = self.model.encode(inputs)
 
-        outputs_aug = self.model(inputs, domain_labels, covariate_tensors)
-        loss_clr = self.clr_criterion(outputs['encoded'], outputs_aug['encoded'])
+        loss_clr = self.clr_criterion(z1, z2)
         loss_clr *= self.clr_weight
 
         # Reconstruction loss
-        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0)
+        decoded = outputs.get('decoded')
+        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0, device=self.device)
 
         # Classifier loss
+        class_pred = outputs.get('class_pred')
         loss_classifier = torch.tensor(0.0, device=self.device)
         if class_pred is not None and class_labels is not None:
             labeled_mask = (class_labels != self.unlabeled_class).to(self.device) if self.unlabeled_class is not None else torch.ones_like(class_labels, dtype=torch.bool, device=self.device)
@@ -128,7 +133,7 @@ class Trainer:
             importance_weights = self.model.get_importance_weights()
             loss_penalty = importance_penalty_loss(importance_weights, self.importance_penalty_weight, self.importance_penalty_type)
         else:
-            loss_penalty = torch.tensor(0.0)
+            loss_penalty = torch.tensor(0.0, device=self.device)
 
         loss = loss_classifier + loss_mse + loss_clr + loss_penalty
 
@@ -213,7 +218,7 @@ class Trainer:
         )
         
         if self.use_classifier:
-            log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
+            self._log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
 
         return avg_loss
 
@@ -225,4 +230,27 @@ class Trainer:
         avg_classifier = total_classifier / dataloader_len
         avg_importance_penalty = total_importance_penalty / dataloader_len
         return avg_loss, avg_mse, avg_clr, avg_classifier, avg_importance_penalty
+    
+
+    def _log_classification(epoch, phase, preds, labels, unique_classes, logger):
+        from sklearn.metrics import classification_report
+        
+        unique_classes_str = [str(cls) for cls in unique_classes]
+        report = classification_report(y_true=labels, y_pred=preds, labels=unique_classes, output_dict=True)
+        accuracy = report['accuracy']
+        precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes_str}
+        recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes_str}
+        f1 = {label: metrics['f1-score'] for label, metrics in report.items() if label in unique_classes_str}
+
+        # Create formatted strings for logging
+        precision_str = ", ".join([f"{label}: {value:.2f}" for label, value in precision.items()])
+        recall_str = ", ".join([f"{label}: {value:.2f}" for label, value in recall.items()])
+        f1_str = ", ".join([f"{label}: {value:.2f}" for label, value in f1.items()])
+
+        # Log to console
+        logger.info(
+            f'Epoch: {epoch:3d} | {phase.capitalize()} accuracy: {accuracy:5.2f} | precision: {precision_str} | recall: {recall_str} | f1: {f1_str}')
+
+        return accuracy, precision, recall, f1
+
     

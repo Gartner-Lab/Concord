@@ -2,7 +2,8 @@ from pathlib import Path
 import torch
 import torch.nn.functional as F
 from .model.model import ConcordModel
-from .utils.anndata_utils import ensure_categorical, check_adata_X
+from .model.knn import Neighborhood
+from .utils.anndata_utils import ensure_categorical, check_adata_X, get_adata_basis
 from .model.dataloader import DataLoaderManager 
 from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, set_seed
@@ -110,7 +111,6 @@ class Concord:
 
         self.default_params = dict(
             seed=0,
-            project_name="concord",
             input_feature=None,
             normalize_total=False, # default adata.X should be normalized
             log1p=False,
@@ -131,6 +131,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_temperature=0.5,
+            clr_beta=0.0,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
@@ -138,21 +139,21 @@ class Concord:
             use_importance_mask=False,
             importance_penalty_weight=0,
             importance_penalty_type='L1',
-            dropout_prob=0.1,
+            dropout_prob=0.0, # Default just SIMCLR augmentation, no internal dropout
             norm_type="layer_norm",  # Default normalization type
-            sampler_emb="X_pca",
+            knn_warmup_epochs=2, # Number of epochs to warm up KNN sampling
             sampler_knn=None, # Default neighborhood size, can be adjusted
+            sampler_emb=None,
             sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
             domain_coverage = None,
             dist_metric='euclidean',
             p_intra_knn=0.3,
-            p_intra_domain=0.95,
-            pca_n_comps=50,
+            p_intra_domain=0.98,
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
+
             pretrained_model=None,
-            classifier_freeze_param=False,
             chunked=False,
             chunk_size=10000,
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -175,14 +176,26 @@ class Concord:
             self.config.sampler_knn = self.adata.n_obs // 10 
             logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
 
+        if self.config.clr_beta > 0:
+            logger.info(f"Using NT-Xent loss with beta={self.config.clr_beta}. This will apply hard-negative weighting to the contrastive loss.")
+            if self.config.p_intra_domain < 1.0:
+                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 1.0 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best results.")
+
+        if self.config.clr_temperature <= 0 or self.config.clr_temperature > 1:
+            raise ValueError("clr_temperature must be in the range (0, 1]. "
+                             "This is a scaling factor for the contrastive loss. "
+                             "Consider setting it to a value between 0.2 to 0.6 for best results.")
+        
         # Checks to convert None values to default values
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
             self.config.input_feature = self.adata.var_names.tolist()
 
-        if self.config.importance_penalty_weight == 0 and self.config.use_importance_mask:
-            logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
+        if self.config.use_importance_mask:
+            logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
+            if self.config.importance_penalty_weight == 0.0:
+                logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
 
         if self.config.domain_key is not None:
             if(self.config.domain_key not in self.adata.obs.columns):
@@ -239,6 +252,8 @@ class Concord:
             if covariate_key in self.adata.obs:
                 ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
                 self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
+
+        self.preprocessed = False
         
 
     def get_default_params(self):
@@ -332,6 +347,7 @@ class Concord:
                                use_decoder=self.config.use_decoder,
                                decoder_weight=self.config.decoder_weight,
                                clr_temperature=self.config.clr_temperature,
+                               clr_beta=self.config.clr_beta,
                                clr_weight=self.config.clr_weight,
                                importance_penalty_weight=self.config.importance_penalty_weight,
                                importance_penalty_type=self.config.importance_penalty_type)
@@ -350,26 +366,31 @@ class Concord:
         """
         adata_to_load = adata if adata is not None else self.adata
 
+        if self.preprocessed:
+            normalize_total = False
+            log1p = False
+        else:
+            normalize_total = self.config.normalize_total
+            log1p = self.config.log1p
+
         self.data_manager = DataLoaderManager(
             domain_key=self.config.domain_key, 
             class_key=self.config.class_key, covariate_keys=self.config.covariate_embedding_dims.keys(), 
             feature_list=self.config.input_feature,
-            normalize_total=self.config.normalize_total, 
-            log1p=self.config.log1p,    
+            normalize_total=normalize_total,
+            log1p=log1p,    
             batch_size=self.config.batch_size, train_frac=train_frac,
             use_sampler=use_sampler,
-            sampler_emb=self.config.sampler_emb, 
+            sampler_emb=self.config.sampler_emb,
             sampler_knn=self.config.sampler_knn,
             sampler_domain_minibatch_strategy=self.config.sampler_domain_minibatch_strategy,
             domain_coverage=self.config.domain_coverage,
             dist_metric=self.config.dist_metric, 
             p_intra_knn=self.config.p_intra_knn, 
             p_intra_domain=self.config.p_intra_domain, 
-            pca_n_comps=self.config.pca_n_comps,
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            num_cores=self.config.num_classes, 
             device=self.config.device
         )
 
@@ -387,6 +408,7 @@ class Concord:
             logger.info("Loading all data into memory.")
             train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
             self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
+            self.preprocessed = True  # Mark as preprocessed since we loaded the data into memory
 
 
     def train(self, save_model=True, patience=2):
@@ -397,12 +419,45 @@ class Concord:
             save_model (bool, optional): Whether to save the trained model. Defaults to True.
             patience (int, optional): Number of epochs to wait for improvement before early stopping. Defaults to 2.
         """
+        use_knn_sampler = self.config.p_intra_knn > 0
+        original_p_intra_knn = self.config.p_intra_knn
+
+        # A warm-up is needed ONLY if using the knn_sampler AND no initial embedding is provided.
+        is_warmup_active = (
+            use_knn_sampler and
+            self.config.sampler_emb is None and
+            self.config.knn_warmup_epochs > 0
+        )
+
+        if is_warmup_active:
+            if self.config.knn_warmup_epochs >= self.config.n_epochs:
+                raise ValueError("knn_warmup_epochs must be less than n_epochs.")
+            logger.info(f"Starting {self.config.knn_warmup_epochs} warm-up epochs with k-NN sampling disabled.")
+            self.config.p_intra_knn = 0.0
+        else:
+            self.config.knn_warmup_epochs = 0
+
+        self.init_dataloader(train_frac=self.config.train_frac, use_sampler=True)
+        self.init_trainer()
+
         best_val_loss = float('inf')
         best_model_state = None
         epochs_without_improvement = 0
 
         for epoch in range(self.config.n_epochs):
             logger.info(f'Starting epoch {epoch + 1}/{self.config.n_epochs}')
+
+            # DYNAMIC KNN UPDATE (after warm-up is complete)
+            if is_warmup_active and epoch == self.config.knn_warmup_epochs:
+                logger.info("Warm-up complete. Computing k-NN graph on learned embeddings.")
+                self.init_dataloader(self.adata, train_frac=1.0, use_sampler=False)
+                embeddings, *_ = self.predict(self.loader)
+                self.adata.obsm['X_concord_warmup'] = embeddings
+                self.config.p_intra_knn = original_p_intra_knn
+                self.config.sampler_emb = 'X_concord_warmup'
+                # reinitiate the dataloader with the updated p_intra_knn
+                self.init_dataloader(adata=self.adata, train_frac=self.config.train_frac, use_sampler=True)
+                
             for chunk_idx, (train_dataloader, val_dataloader, _) in enumerate(self.loader):
                 logger.info(f'Processing chunk {chunk_idx + 1}/{len(self.loader)} for epoch {epoch + 1}')
                 if train_dataloader is not None:
@@ -456,7 +511,7 @@ class Concord:
 
 
 
-    def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_latent=False, return_class=True, return_class_prob=True):  
+    def predict(self, loader, sort_by_indices=False, return_decoded=False, decoder_domain=None, return_class=True, return_class_prob=True):  
         """
         Runs inference on a dataset.
 
@@ -465,7 +520,6 @@ class Concord:
             sort_by_indices (bool, optional): Whether to return results in original cell order. Defaults to False.
             return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
             decoder_domain (str, optional): Specifies a domain for decoding. Defaults to None.
-            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
             return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
             return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
 
@@ -479,8 +533,6 @@ class Concord:
         embeddings = []
         decoded_mtx = []
         indices = []
-
-        latent_matrices = {}
         
         if isinstance(loader, list) or type(loader).__name__ == 'ChunkLoader':
             all_embeddings = []
@@ -489,15 +541,13 @@ class Concord:
             all_class_probs = [] if return_class_prob else None
             all_class_true = []
             all_indices = []
-            all_latent_matrices = {}
 
             for chunk_idx, (dataloader, _, ck_indices) in enumerate(loader):
                 logger.info(f'Predicting for chunk {chunk_idx + 1}/{len(loader)}')
-                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true, ck_latent = self.predict(dataloader, 
+                ck_embeddings, ck_decoded, ck_class_preds, ck_class_probs, ck_class_true = self.predict(dataloader, 
                                                                                         sort_by_indices=True, 
                                                                                         return_decoded=return_decoded, 
                                                                                         decoder_domain=decoder_domain,
-                                                                                        return_latent=return_latent,
                                                                                         return_class=return_class,
                                                                                         return_class_prob=return_class_prob)
                 all_embeddings.append(ck_embeddings)
@@ -509,11 +559,6 @@ class Concord:
                     all_class_probs.append(ck_class_probs)
                 if ck_class_true is not None:
                     all_class_true.extend(ck_class_true)
-                if return_latent:
-                    for key in ck_latent.keys():
-                        if key not in all_latent_matrices:
-                            all_latent_matrices[key] = []
-                        all_latent_matrices[key].append(ck_latent[key])
 
             all_indices = np.array(all_indices)
             sorted_indices = np.argsort(all_indices)
@@ -525,10 +570,7 @@ class Concord:
             if return_class_prob:
                 all_class_probs = pd.concat(all_class_probs).iloc[sorted_indices].reset_index(drop=True) if all_class_probs else None
             
-            if return_latent:
-                for key in all_latent_matrices.keys():
-                    all_latent_matrices[key] = np.concatenate(all_latent_matrices[key], axis=0)[sorted_indices]
-            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true, all_latent_matrices
+            return all_embeddings, all_decoded, all_class_preds, all_class_probs, all_class_true
         else:
             with torch.no_grad():
                 if decoder_domain is not None:
@@ -559,7 +601,7 @@ class Concord:
                     if original_indices is not None:
                         indices.extend(original_indices.cpu().numpy())
 
-                    outputs = self.model(inputs, domain_ids, covariate_tensors, return_latent=return_latent)
+                    outputs = self.model(inputs, domain_ids, covariate_tensors)
                     if 'class_pred' in outputs and return_class:
                         class_preds_tensor = outputs['class_pred']
                         class_preds.extend(torch.argmax(class_preds_tensor, dim=1).cpu().numpy()) # TODO May need fix
@@ -569,12 +611,6 @@ class Concord:
                         embeddings.append(outputs['encoded'].cpu().numpy())
                     if 'decoded' in outputs and return_decoded:
                         decoded_mtx.append(outputs['decoded'].cpu().numpy())
-                    if 'latent' in outputs and return_latent:
-                        latent = outputs['latent']
-                        for key, val in latent.items():
-                            if key not in latent_matrices:
-                                latent_matrices[key] = []
-                            latent_matrices[key].append(val.cpu().numpy())   
                             
 
             if not embeddings:
@@ -585,10 +621,6 @@ class Concord:
 
             if decoded_mtx:
                 decoded_mtx = np.concatenate(decoded_mtx, axis=0)
-
-            if return_latent:
-                for key in latent_matrices.keys():
-                    latent_matrices[key] = np.concatenate(latent_matrices[key], axis=0)
 
             # Convert predictions and true labels to numpy arrays
             class_preds = np.array(class_preds) if class_preds else None
@@ -608,9 +640,6 @@ class Concord:
                     class_probs = class_probs[sorted_indices]
                 if class_true is not None:
                     class_true = class_true[sorted_indices]
-                if return_latent:
-                    for key in latent_matrices.keys():
-                        latent_matrices[key] = latent_matrices[key][sorted_indices]
 
             if return_class and self.config.unique_classes is not None:
                 class_preds = self.config.unique_classes[class_preds] if class_preds is not None else None
@@ -618,14 +647,14 @@ class Concord:
                 if return_class_prob and class_probs is not None:
                     class_probs = pd.DataFrame(class_probs, columns=self.config.unique_classes)
 
-            return embeddings, decoded_mtx, class_preds, class_probs, class_true, latent_matrices
+            return embeddings, decoded_mtx, class_preds, class_probs, class_true
 
 
 
     def _add_results_to_adata(self, adata_to_update, results_tuple, output_key, decoder_domain=None):
         """A helper function to add prediction results to an AnnData object."""
         
-        embeddings, decoded, class_preds, class_probs, class_true, latent_matrices = results_tuple
+        embeddings, decoded, class_preds, class_probs, class_true = results_tuple
         
         adata_to_update.obsm[output_key] = embeddings
         if decoded is not None and len(decoded) > 0:
@@ -634,10 +663,6 @@ class Concord:
             else:
                 save_key = f"{output_key}_decoded"
             adata_to_update.layers[save_key] = decoded
-
-        if latent_matrices is not None and len(latent_matrices) > 0:
-            for key, val in latent_matrices.items():
-                adata_to_update.obsm[f"{output_key}_{key}"] = val
         
         if class_true is not None and len(class_true) > 0:
             adata_to_update.obs[f"{output_key}_class_true"] = class_true
@@ -653,9 +678,8 @@ class Concord:
         logger.info(f"Predictions added to AnnData object with base key '{output_key}'.")
 
 
-    def encode_adata(self, output_key="Concord", 
+    def fit_transform(self, output_key="Concord", 
                      return_decoded=False, decoder_domain=None,
-                     return_latent=False, 
                      return_class=True, return_class_prob=True, 
                      save_model=True):
         """
@@ -665,35 +689,28 @@ class Concord:
             output_key (str, optional): Output key for storing results in AnnData. Defaults to 'Concord'.
             return_decoded (bool, optional): Whether to return decoded gene expression. Defaults to False.
             decoder_domain (str, optional): Specifies domain for decoding. Defaults to None.
-            return_latent (bool, optional): Whether to return latent variables. Defaults to False.
             return_class (bool, optional): Whether to return predicted class labels. Defaults to True.
             return_class_prob (bool, optional): Whether to return class probabilities. Defaults to True.
             save_model (bool, optional): Whether to save the model after training. Defaults to True.
         """
 
-        # Initialize the model
         self.init_model()
-        # Initialize the dataloader
-        self.init_dataloader(train_frac=self.config.train_frac, use_sampler=True)
-        # Initialize the trainer
-        self.init_trainer()
-        # Train the model
         self.train(save_model=save_model)
-        # Reinitialize the dataloader without using the sampler
-        self.init_dataloader(train_frac=1.0, use_sampler=False)
+        self.init_dataloader(adata=self.adata, train_frac=1.0, use_sampler=False)
         
-        # Predict and store the results
-        results_tuple = self.predict(self.loader, 
-                                     return_decoded=return_decoded, decoder_domain=decoder_domain,
-                                     return_latent=return_latent,
-                                     return_class=return_class, return_class_prob=return_class_prob)
+        results_tuple = self.predict(
+            self.loader, 
+            return_decoded=return_decoded, decoder_domain=decoder_domain,
+            return_class=return_class, 
+            return_class_prob=return_class_prob
+        )
         
+        # --- 4. SAVE RESULTS ---
         self._add_results_to_adata(self.adata, results_tuple, output_key, decoder_domain=decoder_domain)
 
         if self.copy_adata:
-            logger.info(f"Copying results back to the original AnnData object.")
+            logger.info("Copying results back to the original AnnData object.")
             self._add_results_to_adata(self._adata_original, results_tuple, output_key, decoder_domain=decoder_domain)
-        
             
 
     def get_domain_embeddings(self):
@@ -710,6 +727,7 @@ class Concord:
         domain_df = pd.DataFrame(domain_embeddings, index=unique_domain_categories)
         return domain_df
     
+
     def get_covariate_embeddings(self):
         """
         Retrieves covariate embeddings from the trained model.
@@ -727,6 +745,7 @@ class Concord:
                 covariate_df = pd.DataFrame(covariate_embeddings, index=unique_covariate_categories)
                 covariate_dfs[covariate_key] = covariate_df
         return covariate_dfs
+
 
     def save_model(self, model, save_path):
         """
@@ -810,7 +829,7 @@ class Concord:
 
     def predict_adata(self, adata_new: 'AnnData', 
                     output_key="Concord_pred",
-                    return_decoded=False, decoder_domain=None, return_latent=False,
+                    return_decoded=False, decoder_domain=None,
                     return_class=True, return_class_prob=True):
         """
         Generates predictions for a new, unseen AnnData object using the loaded model.
@@ -831,15 +850,14 @@ class Concord:
             raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
                              f"required by the model. Missing features: {list(missing_features)[:5]}...")
         
+        self.preprocessed = False # Use the same preprocessing as during training
         self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
-        # Run prediction
-        logger.info("Generating predictions for the new data...")
+
         results_tuple = self.predict(
             loader=self.loader, # Pass the dataloader for the new data
             sort_by_indices=False, # Prediction is already in order
             return_decoded=return_decoded,
             decoder_domain=decoder_domain,
-            return_latent=return_latent,
             return_class=return_class,
             return_class_prob=return_class_prob
         )

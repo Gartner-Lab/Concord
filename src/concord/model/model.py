@@ -124,7 +124,7 @@ class ConcordModel(nn.Module):
         if self.use_importance_mask:
             self.importance_mask = nn.Parameter(torch.ones(input_dim))
 
-    def forward(self, x, domain_labels=None, covariate_tensors=None, return_latent=False):
+    def forward(self, x, domain_labels=None, covariate_tensors=None):
         """
         Performs a forward pass through the model.
 
@@ -132,58 +132,23 @@ class ConcordModel(nn.Module):
             x (torch.Tensor): Input data.
             domain_labels (torch.Tensor, optional): Domain labels for embedding lookup.
             covariate_tensors (dict, optional): Dictionary of covariate labels.
-            return_latent (bool, optional): Whether to return latent layer outputs.
 
         Returns:
             dict: A dictionary with encoded representations, decoded outputs (if enabled), 
                   classifier predictions (if enabled), and latent activations (if requested).
         """
 
-        out = {}
+        out = {}   
 
-        embeddings = []
-        if self.domain_embedding_dim > 0 and domain_labels is not None:
-            domain_embeddings = self.domain_embedding(domain_labels)
-            embeddings.append(domain_embeddings)
+        out['encoded'] = self.encode(x)
 
-        # Use covariate embeddings if available
-        if covariate_tensors is not None:
-            for key, tensor in covariate_tensors.items():
-                if key in self.covariate_embeddings:
-                    embeddings.append(self.covariate_embeddings[key](tensor))
-
-        if self.use_importance_mask:
-            importance_weights = self.get_importance_weights()
-            x = x * importance_weights
-
-        x = self.augmentation_mask(x)
-        # if self.encoder_append_cov and embeddings:
-        #     x = torch.cat([x] + embeddings, dim=1)
-
-        if return_latent:
-            out['latent'] = dict()
-
-        for i in range(len(self.encoder)):
-            layer = self.encoder[i]
-            x = layer(x)
-            if return_latent:
-                if layer.__class__.__name__ in ['LeakyReLU', 'ReLU']:
-                    out['latent'][f'encoder_{i}'] = x                
-
-        out['encoded'] = x
+        embeddings = self.get_embeddings(domain_labels, covariate_tensors)
 
         if self.use_decoder:
             x = out['encoded']
             if embeddings:
                 x = torch.cat([x] + embeddings, dim=1)
-            for i in range(len(self.decoder)):
-                layer = self.decoder[i]
-                x = layer(x)
-                if return_latent:
-                    if layer.__class__.__name__ in ['LeakyReLU', 'ReLU']:
-                        out['latent'][f'decoder_{i}'] = x
-
-            out['decoded'] = x
+            out['decoded'] = self.decoder(x)
 
 
         if self.use_classifier:
@@ -233,7 +198,45 @@ class ConcordModel(nn.Module):
         """
         if self.use_importance_mask:
             #return torch.softmax(self.importance_mask, dim=0) * self.input_dim
-            return torch.relu(self.importance_mask)
+            #return torch.relu(self.importance_mask)
+            return torch.sigmoid(self.importance_mask)
         else:
             raise ValueError("Importance mask is not used in this model.")
 
+
+    def encode(self, x):
+        if self.use_importance_mask:
+            importance_weights = self.get_importance_weights()
+            x = x * importance_weights
+
+        x = self.augmentation_mask(x)
+        return self.encoder(x)
+    
+
+    def get_embeddings(self, domain_labels=None, covariate_tensors=None):
+        """
+        Retrieves embeddings for the specified domain labels and covariate tensors.
+
+        Args:
+            domain_labels (torch.Tensor, optional): Domain labels for embedding lookup.
+            covariate_tensors (dict, optional): Dictionary of covariate tensors.
+
+        Returns:
+            torch.Tensor: Concatenated embeddings.
+        """
+        embeddings = []
+        if self.domain_embedding_dim > 0 and domain_labels is not None:
+            domain_embeddings = self.domain_embedding(domain_labels)
+            embeddings.append(domain_embeddings)
+
+        if covariate_tensors is not None:
+            for key, tensor in covariate_tensors.items():
+                if key in self.covariate_embeddings:
+                    embeddings.append(self.covariate_embeddings[key](tensor))
+
+        if embeddings:
+            return embeddings
+        return None
+
+
+    

@@ -85,6 +85,7 @@ class Neighborhood:
         # Build the index
         self._build_knn_index()
 
+
     def _build_knn_index(self):
         """
         Initializes the k-NN index using FAISS or sklearn.
@@ -134,6 +135,7 @@ class Neighborhood:
             else:
                 # Euclidean
                 self.nbrs = NearestNeighbors(n_neighbors=self.k + 1, metric="euclidean").fit(self.emb)
+
 
     def get_knn(self, core_samples, k=None, include_self=True, return_distance=False):
         """
@@ -215,6 +217,7 @@ class Neighborhood:
             return indices, distances
         return indices
 
+
     def update_embedding(self, new_emb):
         """
         Updates the embedding matrix and rebuilds the k-NN index.
@@ -224,6 +227,7 @@ class Neighborhood:
         """
         self.emb = new_emb.astype(np.float32)
         self._build_knn_index()
+
 
     def average_knn_distance(self, core_samples, mtx, k=None, distance_metric='euclidean'):
         """
@@ -287,6 +291,7 @@ class Neighborhood:
         else:
             raise ValueError(f"Unknown distance metric: {distance_metric}")
 
+
     def compute_knn_graph(self, k=None):
         """
         Constructs a sparse adjacency matrix for the k-NN graph.
@@ -309,6 +314,7 @@ class Neighborhood:
         weights = distances.flatten()
 
         self.graph = csr_matrix((weights, (rows, cols)), shape=(self.emb.shape[0], self.emb.shape[0]))
+
 
     def get_knn_graph(self):
         """
