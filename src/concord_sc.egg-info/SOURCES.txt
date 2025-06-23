@@ -11,6 +11,7 @@ src/concord/ul.py
 src/concord/benchmarking/__init__.py
 src/concord/benchmarking/benchmark.py
 src/concord/benchmarking/geometry.py
+src/concord/benchmarking/knn_probe.py
 src/concord/benchmarking/linear_probe.py
 src/concord/benchmarking/pipeline_dim_reduction.py
 src/concord/benchmarking/pipeline_integration.py
