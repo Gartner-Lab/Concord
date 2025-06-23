@@ -150,6 +150,7 @@ def run_concord(
         "latent_dim": latent_dim,
         "batch_size": batch_size,
         "n_epochs": n_epochs,
+        "use_sampler": True if mode != "naive" else False,
         "domain_key": batch_key if mode != "naive" else None,
         "class_key": class_key if mode == "class" else None,
         "use_classifier": mode == "class",
