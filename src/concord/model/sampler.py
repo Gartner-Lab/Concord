@@ -215,6 +215,8 @@ class ConcordSampler(Sampler):
         """
         if self.valid_batches is None:
             self.valid_batches = self._generate_batches()
+            avg_seen = len(torch.cat(list(self.valid_batches)).unique()) / len(self.domain_ids)
+            logger.info(f"Fraction of cells seen this epoch: {avg_seen:.3f}")
         for batch in self.valid_batches:
             yield batch.tolist()
 

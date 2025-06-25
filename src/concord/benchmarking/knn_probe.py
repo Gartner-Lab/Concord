@@ -62,18 +62,25 @@ class KNNProbeEvaluator:
 
         rng = np.random.RandomState(self.seed)
 
-        y_raw = self.adata.obs[self.target_key].to_numpy()
+        y_raw = self.adata.obs[self.target_key].to_numpy(object) 
         obs_names = np.asarray(self.adata.obs_names)
+        mask_keep = ~pd.isna(y_raw)
 
-        # ----- drop unwanted labels -----------------------------------
+        # ----- drop unwanted / missing labels ------------------------------
+        mask_keep = ~pd.isna(y_raw)
+
         if self.ignore_values is not None:
-            mask_keep = ~np.isin(y_raw, list(self.ignore_values))
-            if any(isinstance(v, float) and np.isnan(v) for v in self.ignore_values):
-                mask_keep &= ~np.isnan(y_raw.astype("float64", copy=False))
-            if mask_keep.sum() == 0:
-                raise ValueError("All samples were filtered out by ignore_values.")
-            y_raw = y_raw[mask_keep]
-            obs_names = obs_names[mask_keep]
+            bad_set = {v.lower() if isinstance(v, str) else v for v in self.ignore_values}
+            is_bad = np.vectorize(
+                lambda v: v.lower() in bad_set if isinstance(v, str) else v in bad_set
+            )
+            mask_keep &= ~is_bad(y_raw)
+
+        if mask_keep.sum() == 0:
+            raise ValueError("All samples were filtered out by ignore_values.")
+
+        y_raw = y_raw[mask_keep]
+        obs_names = obs_names[mask_keep]
 
         # determine task type ------------------------------------------
         if self.task == "auto":
