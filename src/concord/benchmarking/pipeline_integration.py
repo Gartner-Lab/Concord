@@ -95,7 +95,9 @@ def run_integration_methods_pipeline(
         profiled_run("concord_knn", lambda: run_concord(
             adata, batch_key=batch_key,
             output_key="concord_knn", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord_knn")
+            return_corrected=return_corrected, device=device, seed=seed, 
+            verbose=verbose,
+            mode="default"), "concord_knn")
         
     # Concord default (with hard negative samples)
     if "concord_hcl" in methods:
@@ -103,15 +105,18 @@ def run_integration_methods_pipeline(
             adata, batch_key=batch_key, 
             clr_beta=1.0, p_intra_knn=0.0,
             output_key="concord_hcl", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord_hcl")
+            return_corrected=return_corrected, device=device, seed=seed, 
+            verbose=verbose,
+            mode="default"), "concord_hcl")
 
     # Concord class
     if "concord_class" in methods:
         profiled_run("concord_class", lambda: run_concord(
             adata, batch_key=batch_key,
             class_key=class_key, output_key="concord_class",
-            latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, mode="class"), "concord_class")
+            latent_dim=latent_dim, return_corrected=return_corrected, device=device, seed=seed, 
+            verbose=verbose,
+            mode="class"), "concord_class")
 
     # Concord decoder
     if "concord_decoder" in methods:
@@ -119,7 +124,9 @@ def run_integration_methods_pipeline(
             adata, batch_key=batch_key,
             class_key=class_key, output_key="concord_decoder",
             latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, mode="decoder"), "concord_decoder")
+            seed=seed, 
+            verbose=verbose,
+            mode="decoder"), "concord_decoder")
 
     # Contrastive naive
     if "contrastive" in methods:
@@ -127,7 +134,9 @@ def run_integration_methods_pipeline(
             adata, batch_key=None, 
             clr_beta= 0.0, p_intra_knn=0.0,
             output_key="contrastive", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, mode="naive"), "contrastive")
+            return_corrected=return_corrected, device=device, seed=seed, 
+            verbose=verbose,
+            mode="naive"), "contrastive")
         
     # Unintegrated
     if "unintegrated" in methods:
