@@ -144,8 +144,9 @@ def run_concord(
     mode="default",  # Options: "default", "decoder", "class", "naive"
     n_epochs=10,
     batch_size=64,
+    verbose=False,
 ):
-    from ..concord import Concord
+    from .. import Concord
 
     kwargs = {
         "adata": adata,
@@ -162,7 +163,7 @@ def run_concord(
         "use_decoder": mode == "decoder",
         "domain_embedding_dim": 8,
         "seed": seed,
-        "verbose": False,
+        "verbose": verbose,
         "device": device,
         "save_dir": save_dir,
     }

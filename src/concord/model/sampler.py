@@ -23,6 +23,7 @@ class ConcordSampler(Sampler):
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
                  domain_coverage=None,
+                 sample_with_replacement=False,
                  device=None):
         """
         Initializes the ConcordSampler.
@@ -44,6 +45,15 @@ class ConcordSampler(Sampler):
         self.domain_minibatch_strategy = domain_minibatch_strategy
         self.domain_minibatch_min_count = domain_minibatch_min_count
         self.domain_coverage = domain_coverage 
+        self.sample_with_replacement = sample_with_replacement
+        if not sample_with_replacement and self.domain_minibatch_strategy != "proportional":
+            logger.warning(
+                f"sample_with_replacement=False is not supported for "
+                f"strategy '{self.domain_minibatch_strategy}'; forcing to True."
+            )
+        self.sample_with_replacement = (
+            sample_with_replacement or self.domain_minibatch_strategy != "proportional"
+        )
         self.p_intra_knn = p_intra_knn
         self.neighborhood = neighborhood
         if self.p_intra_knn > 0 and self.neighborhood is None:
@@ -155,7 +165,11 @@ class ConcordSampler(Sampler):
                 # Check if neighborhood is available
                 if self.neighborhood is None:
                     raise ValueError("Neighborhood must be provided to sample from k-NN neighborhoods.")
-                core_sample_indices = torch.randint(len(domain_indices), (num_batches_domain,))
+                if self.sample_with_replacement:
+                    core_sample_indices = torch.randint(len(domain_indices), (num_batches_domain,))
+                else:
+                    core_sample_indices = torch.randperm(len(domain_indices))[:num_batches_domain]
+                
                 core_samples = domain_indices[core_sample_indices]
 
                 knn_around_core = self.neighborhood.get_knn(core_samples) # (core_samples, k), contains core + knn around the core samples
@@ -177,15 +191,23 @@ class ConcordSampler(Sampler):
                 batch_knn_out_domain = self._permute_nonneg_and_fill(knn_out_domain, batch_knn_out_domain_count)
                 batch_knn = torch.cat((batch_knn_in_domain, batch_knn_out_domain), dim=1) 
 
-
-            batch_global_in_domain = domain_indices[
-                torch.randint(len(domain_indices), (num_batches_domain, batch_global_in_domain_count))
-            ]
+            if not self.sample_with_replacement and len(domain_indices) >= num_batches_domain * batch_global_in_domain_count:
+                batch_global_in_domain = domain_indices[
+                    torch.randperm(len(domain_indices))[:num_batches_domain * batch_global_in_domain_count]].view(num_batches_domain, batch_global_in_domain_count)
+            else:
+                batch_global_in_domain = domain_indices[
+                    torch.randint(len(domain_indices), (num_batches_domain, batch_global_in_domain_count))
+                ]
 
             if len(out_domain_indices) > 0:
-                batch_global_out_domain = out_domain_indices[
-                    torch.randint(len(out_domain_indices), (num_batches_domain, batch_global_out_domain_count))
-                ]
+                if not self.sample_with_replacement and len(out_domain_indices) >= num_batches_domain * batch_global_out_domain_count:
+                    batch_global_out_domain = out_domain_indices[
+                    torch.randperm(len(out_domain_indices))[:num_batches_domain * batch_global_out_domain_count]].view(
+                    num_batches_domain, batch_global_out_domain_count)
+                else:
+                    batch_global_out_domain = out_domain_indices[
+                        torch.randint(len(out_domain_indices), (num_batches_domain, batch_global_out_domain_count))
+                    ]
             else:
                 batch_global_out_domain = torch.empty(num_batches_domain, 0, dtype=torch.long, device=self.device)
 
@@ -213,10 +235,10 @@ class ConcordSampler(Sampler):
         Yields:
             torch.Tensor: A batch of sample indices.
         """
-        if self.valid_batches is None:
-            self.valid_batches = self._generate_batches()
-            avg_seen = len(torch.cat(list(self.valid_batches)).unique()) / len(self.domain_ids)
-            logger.info(f"Fraction of cells seen this epoch: {avg_seen:.3f}")
+        self.valid_batches = self._generate_batches()
+            
+        # avg_seen = len(torch.cat(list(self.valid_batches)).unique()) / len(self.domain_ids)
+        # print(f"Fraction of cells seen this epoch: {avg_seen:.5f}")
         for batch in self.valid_batches:
             yield batch.tolist()
 
