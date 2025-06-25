@@ -90,12 +90,20 @@ def run_integration_methods_pipeline(
             except Exception as e:
                 logger.error(f"❌ UMAP for {output_key} failed: {e}")
 
-    # Concord default
-    if "concord" in methods:
-        profiled_run("concord", lambda: run_concord(
+    # Concord default (with KNN sampler)
+    if "concord_knn" in methods:
+        profiled_run("concord_knn", lambda: run_concord(
             adata, batch_key=batch_key,
-            output_key="concord", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord")
+            output_key="concord_knn", latent_dim=latent_dim,
+            return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord_knn")
+        
+    # Concord default (with hard negative samples)
+    if "concord_hcl" in methods:
+        profiled_run("concord_hcl", lambda: run_concord(
+            adata, batch_key=batch_key, 
+            clr_beta=1.0, p_intra_knn=0.0,
+            output_key="concord_hcl", latent_dim=latent_dim,
+            return_corrected=return_corrected, device=device, seed=seed, mode="default"), "concord_hcl")
 
     # Concord class
     if "concord_class" in methods:
@@ -116,7 +124,8 @@ def run_integration_methods_pipeline(
     # Contrastive naive
     if "contrastive" in methods:
         profiled_run("contrastive", lambda: run_concord(
-            adata, batch_key=None,
+            adata, batch_key=None, 
+            clr_beta= 0.0, p_intra_knn=0.0,
             output_key="contrastive", latent_dim=latent_dim,
             return_corrected=return_corrected, device=device, seed=seed, mode="naive"), "contrastive")
         
