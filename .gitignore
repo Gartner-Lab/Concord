@@ -8,3 +8,4 @@ jobs/
 dist/
 Concord.egg-info/
 __pycache__/
+/src/*.egg-info/
