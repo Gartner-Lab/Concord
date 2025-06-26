@@ -95,7 +95,8 @@ def run_integration_methods_pipeline(
         profiled_run("concord_knn", lambda: run_concord(
             adata, batch_key=batch_key,
             output_key="concord_knn", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, 
+            p_intra_knn=0.3, clr_beta=0.0,
+            return_corrected=return_corrected, device=device, seed=seed,
             verbose=verbose,
             mode="knn"), "concord_knn")
         

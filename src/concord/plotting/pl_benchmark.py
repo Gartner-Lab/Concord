@@ -86,7 +86,7 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
     import matplotlib as mpl
     import pandas as pd
 
-    df = sanitize_probe_df(df, sep="_")
+    df = sanitize_probe_df(df, sep=" ")
     df = add_metric_row(df)
     num_embeds = df.shape[0]
     plot_df = df.drop("Metric", axis=0)
