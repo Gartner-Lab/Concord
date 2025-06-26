@@ -18,7 +18,6 @@ def run_scanorama(adata, batch_key="batch", output_key="Scanorama", dimred=100, 
             adata.layers[output_key + "_corrected"][adata.obs[batch_key] == b] = corrected[i].X.toarray()
 
 
-
 def run_liger(adata, batch_key="batch", count_layer="counts", output_key="LIGER", k=30, return_corrected=False):
     import numpy as np
     import pyliger
