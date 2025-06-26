@@ -95,9 +95,10 @@ def run_integration_methods_pipeline(
         profiled_run("concord_knn", lambda: run_concord(
             adata, batch_key=batch_key,
             output_key="concord_knn", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, 
+            p_intra_knn=0.3, clr_beta=0.0,
+            return_corrected=return_corrected, device=device, seed=seed,
             verbose=verbose,
-            mode="default"), "concord_knn")
+            mode="knn"), "concord_knn")
         
     # Concord default (with hard negative samples)
     if "concord_hcl" in methods:
@@ -107,7 +108,7 @@ def run_integration_methods_pipeline(
             output_key="concord_hcl", latent_dim=latent_dim,
             return_corrected=return_corrected, device=device, seed=seed, 
             verbose=verbose,
-            mode="default"), "concord_hcl")
+            mode="hcl"), "concord_hcl")
 
     # Concord class
     if "concord_class" in methods:

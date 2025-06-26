@@ -133,27 +133,26 @@ def run_concord(
     batch_key="batch",
     class_key=None,
     output_key="Concord",
-    clr_beta=0.0,
-    p_intra_knn=0.3,
-    p_intra_domain=0.98,
+    clr_beta=1.0,
+    p_intra_knn=0.0,
+    p_intra_domain=1.0,
     latent_dim=30,
     return_corrected=False,
     seed=42,
     device="cpu",
     save_dir=None,
-    mode="default",  # Options: "default", "decoder", "class", "naive"
+    mode="knn",  # Options: "knn", "hcl", "decoder", "class", "naive"
     n_epochs=10,
     batch_size=64,
     verbose=False,
 ):
     from .. import Concord
-
     kwargs = {
         "adata": adata,
         "input_feature": None,
         "clr_beta": clr_beta,
         "p_intra_knn": p_intra_knn,
-        "p_intra_domain": p_intra_domain,
+        "p_intra_domain": p_intra_domain if mode != "hcl" else 1.0,
         "latent_dim": latent_dim,
         "batch_size": batch_size,
         "n_epochs": n_epochs,

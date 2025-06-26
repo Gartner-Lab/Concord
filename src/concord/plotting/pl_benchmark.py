@@ -1,5 +1,7 @@
 
 # Plot benchmarking results using plottable
+import pandas as pd
+from typing import Dict, Mapping, Optional
 
 def add_metric_row(df):
     """
@@ -84,7 +86,7 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
     import matplotlib as mpl
     import pandas as pd
 
-    df = df.copy()
+    df = sanitize_probe_df(df, sep=" ")
     df = add_metric_row(df)
     num_embeds = df.shape[0]
     plot_df = df.drop("Metric", axis=0)
@@ -197,3 +199,115 @@ def plot_benchmark_table(df, pal='PRGn', pal_agg='YlGnBu', cmap_method='norm', c
     if save_path:
         plt.savefig(save_path, bbox_inches="tight")
     plt.show()
+
+
+def plot_probe_results(
+    results: Dict[str, pd.DataFrame],
+    metrics_map: Mapping[str, str],
+    *,
+    sort_by: Optional[str] = None,   # None | "<task>" | "each"
+    ascending: bool = False,
+    figsize: tuple = (20, 4),
+    bar_kwargs: dict | None = None,
+    fontsize: int = 10
+):
+    """
+    Parameters
+    ----------
+    results      : dict(task -> DataFrame)  – probe outputs (index = embedding)
+    metrics_map  : dict(task -> column)     – which column to plot for each task
+    sort_by      :
+        None     – keep original order
+        "<task>" – sort ALL panels by that task's metric
+        "each"   – sort EVERY panel individually by its own metric
+    ascending    : sort direction (ignored if sort_by is None)
+    figsize      : overall figure size
+    bar_kwargs   : forwarded to `ax.bar` (e.g. color=..., edgecolor=...)
+    """
+
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    tasks = list(metrics_map.keys())
+    bar_kwargs = bar_kwargs or {}
+
+    # ------------------------------------------------------------------ #
+    #  Decide embedding order(s)
+    # ------------------------------------------------------------------ #
+    if sort_by is None:
+        # single fixed order from the first task
+        base_order = list(results[tasks[0]].index)
+        orders = {t: base_order for t in tasks}
+
+    elif sort_by == "each":
+        orders = {
+            t: results[t][metrics_map[t]]
+            .sort_values(ascending=ascending)
+            .index.tolist()
+            for t in tasks
+        }
+    else:  # sort by a specific task
+        if sort_by not in tasks:
+            raise ValueError(f"`sort_by` must be one of {tasks} or 'each'")
+        ref_metric = metrics_map[sort_by]
+        ref_order = (
+            results[sort_by][ref_metric]
+            .sort_values(ascending=ascending)
+            .index.tolist()
+        )
+        orders = {t: ref_order for t in tasks}
+
+    # ------------------------------------------------------------------ #
+    #  Plot
+    # ------------------------------------------------------------------ #
+    fig, axes = plt.subplots(1, len(tasks), figsize=figsize, sharey=False)
+
+    for ax, task in zip(axes, tasks):
+        metric = metrics_map[task]
+        order = orders[task]
+        vals = results[task][metric].reindex(order)
+
+        ax.bar(np.arange(len(vals)), vals.values, **bar_kwargs)
+        ax.set_xticks(range(len(vals)))
+        ax.set_xticklabels(vals.index, rotation=90, fontsize=fontsize)
+        ax.set_title(f"{task}\n({metric})")
+
+        # nice y-axis limits
+        if metric in {"accuracy", "balanced_accuracy", "r2"}:
+            ax.set_ylim(0, 1)
+        else:  # e.g. MAE
+            ax.set_ylim(0, vals.max() * 1.1)
+
+        ax.grid(axis="y", alpha=0.3)
+
+    fig.tight_layout()
+    return fig, axes
+
+
+
+def sanitize_probe_df(df: pd.DataFrame,
+                      *,
+                      sep: str = "_") -> pd.DataFrame:
+    if not isinstance(df.columns, pd.MultiIndex):
+        # Nothing to fix – single-level columns already Series-safe
+        return df.copy()
+
+    outer = df.columns.get_level_values(0)
+    inner = df.columns.get_level_values(1)
+
+    # Which inner names are reused across >1 outer label?
+    dup_mask = inner.duplicated(keep=False)
+
+    # Build a *new* inner level with probe prefixes only where needed
+    new_inner = [
+        f"{o}{sep}{i}" if dup else i       # renamed only when duplicated
+        for o, i, dup in zip(outer, inner, dup_mask)
+    ]
+
+    fixed = df.copy()
+    fixed.columns = pd.MultiIndex.from_arrays(
+        [outer, new_inner],
+        names=df.columns.names
+    )
+    return fixed
+

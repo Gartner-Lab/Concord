@@ -131,7 +131,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_temperature=0.5,
-            clr_beta=0.0,  # Beta for NT-Xent loss
+            clr_beta=1.0,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
@@ -147,8 +147,8 @@ class Concord:
             sampler_domain_minibatch_strategy='proportional', # Strategy for domain minibatch sampling
             domain_coverage = None,
             dist_metric='euclidean',
-            p_intra_knn=0.3,
-            p_intra_domain=0.98,
+            p_intra_knn=0.0,
+            p_intra_domain=1.0,
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
@@ -172,14 +172,22 @@ class Concord:
                            "but preprocessing flags (normalize_total or log1p) are set to True. "
                            "This may lead to unexpected results. Please ensure this is intended.")
 
-        if self.config.sampler_knn is None:
-            self.config.sampler_knn = self.adata.n_obs // 10 
-            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+        if self.config.p_intra_knn > 0:
+            ncells = self.adata.shape[0]
+            if ncells > 100000:
+                logger.warning(f"Dataset contains {ncells} cells, which is large. "
+                               "Using k-NN sampling may be computationally expensive and non-optimal. "
+                               "We recommend using the HCL mode by setting `clr_beta = 1.0 or 2.0`, and setting `p_intra_knn = 0.0` to disable k-NN sampling.")
+            if self.config.sampler_knn is None:
+                self.config.sampler_knn = min(1000, ncells // 10)
+                logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+            logger.info("KNN sampling mode is enabled.")
 
         if self.config.clr_beta > 0:
             logger.info(f"Using NT-Xent loss with beta={self.config.clr_beta}. This will apply hard-negative weighting to the contrastive loss.")
-            if self.config.p_intra_domain < 1.0:
-                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 1.0 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best results.")
+            if self.config.p_intra_domain < .95:
+                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 0.95 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best integration results.")
+            logger.info("HCL (Contrastive learning with hard negative samples) mode is enabled.")
 
         if self.config.clr_temperature <= 0 or self.config.clr_temperature > 1:
             raise ValueError("clr_temperature must be in the range (0, 1]. "
