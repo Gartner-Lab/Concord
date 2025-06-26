@@ -118,6 +118,8 @@ class LinearProbeEvaluator:
                 else "classification"
             )
 
+            print(f"Detected task: {self.task}")
+
         # ------------------ 2) drop NaN for regression --------------- #
         if self.task == "regression":
             nan_mask = ~np.isnan(y_tmp)
