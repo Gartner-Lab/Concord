@@ -900,6 +900,7 @@ def run_topology_benchmark(adata,
 
     with (save_dir / f"topology_diagrams_{file_suffix}.pkl").open("wb") as f:
         pickle.dump(diagrams, f)
+    logger.info(f"Saved persistent homology diagrams to {save_dir / f'topology_diagrams_{file_suffix}.pkl'}")
 
     topo_res = benchmark_topology(
         diagrams, expected_betti_numbers=expected_betti_numbers,
@@ -952,7 +953,7 @@ def run_geometry_benchmark(adata,
                            save_dir: Optional[Path] = None,
                            file_suffix: str = ""):
     bm_keys = [groundtruth_key, "wt_noise"] + list(embedding_keys)
-    geom_df, _ = benchmark_geometry(
+    geom_df, geom_full = benchmark_geometry(
         adata,
         keys=bm_keys,
         eval_metrics=geometry_metrics,
@@ -968,6 +969,13 @@ def run_geometry_benchmark(adata,
         save_dir=save_dir,
         file_suffix=file_suffix,
     )
+
+    # Save full results if save_dir is provided
+    if save_dir is not None:
+        geom_full_path = save_dir / f"geometry_results_{file_suffix}.pkl"
+        with geom_full_path.open("wb") as f:
+            pickle.dump(geom_full, f)
+        logger.info(f"Saved full geometry benchmark results to {geom_full_path}")
 
     # drop the ground-truth rows
     geom_df = geom_df.drop(index=[groundtruth_key, "wt_noise"])
