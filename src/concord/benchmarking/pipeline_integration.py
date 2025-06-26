@@ -1,34 +1,45 @@
+from __future__ import annotations
+import gc
+import logging
+from typing import Callable, Dict, Iterable, List, Optional
+import scanpy as sc
+import pandas as pd
 from .time_memory import Timer, MemoryProfiler
 
+
+# -----------------------------------------------------------------------------
+# Integration benchmarking pipeline (simplified wrap‑up)
+# -----------------------------------------------------------------------------
+
 def run_integration_methods_pipeline(
-    adata,
-    methods=None,
-    batch_key="batch",
-    count_layer="counts",
-    class_key="cell_type",
-    latent_dim=30,
-    device="cpu",
-    return_corrected=False,
-    transform_batch=None,
-    compute_umap=False,
-    umap_n_components=2,
-    umap_n_neighbors=30,
-    umap_min_dist=0.1,
-    seed=42,
-    verbose=True,
+    adata,  # AnnData
+    methods: Optional[Iterable[str]] = None,
+    *,
+    batch_key: str = "batch",
+    count_layer: str = "counts",
+    class_key: str = "cell_type",
+    latent_dim: int = 30,
+    device: str = "cpu",
+    return_corrected: bool = False,
+    transform_batch: Optional[List[str]] = None,
+    compute_umap: bool = False,
+    umap_n_components: int = 2,
+    umap_n_neighbors: int = 30,
+    umap_min_dist: float = 0.1,
+    seed: int = 42,
+    verbose: bool = True,
 ):
-    import logging
-    import scanpy as sc
-    from ..utils import run_concord, run_scanorama, run_liger, run_harmony, run_scvi, run_scanvi
+    """Run selected single‑cell integration methods and profile run‑time & memory."""
 
-
+    # ------------------------------------------------------------------ setup
     logger = logging.getLogger(__name__)
+    handler: Optional[logging.Handler]
     if verbose:
         logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler.setLevel(logging.INFO)
         if not logger.handlers:
-            handler = logging.StreamHandler()
-            handler.setFormatter(logging.Formatter('%(message)s'))
-            handler.setLevel(logging.INFO)
             logger.addHandler(handler)
     else:
         logger.setLevel(logging.ERROR)
@@ -36,11 +47,19 @@ def run_integration_methods_pipeline(
     if methods is None:
         methods = [
             "unintegrated",
-            "scanorama", "liger", "harmony",
-            "scvi", "scanvi",
-            "concord", "concord_class", "concord_decoder", "contrastive"
+            "scanorama",
+            "liger",
+            "harmony",
+            "scvi",
+            "scanvi",
+            "concord_knn",
+            "concord_hcl",
+            "concord_class",
+            "concord_decoder",
+            "contrastive",
         ]
 
+    # UMAP parameters (re‑used)
     umap_params = dict(
         n_components=umap_n_components,
         n_neighbors=umap_n_neighbors,
@@ -50,148 +69,245 @@ def run_integration_methods_pipeline(
     )
 
     profiler = MemoryProfiler(device=device)
-    time_log = {}
-    ram_log = {}
-    vram_log = {}
+    time_log: Dict[str, float | None] = {}
+    ram_log: Dict[str, float | None] = {}
+    vram_log: Dict[str, float | None] = {}
 
-    timer = Timer()
+    # ---------------------------------------------------------------- helpers
 
-    def profiled_run(method_name, func, output_key=None):
-        # Record RAM/VRAM before
-        ram_before = profiler.get_peak_ram()
+    def profiled_run(method_name: str, fn: Callable[[], None], output_key: Optional[str] = None):
+        """Run *fn* while recording ΔRAM and peak VRAM."""
+        gc.collect()
+        ram_before = profiler.get_ram_mb()
         profiler.reset_peak_vram()
-        vram_before = profiler.get_peak_vram()
 
         try:
-            with timer:
-                func()
-            time_log[method_name] = timer.interval
-            logger.info(f"{method_name} completed in {timer.interval:.2f} sec.")
-        except Exception as e:
-            logger.error(f"❌ {method_name} failed: {e}")
-            time_log[method_name] = None
-            ram_log[method_name] = None
-            vram_log[method_name] = None
+            with Timer() as t:
+                fn()
+        except Exception as exc:
+            logger.error("❌ %s failed: %s", method_name, exc)
+            time_log[method_name] = ram_log[method_name] = vram_log[method_name] = None
             return
 
-        # RAM/VRAM after
-        ram_after = profiler.get_peak_ram()
-        vram_after = profiler.get_peak_vram()
+        # success ────────────────────────────────────────────────────────────
+        time_log[method_name] = t.interval
+        gc.collect()
+        ram_after = profiler.get_ram_mb()
+        ram_log[method_name] = max(0.0, ram_after - ram_before)
+        vram_log[method_name] = profiler.get_peak_vram_mb()
 
-        ram_log[method_name] = max(0, ram_after - ram_before)
-        vram_log[method_name] = max(0, vram_after - vram_before)
+        logger.info("%s: %.2fs | %.2f MB RAM | %.2f MB VRAM", method_name, t.interval, ram_log[method_name], vram_log[method_name])
 
-        # Run UMAP separately, not part of the profiling
+        # optional UMAP
         if compute_umap and output_key is not None:
-            from ..utils.dim_reduction import run_umap
+            from ..utils.dim_reduction import run_umap  # local import avoids heavy deps if unused
             try:
-                logger.info(f"Running UMAP on {output_key}...")
+                logger.info("Running UMAP on %s …", output_key)
                 run_umap(adata, source_key=output_key, result_key=f"{output_key}_UMAP", **umap_params)
-            except Exception as e:
-                logger.error(f"❌ UMAP for {output_key} failed: {e}")
+            except Exception as exc:
+                logger.error("❌ UMAP for %s failed: %s", output_key, exc)
 
-    # Concord default (with KNN sampler)
+    # ---------------------------------------------------------------- method wrappers (local imports)
+    from ..utils import (
+        run_concord,
+        run_scanorama,
+        run_liger,
+        run_harmony,
+        run_scvi,
+        run_scanvi,
+    )
+
+    # ------------------------------ CONCORD variants ------------------------
     if "concord_knn" in methods:
-        profiled_run("concord_knn", lambda: run_concord(
-            adata, batch_key=batch_key,
-            output_key="concord_knn", latent_dim=latent_dim,
-            p_intra_knn=0.3, clr_beta=0.0,
-            return_corrected=return_corrected, device=device, seed=seed,
-            verbose=verbose,
-            mode="knn"), "concord_knn")
-        
-    # Concord default (with hard negative samples)
+        profiled_run(
+            "concord_knn",
+            lambda: run_concord(
+                adata,
+                batch_key=batch_key,
+                output_key="concord_knn",
+                latent_dim=latent_dim,
+                p_intra_knn=0.3,
+                clr_beta=0.0,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                mode="knn",
+            ),
+            "concord_knn",
+        )
+
     if "concord_hcl" in methods:
-        profiled_run("concord_hcl", lambda: run_concord(
-            adata, batch_key=batch_key, 
-            clr_beta=1.0, p_intra_knn=0.0,
-            output_key="concord_hcl", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, 
-            verbose=verbose,
-            mode="hcl"), "concord_hcl")
+        profiled_run(
+            "concord_hcl",
+            lambda: run_concord(
+                adata,
+                batch_key=batch_key,
+                clr_beta=1.0,
+                p_intra_knn=0.0,
+                output_key="concord_hcl",
+                latent_dim=latent_dim,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                mode="hcl",
+            ),
+            "concord_hcl",
+        )
 
-    # Concord class
     if "concord_class" in methods:
-        profiled_run("concord_class", lambda: run_concord(
-            adata, batch_key=batch_key,
-            class_key=class_key, output_key="concord_class",
-            latent_dim=latent_dim, return_corrected=return_corrected, device=device, seed=seed, 
-            verbose=verbose,
-            mode="class"), "concord_class")
+        profiled_run(
+            "concord_class",
+            lambda: run_concord(
+                adata,
+                batch_key=batch_key,
+                class_key=class_key,
+                output_key="concord_class",
+                latent_dim=latent_dim,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                mode="class",
+            ),
+            "concord_class",
+        )
 
-    # Concord decoder
     if "concord_decoder" in methods:
-        profiled_run("concord_decoder", lambda: run_concord(
-            adata, batch_key=batch_key,
-            class_key=class_key, output_key="concord_decoder",
-            latent_dim=latent_dim, return_corrected=return_corrected, device=device,
-            seed=seed, 
-            verbose=verbose,
-            mode="decoder"), "concord_decoder")
+        profiled_run(
+            "concord_decoder",
+            lambda: run_concord(
+                adata,
+                batch_key=batch_key,
+                class_key=class_key,
+                output_key="concord_decoder",
+                latent_dim=latent_dim,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                mode="decoder",
+            ),
+            "concord_decoder",
+        )
 
-    # Contrastive naive
     if "contrastive" in methods:
-        profiled_run("contrastive", lambda: run_concord(
-            adata, batch_key=None, 
-            clr_beta= 0.0, p_intra_knn=0.0,
-            output_key="contrastive", latent_dim=latent_dim,
-            return_corrected=return_corrected, device=device, seed=seed, 
-            verbose=verbose,
-            mode="naive"), "contrastive")
-        
-    # Unintegrated
+        profiled_run(
+            "contrastive",
+            lambda: run_concord(
+                adata,
+                batch_key=None,
+                clr_beta=0.0,
+                p_intra_knn=0.0,
+                output_key="contrastive",
+                latent_dim=latent_dim,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                mode="naive",
+            ),
+            "contrastive",
+        )
+
+    # ------------------------------ baseline methods ------------------------
     if "unintegrated" in methods:
         if "X_pca" not in adata.obsm:
-            logger.info("Running PCA to compute 'unintegrated' embedding...")
+            logger.info("Running PCA for 'unintegrated' embedding …")
             sc.tl.pca(adata, n_comps=latent_dim)
         adata.obsm["unintegrated"] = adata.obsm["X_pca"]
         if compute_umap:
             from ..utils.dim_reduction import run_umap
-            logger.info("Running UMAP on unintegrated...")
+            logger.info("Running UMAP on unintegrated …")
             run_umap(adata, source_key="unintegrated", result_key="unintegrated_UMAP", **umap_params)
 
-    # Scanorama
     if "scanorama" in methods:
-        profiled_run("scanorama", lambda: run_scanorama(
-            adata, batch_key=batch_key, output_key="scanorama",
-            dimred=latent_dim, return_corrected=return_corrected), "scanorama")
+        profiled_run(
+            "scanorama",
+            lambda: run_scanorama(
+                adata,
+                batch_key=batch_key,
+                output_key="scanorama",
+                dimred=latent_dim,
+                return_corrected=return_corrected,
+            ),
+            "scanorama",
+        )
 
-    # LIGER
     if "liger" in methods:
-        profiled_run("liger", lambda: run_liger(
-            adata, batch_key=batch_key, count_layer=count_layer,
-            output_key="liger", k=latent_dim, return_corrected=return_corrected), "liger")
+        profiled_run(
+            "liger",
+            lambda: run_liger(
+                adata,
+                batch_key=batch_key,
+                count_layer=count_layer,
+                output_key="liger",
+                k=latent_dim,
+                return_corrected=return_corrected,
+            ),
+            "liger",
+        )
 
-    # Harmony
     if "harmony" in methods:
         if "X_pca" not in adata.obsm:
-            logger.info("Running PCA for harmony...")
+            logger.info("Running PCA for harmony …")
             sc.tl.pca(adata, n_comps=latent_dim)
-        profiled_run("harmony", lambda: run_harmony(
-            adata, batch_key=batch_key, input_key="X_pca",
-            output_key="harmony", n_comps=latent_dim), "harmony")
+        profiled_run(
+            "harmony",
+            lambda: run_harmony(
+                adata,
+                batch_key=batch_key,
+                input_key="X_pca",
+                output_key="harmony",
+                n_comps=latent_dim,
+            ),
+            "harmony",
+        )
 
-    # scVI
+    # ------------------------------ scVI / scANVI ---------------------------
     scvi_model = None
-    def _store_scvi_model():
+
+    def _train_scvi():
         nonlocal scvi_model
         scvi_model = run_scvi(
-            adata, batch_key=batch_key,
-            output_key="scvi", n_latent=latent_dim,
-            return_corrected=return_corrected, transform_batch=transform_batch,
-            return_model=True)
+            adata,
+            batch_key=batch_key,
+            output_key="scvi",
+            n_latent=latent_dim,
+            return_corrected=return_corrected,
+            transform_batch=transform_batch,
+            return_model=True,
+        )
 
     if "scvi" in methods:
-        profiled_run("scvi", _store_scvi_model, "scvi")
+        profiled_run("scvi", _train_scvi, "scvi")
 
-    # scANVI
     if "scanvi" in methods:
-        profiled_run("scanvi", lambda: run_scanvi(
-            adata, scvi_model=scvi_model, batch_key=batch_key,
-            labels_key=class_key, output_key="scanvi",
-            return_corrected=return_corrected, transform_batch=transform_batch), "scanvi")
+        profiled_run(
+            "scanvi",
+            lambda: run_scanvi(
+                adata,
+                scvi_model=scvi_model,
+                batch_key=batch_key,
+                labels_key=class_key,
+                output_key="scanvi",
+                return_corrected=return_corrected,
+                transform_batch=transform_batch,
+            ),
+            "scanvi",
+        )
 
+    # ---------------------------------------------------------------- finish
+    logger.info("✅ All selected methods completed.")
 
-
-    logger.info("✅ Selected methods completed.")
-    return time_log, ram_log, vram_log
+    # assemble results table --------------------------------------------------
+    df = pd.concat(
+        {
+            "time_sec": pd.Series(time_log),
+            "ram_MB": pd.Series(ram_log),
+            "vram_MB": pd.Series(vram_log),
+        },
+        axis=1,
+    ).sort_index()
+    return df
