@@ -1,8 +1,18 @@
-
+from __future__ import annotations
 import pandas as pd
 import logging
 import numpy as np
 import logging
+from pathlib import Path
+from typing import Sequence, Mapping, Literal, Optional
+import numpy as np
+import pandas as pd
+import pickle
+
+from ..plotting import plot_benchmark_table
+from .tda import compute_persistent_homology
+
+
 logger = logging.getLogger(__name__)
 
 def count_total_runs(param_grid):
@@ -11,6 +21,7 @@ def count_total_runs(param_grid):
         if isinstance(values, list):
             total_runs += len(values)
     return total_runs
+
 
 def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_concord", return_decoded=False, trace_memory=False, trace_gpu_memory=False, save_dir="./"):
     import time
@@ -82,7 +93,7 @@ def run_hyperparameter_tests(adata, base_params, param_grid, output_key = "X_con
                 # Save the parameter settings
                 config_filename = Path(save_dir) / f"config_{file_suffix}.json"
                 with open(config_filename, 'w') as f:
-                    json.dump(ccd.config.to_dict(), f, indent=4)
+                    json.dump(cur_ccd.config.to_dict(), f, indent=4)
 
             time_minutes = timer.interval / 60
             logger.info(f"Took {time_minutes:.2f} minutes to encode adata with {param_name}={value}, result saved to adata.obsm['{output_key}'], config saved to {config_filename}.")
@@ -598,7 +609,7 @@ def simplify_geometry_benchmark_table(df):
 
 
 # Convert benchmark table to scores
-def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name1 = 'Aggregate score', aggregate_score_name2='', name_exact=False, rank=False, rank_col=None):
+def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name = ('Aggregate', 'Score'), name_exact=False, rank=False, rank_col=None):
     import pandas as pd
     from sklearn.preprocessing import MinMaxScaler
 
@@ -623,7 +634,7 @@ def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=Fals
     if aggregate_score:
         aggregate_df = pd.DataFrame(
             df.mean(axis=1),
-            columns=pd.MultiIndex.from_tuples([(aggregate_score_name1, aggregate_score_name2)]),
+            columns=pd.MultiIndex.from_tuples([aggregate_score_name]),
         )
         df = pd.concat([df, aggregate_df], axis=1)
 
@@ -674,6 +685,441 @@ def benchmark_nmi_ari(adata, emb_keys, label_key='cell_type', resolution_range =
 
     return nmi_df, ari_df
 
+
+
+def probe_dict_to_df(results: dict,
+                     label: str,
+                     metric_map: dict) -> pd.DataFrame:
+    """
+    Turn one probe’s nested-dict results into a DataFrame with a 2-level
+    MultiIndex on the columns.
+
+    Parameters
+    ----------
+    results     nested dict from your probe (linear, knn, …)
+    label       outer-level column label (e.g. "Linear", "KNN")
+    metric_map  dict mapping target_name ➜ metric_to_extract
+                e.g. {"time": "r2", "leiden_no_noise": "accuracy", "batch": "accuracy"}
+    """
+    import pandas as pd
+    cols = []
+    for target, metric in metric_map.items():
+        # grab the Series (a column from the per-target DataFrame)
+        s = results[target][metric].rename(
+            f"{target}_{metric}" 
+        )
+        cols.append(s)
+
+    df = pd.concat(cols, axis=1)
+    df.columns = pd.MultiIndex.from_product([[label], df.columns])
+    return df
+
+
+
+
+
+# ------------------------------------------------------------------ #
+#  Utility: keep Aggregate-score blocks at the end
+# ------------------------------------------------------------------ #
+def move_aggregate_last(df: pd.DataFrame,
+                        outer_name: str = "Aggregate score") -> pd.DataFrame:
+    outer = df.columns.get_level_values(0)
+    is_agg = outer == outer_name
+    new_cols = list(df.columns[~is_agg]) + list(df.columns[is_agg])
+    return df[new_cols]
+
+
+# ------------------------------------------------------------------ #
+#  1. SCIB benchmark
+# ------------------------------------------------------------------ #
+def run_scib_benchmark(adata,
+                       *,
+                       embedding_keys: Sequence[str],
+                       batch_key: str,
+                       state_key: str,
+                       n_jobs: int = 6,
+                       rank: bool = True,
+                       save_table: Optional[Path] = None,
+                       plot: bool = False,
+                       plot_kw: Optional[dict] = None):
+    from scib_metrics.benchmark import (
+        Benchmarker, BioConservation, BatchCorrection,
+    )
+
+    bm = Benchmarker(
+        adata,
+        batch_key=batch_key,
+        label_key=state_key,
+        embedding_obsm_keys=list(embedding_keys),
+        n_jobs=n_jobs,
+        bio_conservation_metrics=BioConservation(),
+        batch_correction_metrics=BatchCorrection(),
+    )
+    bm.benchmark()
+    scib_scores = bm.get_results(min_max_scale=False)
+
+    # ── convert "Metric Type" row ➜ inner level of a MultiIndex column
+    metric_type = scib_scores.loc["Metric Type"]
+    scib_scores = scib_scores.drop("Metric Type")
+    scib_scores.columns = pd.MultiIndex.from_tuples(
+        [(metric_type[col], col) for col in scib_scores.columns]
+    )
+
+    # ── score + ranking (keep raw metrics: min_max_scale=False, one_minus=False)
+    scib_scores = benchmark_stats_to_score(
+        scib_scores,
+        min_max_scale=False,
+        one_minus=False,
+        aggregate_score=False,
+        rank=rank,
+        rank_col=("Aggregate score", "Total"),
+        name_exact=False,
+    )
+
+    if plot:
+        plot_benchmark_table(
+            scib_scores,
+            agg_name="Aggregate score",
+            **(plot_kw or {})
+        )
+        if save_table:
+            plot_benchmark_table(
+                scib_scores,
+                save_path=save_table,
+                agg_name="Aggregate score",
+                **(plot_kw or {})
+            )
+
+    return scib_scores
+
+
+# ------------------------------------------------------------------ #
+#  2. Probe (linear + k-NN) benchmark
+# ------------------------------------------------------------------ #
+def run_probe_benchmark(adata,
+                        *,
+                        embedding_keys: Sequence[str],
+                        target_keys=("time", "leiden_no_noise", "batch"),
+                        ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
+                        metrics_map: Mapping[str, str] | None = None,
+                        rank: bool = True,
+                        save_table: Optional[Path] = None,
+                        plot: bool = False,
+                        plot_kw: Optional[dict] = None):
+    from concord.benchmarking import (
+        LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
+    )
+
+    metrics_map = metrics_map or {
+        "time": "r2",
+        "leiden_no_noise": "accuracy",
+        "batch": "accuracy",
+    }
+
+    # ── 2.1 run linear probe
+    linear_res = {}
+    for key in target_keys:
+        evaluator = LinearProbeEvaluator(
+            adata, embedding_keys, key,
+            task="auto", epochs=20, ignore_values=ignore_values,
+            device="cpu", return_preds=False
+        )
+        linear_res[key] = evaluator.run()
+
+    # ── 2.2 run k-NN probe
+    knn_res = {}
+    for key in target_keys:
+        knn_eval = KNNProbeEvaluator(
+            adata, embedding_keys, key, ignore_values=ignore_values, k=30
+        )
+        knn_res[key] = knn_eval.run()
+
+    # ── 2.3 collect into one DataFrame
+    linear_df = probe_dict_to_df(linear_res, "Linear", metrics_map)
+    knn_df    = probe_dict_to_df(knn_res,    "KNN",    metrics_map)
+    probe_df  = pd.concat([linear_df, knn_df], axis=1).sort_index(axis=1, level=0)
+
+    # invert batch accuracy (1 − acc) so *lower is worse*
+    for probe in ("Linear", "KNN"):
+        col = (probe, "batch_accuracy")
+        if col in probe_df.columns:
+            probe_df[col] = 1 - probe_df[col]
+
+    # ── 2.4 score + rank
+    probe_scores = benchmark_stats_to_score(
+        probe_df,
+        min_max_scale=False,
+        one_minus=False,
+        aggregate_score=True,
+        aggregate_score_name=("Probe", "Score"),
+        rank=rank,
+        rank_col=("Probe", "Score"),
+        name_exact=False,
+    )
+    probe_scores.index.name = "Method"
+
+    if plot:
+        plot_benchmark_table(
+            probe_scores,
+            agg_name="Probe",
+            **(plot_kw or {})
+        )
+        if save_table:
+            plot_benchmark_table(
+                probe_scores,
+                save_path=save_table,
+                agg_name="Probe",
+                **(plot_kw or {})
+            )
+
+    return probe_scores
+
+
+# ------------------------------------------------------------------ #
+#  3. Persistent-homology / topology benchmark
+# ------------------------------------------------------------------ #
+def run_topology_benchmark(adata,
+                           *,
+                           embedding_keys: Sequence[str],
+                           save_dir: Path,
+                           file_suffix: str,
+                           homology_dimensions=(0, 1, 2),
+                           expected_betti_numbers=(0, 0, 0),
+                           rank: bool = True,
+                           plot: bool = False,
+                           plot_kw: Optional[dict] = None):
+    diagrams = {}
+    for key in embedding_keys:
+        diagrams[key] = compute_persistent_homology(
+            adata, key=key, homology_dimensions=homology_dimensions
+        )
+
+    with (save_dir / f"topology_diagrams_{file_suffix}.pkl").open("wb") as f:
+        pickle.dump(diagrams, f)
+
+    topo_res = benchmark_topology(
+        diagrams, expected_betti_numbers=expected_betti_numbers,
+        save_dir=save_dir, file_suffix=file_suffix
+    )
+    topo_df = topo_res["combined_metrics"]
+
+    # cap very large distances
+    topo_df[("Betti number", "L1 distance")] = topo_df[
+        ("Betti number", "L1 distance")
+    ].clip(upper=5)
+
+    # score + rank
+    topo_scores = benchmark_stats_to_score(
+        topo_df,
+        min_max_scale=True,
+        one_minus=True,
+        aggregate_score=True,
+        aggregate_score_name=("Topology", "Score"),
+        rank=rank,
+        rank_col=("Topology", "Score"),
+    )
+
+    if plot:
+        plot_benchmark_table(
+            topo_scores,
+            agg_name="Topology",
+            **(plot_kw or {})
+        )
+
+    return topo_scores
+
+
+# ------------------------------------------------------------------ #
+#  4. Geometry benchmark
+# ------------------------------------------------------------------ #
+def run_geometry_benchmark(adata,
+                           *,
+                           embedding_keys: Sequence[str],
+                           groundtruth_key: str,
+                           state_key: str,
+                           batch_key: str,
+                           dist_metric: str = "cosine",
+                           corr_types=("pearsonr", "spearmanr", "kendalltau"),
+                           geometry_metrics=("cell_distance_corr", "trustworthiness",
+                                             "state_dispersion_corr", "state_batch_distance_ratio"),
+                           rank: bool = True,
+                           plot: bool = False,
+                           plot_kw: Optional[dict] = None,
+                           save_dir: Optional[Path] = None,
+                           file_suffix: str = ""):
+    bm_keys = [groundtruth_key, "wt_noise"] + list(embedding_keys)
+    geom_df, _ = benchmark_geometry(
+        adata,
+        keys=bm_keys,
+        eval_metrics=geometry_metrics,
+        dist_metric=dist_metric,
+        corr_types=corr_types,
+        groundtruth_key=groundtruth_key,
+        state_key=state_key,
+        batch_key=batch_key,
+        dispersion_metric="var",
+        return_type="full",
+        pseudotime_k=30,
+        truetime_key="time",
+        save_dir=save_dir,
+        file_suffix=file_suffix,
+    )
+
+    # drop the ground-truth rows
+    geom_df = geom_df.drop(index=[groundtruth_key, "wt_noise"])
+
+    # score + rank
+    geom_scores = benchmark_stats_to_score(
+        geom_df,
+        fillna=0,
+        min_max_scale=False,
+        one_minus=False,
+        aggregate_score=True,
+        aggregate_score_name=("Geometry", "Score"),
+        rank=rank,
+        rank_col=("Geometry", "Score"),
+    )
+
+    if plot:
+        plot_benchmark_table(
+            geom_scores,
+            agg_name="Geometry",
+            **(plot_kw or {})
+        )
+
+    return geom_scores
+
+
+# ------------------------------------------------------------------ #
+#  5. Master pipeline
+# ------------------------------------------------------------------ #
+def run_benchmark_pipeline(
+        adata,
+        *,
+        embedding_keys: Sequence[str],
+        state_key: str,
+        batch_key: str,
+        groundtruth_key: Optional[dict[str, str]] = None,
+        save_dir: Path = Path("benchmark_results"),
+        file_suffix: str = "",
+        run: Sequence[Literal["scib", "probe", "topology", "geometry"]] = (
+            "scib", "probe", "topology", "geometry"),
+        plot_individual: bool = True,
+        combine_plots: bool = True,
+        table_plot_kw: Optional[dict] = None,
+) -> dict[str, pd.DataFrame]:
+    """
+    Run selected benchmarking blocks and return a dict with their score tables
+    plus a combined table (key = "combined").
+
+    Parameters
+    ----------
+    run               : which blocks to execute
+    plot_individual   : show / save each block's table
+    combine_plots     : plot the final merged table
+    """
+    save_dir.mkdir(parents=True, exist_ok=True)
+    table_plot_kw = table_plot_kw or dict(
+        pal="PRGn", pal_agg="RdYlBu_r", cmap_method="minmax", dpi=300)
+
+    results: dict[str, pd.DataFrame] = {}
+
+    if "scib" in run:
+        results["scib"] = run_scib_benchmark(
+            adata,
+            embedding_keys=embedding_keys,
+            batch_key=batch_key,
+            state_key=state_key,
+            save_table=save_dir / f"scib_results_{file_suffix}.pdf",
+            plot=plot_individual,
+            plot_kw=table_plot_kw
+        )
+
+    if "probe" in run:
+        results["probe"] = run_probe_benchmark(
+            adata,
+            embedding_keys=embedding_keys,
+            target_keys=(state_key, batch_key),
+            ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
+            metrics_map={
+                state_key: "accuracy",
+                batch_key: "accuracy",
+            },
+            save_table=save_dir / f"probe_results_{file_suffix}.pdf",
+            plot=plot_individual,
+            plot_kw=table_plot_kw
+        )
+
+    if "topology" in run:
+        results["topology"] = run_topology_benchmark(
+            adata,
+            embedding_keys=embedding_keys,
+            save_dir=save_dir,
+            file_suffix=file_suffix,
+            plot=plot_individual,
+            plot_kw=table_plot_kw
+        )
+
+    if "geometry" in run:
+        if groundtruth_key is None or groundtruth_key not in adata.obsm:
+            logger.error(
+                "groundtruth_key must be provided when running geometry benchmark. skipping."
+            )
+        else:
+            results["geometry"] = run_geometry_benchmark(
+                    adata,
+                    embedding_keys=embedding_keys,
+                    groundtruth_key=groundtruth_key,
+                    state_key=state_key,
+                    batch_key=batch_key,
+                    save_dir=save_dir,
+                    file_suffix=file_suffix,
+                    plot=plot_individual,
+                    plot_kw=table_plot_kw
+                )
+
+    # ------------------------------------------------------------------
+    #  Combine selected results
+    # ------------------------------------------------------------------
+    to_concat = []
+    for block in ("geometry", "topology", "scib", "probe"):
+        if block in results:
+            df = results[block].copy()
+            if block == "geometry":
+                df[("Aggregate score", "Geometry")] = df[("Geometry", "Score")]
+                df.drop(columns=[("Geometry", "Score")], inplace=True)
+            elif block == "topology":
+                df[("Aggregate score", "Topology")] = df[("Topology", "Score")]
+                df.drop(columns=[("Topology", "Score")], inplace=True)
+            elif block == "probe":
+                df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
+                df.drop(columns=[("Probe", "Score")], inplace=True)
+            elif block == "scib":
+                df.drop(columns=[("Aggregate score", "Total")], inplace=True)
+            to_concat.append(df)
+
+    combined_df = pd.concat(to_concat, axis=1)
+    combined_df = move_aggregate_last(combined_df, "Aggregate score")
+
+    # Average aggregate
+    agg_cols = combined_df.columns[combined_df.columns.get_level_values(0)
+                                    == "Aggregate score"]
+    combined_df[("Aggregate score", "Average")] = combined_df[agg_cols].mean(axis=1)
+    combined_df = combined_df.sort_values(
+        by=("Aggregate score", "Average"), ascending=False)
+
+    results["combined"] = combined_df
+
+    if combine_plots:
+        plot_benchmark_table(
+            combined_df,
+            save_path=save_dir / f"combined_res_{file_suffix}.pdf",
+            agg_name="Aggregate score",
+            figsize=(max(8, 1.5 * len(combined_df.columns)), 7),
+            **table_plot_kw
+        )
+
+    return results
 
 
 
