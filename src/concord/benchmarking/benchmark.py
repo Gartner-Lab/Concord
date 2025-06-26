@@ -154,11 +154,8 @@ def compute_correlation(data_dict, corr_types=['pearsonr', 'spearmanr', 'kendall
     
     # Create DataFrame with correlation types as row indices and keys as columns
     corr_df = pd.DataFrame(corr_values, index=['pearsonr', 'spearmanr', 'kendalltau'])
-    
-    # Filter only for requested correlation types
-    corr_df = corr_df.loc[corr_types].T
 
-    return corr_df
+    return corr_df.T
 
 
 def compare_graph_connectivity(adata, emb1, emb2, k=30, use_faiss=False, use_ivf=False, ivf_nprobe=10, metric=['jaccard', 'frobenius', 'hamming'], dist_metric='euclidean'):
@@ -441,11 +438,10 @@ def benchmark_geometry(adata, keys,
         }
 
     
-
     # Global distance correlation
     if 'cell_distance_corr' in eval_metrics:
         logger.info("Computing cell distance correlation")
-        distance_result = pairwise_distance(adata, keys = keys, metric=dist_metric)            
+        distance_result = pairwise_distance(adata, keys = keys, metric=dist_metric)           
         corr_result = compute_correlation(distance_result, corr_types=corr_types, groundtruth_key=groundtruth_key)
         results_df['cell_distance_corr'] = corr_result
         results_df['cell_distance_corr'].columns = [f'{col}(cd)' for col in corr_result.columns]
@@ -524,6 +520,7 @@ def benchmark_geometry(adata, keys,
         # Set groundtruth to Nan
         if groundtruth_key in state_batch_distance_ratio_df.index:
             state_batch_distance_ratio_df.loc[groundtruth_key] = np.nan
+        
         results_df['state_batch_distance_ratio'] = state_batch_distance_ratio_df
         results_full['state_batch_distance_ratio'] = state_batch_distance_ratio_df
     
@@ -688,8 +685,7 @@ def benchmark_nmi_ari(adata, emb_keys, label_key='cell_type', resolution_range =
 
 
 def probe_dict_to_df(results: dict,
-                     label: str,
-                     metric_map: dict) -> pd.DataFrame:
+                     label: str) -> pd.DataFrame:
     """
     Turn one probe’s nested-dict results into a DataFrame with a 2-level
     MultiIndex on the columns.
@@ -703,10 +699,17 @@ def probe_dict_to_df(results: dict,
     """
     import pandas as pd
     cols = []
-    for target, metric in metric_map.items():
+    for target in results.keys():
         # grab the Series (a column from the per-target DataFrame)
+        if 'r2' in results[target].columns: 
+            metric = 'r2'
+        elif 'accuracy' in results[target].columns:
+            metric = 'accuracy'
+        else:
+            raise ValueError(f"Unknown metric in results for target {target}. Expected 'r2' or 'accuracy'.")
+    
         s = results[target][metric].rename(
-            f"{target}_{metric}" 
+            f"{target}\n{metric}" 
         )
         cols.append(s)
 
@@ -799,9 +802,9 @@ def run_scib_benchmark(adata,
 def run_probe_benchmark(adata,
                         *,
                         embedding_keys: Sequence[str],
-                        target_keys=("time", "leiden_no_noise", "batch"),
+                        state_key = "state",
+                        batch_key = "batch",
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
-                        metrics_map: Mapping[str, str] | None = None,
                         rank: bool = True,
                         save_table: Optional[Path] = None,
                         plot: bool = False,
@@ -810,40 +813,40 @@ def run_probe_benchmark(adata,
         LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
     )
 
-    metrics_map = metrics_map or {
-        "time": "r2",
-        "leiden_no_noise": "accuracy",
-        "batch": "accuracy",
-    }
-
     # ── 2.1 run linear probe
     linear_res = {}
-    for key in target_keys:
+    key_mapping = {
+        "state": state_key,
+        "batch": batch_key,
+    }
+    for key in key_mapping.keys():
+        logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
         evaluator = LinearProbeEvaluator(
-            adata, embedding_keys, key,
+            adata, embedding_keys, key_mapping[key],
             task="auto", epochs=20, ignore_values=ignore_values,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
+        # invert batch accuracy by 1-acc
+        if key == batch_key:
+            linear_res[key]["accuracy"] = 1 - linear_res[key]["accuracy"]
 
     # ── 2.2 run k-NN probe
     knn_res = {}
-    for key in target_keys:
+    for key in key_mapping.keys():
+        logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
-            adata, embedding_keys, key, ignore_values=ignore_values, k=30
+            adata, embedding_keys, key_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
+        # invert batch accuracy by 1-acc
+        if key == batch_key:
+            knn_res[key]["accuracy"] = 1 - knn_res[key]["accuracy"]
 
     # ── 2.3 collect into one DataFrame
-    linear_df = probe_dict_to_df(linear_res, "Linear", metrics_map)
-    knn_df    = probe_dict_to_df(knn_res,    "KNN",    metrics_map)
+    linear_df = probe_dict_to_df(linear_res, "Linear")
+    knn_df    = probe_dict_to_df(knn_res,    "KNN")
     probe_df  = pd.concat([linear_df, knn_df], axis=1).sort_index(axis=1, level=0)
-
-    # invert batch accuracy (1 − acc) so *lower is worse*
-    for probe in ("Linear", "KNN"):
-        col = (probe, "batch_accuracy")
-        if col in probe_df.columns:
-            probe_df[col] = 1 - probe_df[col]
 
     # ── 2.4 score + rank
     probe_scores = benchmark_stats_to_score(
@@ -890,6 +893,7 @@ def run_topology_benchmark(adata,
                            plot_kw: Optional[dict] = None):
     diagrams = {}
     for key in embedding_keys:
+        logger.info(f"Computing persistent homology for {key}")
         diagrams[key] = compute_persistent_homology(
             adata, key=key, homology_dimensions=homology_dimensions
         )
@@ -941,7 +945,7 @@ def run_geometry_benchmark(adata,
                            dist_metric: str = "cosine",
                            corr_types=("pearsonr", "spearmanr", "kendalltau"),
                            geometry_metrics=("cell_distance_corr", "trustworthiness",
-                                             "state_dispersion_corr", "state_batch_distance_ratio"),
+                                             "state_dispersion_corr"),
                            rank: bool = True,
                            plot: bool = False,
                            plot_kw: Optional[dict] = None,
@@ -1025,6 +1029,7 @@ def run_benchmark_pipeline(
     results: dict[str, pd.DataFrame] = {}
 
     if "scib" in run:
+        logger.info("Running SCIB benchmark")
         results["scib"] = run_scib_benchmark(
             adata,
             embedding_keys=embedding_keys,
@@ -1036,21 +1041,20 @@ def run_benchmark_pipeline(
         )
 
     if "probe" in run:
+        logger.info("Running Probe benchmark")
         results["probe"] = run_probe_benchmark(
             adata,
             embedding_keys=embedding_keys,
-            target_keys=(state_key, batch_key),
+            state_key=state_key,
+            batch_key=batch_key,
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
-            metrics_map={
-                state_key: "accuracy",
-                batch_key: "accuracy",
-            },
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,
             plot_kw=table_plot_kw
         )
 
     if "topology" in run:
+        logger.info("Running Topology benchmark")
         results["topology"] = run_topology_benchmark(
             adata,
             embedding_keys=embedding_keys,
@@ -1061,6 +1065,7 @@ def run_benchmark_pipeline(
         )
 
     if "geometry" in run:
+        logger.info("Running Geometry benchmark")
         if groundtruth_key is None or groundtruth_key not in adata.obsm:
             logger.error(
                 "groundtruth_key must be provided when running geometry benchmark. skipping."
