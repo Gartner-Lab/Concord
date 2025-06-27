@@ -4,15 +4,24 @@ import logging
 from typing import Callable, Dict, Iterable, List, Optional
 import scanpy as sc
 import pandas as pd
-from .time_memory import Timer, MemoryProfiler
 
+from .time_memory import MemoryProfiler, profiled_run           # ← generic profiler
+# local wrappers around the individual methods
+from ..utils import (
+    run_concord,
+    run_scanorama,
+    run_liger,
+    run_harmony,
+    run_scvi,
+    run_scanvi,
+)
 
 # -----------------------------------------------------------------------------
 # Integration benchmarking pipeline (simplified wrap‑up)
 # -----------------------------------------------------------------------------
 
 def run_integration_methods_pipeline(
-    adata,  # AnnData
+    adata,                                   # AnnData
     methods: Optional[Iterable[str]] = None,
     *,
     batch_key: str = "batch",
@@ -28,21 +37,24 @@ def run_integration_methods_pipeline(
     umap_min_dist: float = 0.1,
     seed: int = 42,
     verbose: bool = True,
-):
+    # NEW: user-supplied Concord kwargs
+    concord_kwargs: Optional[Dict[str, Any]] = None,
+) -> pd.DataFrame:
+    
     """Run selected single‑cell integration methods and profile run‑time & memory."""
 
     # ------------------------------------------------------------------ setup
     logger = logging.getLogger(__name__)
-    handler: Optional[logging.Handler]
     if verbose:
         logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        handler.setLevel(logging.INFO)
         if not logger.handlers:
-            logger.addHandler(handler)
+            _h = logging.StreamHandler()
+            _h.setFormatter(logging.Formatter("%(message)s"))
+            _h.setLevel(logging.INFO)
+            logger.addHandler(_h)
     else:
         logger.setLevel(logging.ERROR)
+
 
     if methods is None:
         methods = [
@@ -73,91 +85,70 @@ def run_integration_methods_pipeline(
     ram_log: Dict[str, float | None] = {}
     vram_log: Dict[str, float | None] = {}
 
-    # ---------------------------------------------------------------- helpers
+    # helper to run + fill logs ------------------------------------------------
+    def _run_and_log(
+        method_name: str,
+        fn,                      # () -> None
+        *,
+        output_key: str | None = None,
+    ):
+        t, dr, pv = profiled_run(
+            method_name,
+            fn,
+            profiler=profiler,
+            logger=logger,
+            compute_umap=compute_umap,
+            adata=adata,
+            output_key=output_key,
+            umap_params=umap_params,
+        )
+        time_log[method_name] = t
+        ram_log[method_name] = dr
+        vram_log[method_name] = pv
 
-    def profiled_run(method_name: str, fn: Callable[[], None], output_key: Optional[str] = None):
-        """Run *fn* while recording ΔRAM and peak VRAM."""
-        gc.collect()
-        ram_before = profiler.get_ram_mb()
-        profiler.reset_peak_vram()
-
-        try:
-            with Timer() as t:
-                fn()
-        except Exception as exc:
-            logger.error("❌ %s failed: %s", method_name, exc)
-            time_log[method_name] = ram_log[method_name] = vram_log[method_name] = None
-            return
-
-        # success ────────────────────────────────────────────────────────────
-        time_log[method_name] = t.interval
-        gc.collect()
-        ram_after = profiler.get_ram_mb()
-        ram_log[method_name] = max(0.0, ram_after - ram_before)
-        vram_log[method_name] = profiler.get_peak_vram_mb()
-
-        logger.info("%s: %.2fs | %.2f MB RAM | %.2f MB VRAM", method_name, t.interval, ram_log[method_name], vram_log[method_name])
-
-        # optional UMAP
-        if compute_umap and output_key is not None:
-            from ..utils.dim_reduction import run_umap  # local import avoids heavy deps if unused
-            try:
-                logger.info("Running UMAP on %s …", output_key)
-                run_umap(adata, source_key=output_key, result_key=f"{output_key}_UMAP", **umap_params)
-            except Exception as exc:
-                logger.error("❌ UMAP for %s failed: %s", output_key, exc)
-
-    # ---------------------------------------------------------------- method wrappers (local imports)
-    from ..utils import (
-        run_concord,
-        run_scanorama,
-        run_liger,
-        run_harmony,
-        run_scvi,
-        run_scanvi,
-    )
+    ckws = concord_kwargs or {}    # shorthand (empty dict if None)
 
     # ------------------------------ CONCORD variants ------------------------
     if "concord_knn" in methods:
-        profiled_run(
+        _run_and_log(
             "concord_knn",
             lambda: run_concord(
                 adata,
                 batch_key=batch_key,
                 output_key="concord_knn",
                 latent_dim=latent_dim,
-                p_intra_knn=0.3,
+                p_intra_knn=0.3,               # variant-specific default
                 clr_beta=0.0,
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                mode="knn",
+                **ckws,                        # user overrides
             ),
-            "concord_knn",
+            output_key="concord_knn",
         )
 
     if "concord_hcl" in methods:
-        profiled_run(
+        _run_and_log(
             "concord_hcl",
             lambda: run_concord(
                 adata,
                 batch_key=batch_key,
-                clr_beta=1.0,
-                p_intra_knn=0.0,
                 output_key="concord_hcl",
                 latent_dim=latent_dim,
+                p_intra_knn=0.0,
+                clr_beta=1.0,
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                mode="hcl",
+                **ckws,
             ),
-            "concord_hcl",
+            output_key="concord_hcl",
         )
 
     if "concord_class" in methods:
-        profiled_run(
+        _run_and_log(
             "concord_class",
             lambda: run_concord(
                 adata,
@@ -165,17 +156,18 @@ def run_integration_methods_pipeline(
                 class_key=class_key,
                 output_key="concord_class",
                 latent_dim=latent_dim,
+                mode="class",
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                mode="class",
+                **ckws,
             ),
-            "concord_class",
+            output_key="concord_class",
         )
 
     if "concord_decoder" in methods:
-        profiled_run(
+        _run_and_log(
             "concord_decoder",
             lambda: run_concord(
                 adata,
@@ -183,32 +175,34 @@ def run_integration_methods_pipeline(
                 class_key=class_key,
                 output_key="concord_decoder",
                 latent_dim=latent_dim,
+                mode="decoder",
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                mode="decoder",
+                **ckws,
             ),
-            "concord_decoder",
+            output_key="concord_decoder",
         )
 
     if "contrastive" in methods:
-        profiled_run(
+        _run_and_log(
             "contrastive",
             lambda: run_concord(
                 adata,
-                batch_key=None,
-                clr_beta=0.0,
-                p_intra_knn=0.0,
+                batch_key=None,                # “naive” – ignore batch/domain
                 output_key="contrastive",
                 latent_dim=latent_dim,
+                p_intra_knn=0.0,
+                clr_beta=0.0,
+                mode="naive",
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                mode="naive",
+                **ckws,
             ),
-            "contrastive",
+            output_key="contrastive",
         )
 
     # ------------------------------ baseline methods ------------------------
@@ -220,10 +214,15 @@ def run_integration_methods_pipeline(
         if compute_umap:
             from ..utils.dim_reduction import run_umap
             logger.info("Running UMAP on unintegrated …")
-            run_umap(adata, source_key="unintegrated", result_key="unintegrated_UMAP", **umap_params)
+            run_umap(
+                adata,
+                source_key="unintegrated",
+                result_key="unintegrated_UMAP",
+                **umap_params,
+            )
 
     if "scanorama" in methods:
-        profiled_run(
+        _run_and_log(
             "scanorama",
             lambda: run_scanorama(
                 adata,
@@ -232,11 +231,11 @@ def run_integration_methods_pipeline(
                 dimred=latent_dim,
                 return_corrected=return_corrected,
             ),
-            "scanorama",
+            output_key="scanorama",
         )
 
     if "liger" in methods:
-        profiled_run(
+        _run_and_log(
             "liger",
             lambda: run_liger(
                 adata,
@@ -246,14 +245,14 @@ def run_integration_methods_pipeline(
                 k=latent_dim,
                 return_corrected=return_corrected,
             ),
-            "liger",
+            output_key="liger",
         )
 
     if "harmony" in methods:
         if "X_pca" not in adata.obsm:
             logger.info("Running PCA for harmony …")
             sc.tl.pca(adata, n_comps=latent_dim)
-        profiled_run(
+        _run_and_log(
             "harmony",
             lambda: run_harmony(
                 adata,
@@ -262,7 +261,7 @@ def run_integration_methods_pipeline(
                 output_key="harmony",
                 n_comps=latent_dim,
             ),
-            "harmony",
+            output_key="harmony",
         )
 
     # ------------------------------ scVI / scANVI ---------------------------
@@ -281,10 +280,10 @@ def run_integration_methods_pipeline(
         )
 
     if "scvi" in methods:
-        profiled_run("scvi", _train_scvi, "scvi")
+        _run_and_log("scvi", _train_scvi, output_key="scvi")
 
     if "scanvi" in methods:
-        profiled_run(
+        _run_and_log(
             "scanvi",
             lambda: run_scanvi(
                 adata,
@@ -295,7 +294,7 @@ def run_integration_methods_pipeline(
                 return_corrected=return_corrected,
                 transform_batch=transform_batch,
             ),
-            "scanvi",
+            output_key="scanvi",
         )
 
     # ---------------------------------------------------------------- finish
