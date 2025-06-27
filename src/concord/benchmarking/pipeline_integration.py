@@ -1,5 +1,4 @@
 from __future__ import annotations
-import gc
 import logging
 from typing import Callable, Dict, Iterable, List, Optional
 import scanpy as sc
