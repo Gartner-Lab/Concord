@@ -1,5 +1,6 @@
 
 
+from __future__ import annotations
 
 def get_attribute_from_dataloader(dataloader, batch_indices=None, data_structure=None, attribute='class'):
     """
