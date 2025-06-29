@@ -133,8 +133,8 @@ def run_integration_methods_pipeline(
         ram_log[method_name] = dr
         vram_log[method_name] = pv
 
-    ckws = concord_kwargs or {}    # shorthand (empty dict if None)
-    out_key = ckws.get("output_key")
+    ckws = (concord_kwargs or {}).copy()
+    out_key = ckws.pop("output_key", None)
 
     # ------------------------------ CONCORD variants ------------------------
     if "concord_knn" in methods:
