@@ -34,9 +34,6 @@ def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> L
             kw                    = copy.deepcopy(base)
             kw[param]             = v
             tag                   = f"{param}-{v}"
-            # short hash avoids absurdly long folder names
-            tag_hash              = hashlib.sha1(tag.encode()).hexdigest()[:6]
-            kw["tag"]             = tag_hash
             kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
             jobs.append(kw)
     return jobs
