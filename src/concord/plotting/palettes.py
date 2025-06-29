@@ -62,7 +62,7 @@ def get_factor_color(labels, pal='Set1', permute=True, seed=42):
         unique_labels_non_nan = unique_labels
 
     num_colors = len(unique_labels_non_nan)
-    light_grey = '#d3d3d3'  # Define light grey color
+    light_grey = '#bfbfbf'  # Define light grey color
 
     # Generate colors for non-NaN labels, excluding light grey
     if pal in NUMERIC_PALETTES:
@@ -104,6 +104,7 @@ def get_factor_color(labels, pal='Set1', permute=True, seed=42):
     # Assign light grey to 'NaN' label
     if has_nan:
         color_map['NaN'] = light_grey
+        color_map['nan'] = light_grey  # Ensure 'nan' is also mapped to light grey
 
     return color_map
 

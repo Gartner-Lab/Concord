@@ -19,6 +19,34 @@ from ..utils import (
 # Integration benchmarking pipeline (simplified wrap‑up)
 # -----------------------------------------------------------------------------
 
+
+
+def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> List[dict]:
+    """
+    Return a list of concord_kwargs dicts.
+    Each dict == base plus ONE (key, value) from grid,
+    and includes a unique 'tag' + 'output_key'.
+    """
+    import copy, hashlib
+    jobs = []
+    for param, values in grid.items():
+        for v in values:
+            kw                    = copy.deepcopy(base)
+            kw[param]             = v
+            tag                   = f"{param}-{v}"
+            # short hash avoids absurdly long folder names
+            tag_hash              = hashlib.sha1(tag.encode()).hexdigest()[:6]
+            kw["tag"]             = tag_hash
+            kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
+            jobs.append(kw)
+    return jobs
+
+
+def _merge(defaults: dict, user: dict) -> dict:
+    out = defaults.copy()
+    out.update(user or {})        # user takes precedence
+    return out
+
 def run_integration_methods_pipeline(
     adata,                                   # AnnData
     methods: Optional[Iterable[str]] = None,
@@ -106,44 +134,47 @@ def run_integration_methods_pipeline(
         vram_log[method_name] = pv
 
     ckws = concord_kwargs or {}    # shorthand (empty dict if None)
+    out_key = ckws.get("output_key")
 
     # ------------------------------ CONCORD variants ------------------------
     if "concord_knn" in methods:
+        key = out_key or "concord_knn"
         _run_and_log(
             "concord_knn",
             lambda: run_concord(
                 adata,
                 batch_key=batch_key,
-                output_key="concord_knn",
-                latent_dim=latent_dim,
-                p_intra_knn=0.3,               # variant-specific default
-                clr_beta=0.0,
+                output_key=key,
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                **ckws,                        # user overrides
+                **_merge(
+                 dict(latent_dim=latent_dim, p_intra_knn=0.3, clr_beta=0.0),
+                 ckws
+                ),
             ),
-            output_key="concord_knn",
+            output_key=key,
         )
 
     if "concord_hcl" in methods:
+        key = out_key or "concord_hcl"
         _run_and_log(
             "concord_hcl",
             lambda: run_concord(
                 adata,
                 batch_key=batch_key,
-                output_key="concord_hcl",
-                latent_dim=latent_dim,
-                p_intra_knn=0.0,
-                clr_beta=1.0,
+                output_key=key,
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                **ckws,
+                **_merge(
+                 dict(latent_dim=latent_dim, p_intra_knn=0.0, clr_beta=1.0),
+                 ckws
+                ),
             ),
-            output_key="concord_hcl",
+            output_key=key,
         )
 
     if "concord_class" in methods:
