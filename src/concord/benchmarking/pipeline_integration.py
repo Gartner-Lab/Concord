@@ -6,7 +6,7 @@ import pandas as pd
 
 from .time_memory import MemoryProfiler, profiled_run           # ← generic profiler
 # local wrappers around the individual methods
-from ..utils import (
+from .integration_methods import (
     run_concord,
     run_scanorama,
     run_liger,
