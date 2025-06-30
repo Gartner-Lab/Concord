@@ -730,7 +730,7 @@ def run_probe_benchmark(adata,
         linear_res[key] = evaluator.run()
         # invert batch accuracy by 1-acc
         if key == batch_key:
-            linear_res[key]["accuracy"] = 1 - linear_res[key]["accuracy"]
+            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
 
     # ── 2.2 run k-NN probe
     knn_res = {}
@@ -742,7 +742,7 @@ def run_probe_benchmark(adata,
         knn_res[key] = knn_eval.run()
         # invert batch accuracy by 1-acc
         if key == batch_key:
-            knn_res[key]["accuracy"] = 1 - knn_res[key]["accuracy"]
+            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
