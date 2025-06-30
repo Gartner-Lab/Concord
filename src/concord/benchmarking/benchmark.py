@@ -718,14 +718,10 @@ def run_probe_benchmark(adata,
 
     # ── 2.1 run linear probe
     linear_res = {}
-    key_mapping = {
-        "state": state_key,
-        "batch": batch_key,
-    }
-    for key in key_mapping.keys():
+    for key in [state_key, batch_key]:
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
         evaluator = LinearProbeEvaluator(
-            adata, embedding_keys, key_mapping[key],
+            adata, embedding_keys, key,
             task="auto", epochs=20, ignore_values=ignore_values,
             device="cpu", return_preds=False
         )
@@ -737,10 +733,10 @@ def run_probe_benchmark(adata,
 
     # ── 2.2 run k-NN probe
     knn_res = {}
-    for key in key_mapping.keys():
+    for key in [state_key, batch_key]:
         logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
-            adata, embedding_keys, key_mapping[key], ignore_values=ignore_values, k=30
+            adata, embedding_keys, key, ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
         # invert batch accuracy by 1-acc
