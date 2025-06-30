@@ -606,6 +606,8 @@ def probe_dict_to_df(results: dict,
             metric = 'r2'
         elif 'accuracy' in results[target].columns:
             metric = 'accuracy'
+        elif 'error' in results[target].columns:
+            metric = 'error'
         else:
             raise ValueError(f"Unknown metric in results for target {target}. Expected 'r2' or 'accuracy'.")
     
@@ -716,33 +718,31 @@ def run_probe_benchmark(adata,
 
     # ── 2.1 run linear probe
     linear_res = {}
-    key_mapping = {
-        "state": state_key,
-        "batch": batch_key,
-    }
-    for key in key_mapping.keys():
+    for key in [state_key, batch_key]:
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
         evaluator = LinearProbeEvaluator(
-            adata, embedding_keys, key_mapping[key],
+            adata, embedding_keys, key,
             task="auto", epochs=20, ignore_values=ignore_values,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
         # invert batch accuracy by 1-acc
         if key == batch_key:
-            linear_res[key]["accuracy"] = 1 - linear_res[key]["accuracy"]
+            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
+            linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
-    for key in key_mapping.keys():
+    for key in [state_key, batch_key]:
         logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
-            adata, embedding_keys, key_mapping[key], ignore_values=ignore_values, k=30
+            adata, embedding_keys, key, ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
         # invert batch accuracy by 1-acc
         if key == batch_key:
-            knn_res[key]["accuracy"] = 1 - knn_res[key]["accuracy"]
+            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
+            knn_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
