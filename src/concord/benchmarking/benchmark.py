@@ -717,30 +717,34 @@ def run_probe_benchmark(adata,
     )
 
     # ── 2.1 run linear probe
+    key_name_mapping = {
+        "state": state_key,
+        "batch": batch_key,
+    }
     linear_res = {}
-    for key in [state_key, batch_key]:
+    for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
         evaluator = LinearProbeEvaluator(
-            adata, embedding_keys, key,
+            adata, embedding_keys, key_name_mapping[key],
             task="auto", epochs=20, ignore_values=ignore_values,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
         # invert batch accuracy by 1-acc
-        if key == batch_key:
+        if key == 'batch':
             linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
             linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
-    for key in [state_key, batch_key]:
+    for key in key_name_mapping.keys():
         logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
-            adata, embedding_keys, key, ignore_values=ignore_values, k=30
+            adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
         # invert batch accuracy by 1-acc
-        if key == batch_key:
+        if key == 'batch':
             knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
             knn_res[key].drop(columns=["accuracy"], inplace=True)
 
