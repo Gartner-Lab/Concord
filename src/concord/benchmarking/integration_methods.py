@@ -41,15 +41,21 @@ def run_liger(adata, batch_key="batch", count_layer="counts", output_key="LIGER"
     # Create a list of adata objects, one per batch
     adata_list = [bdata[bdata.obs[batch_key] == b].copy() for b in batch_cats]
     for i, ad in enumerate(adata_list):
+        if ad.obs.index.name is None:
+            ad.obs.index.name = "cell"
+        if ad.var.index.name is None:
+            ad.var.index.name = "gene"
+
         ad.uns["sample_name"] = batch_cats[i]
         ad.uns["var_gene_idx"] = np.arange(bdata.n_vars)  # Ensures same genes are used in each adata
 
     # Create a LIGER object from the list of adata per batch
-    liger_data = pyliger.create_liger(adata_list, remove_missing=False, make_sparse=False)
+    liger_data = pyliger.create_liger(adata_list)
     liger_data.var_genes = bdata.var_names  # Set genes for LIGER data consistency
 
     # Run LIGER integration steps
     pyliger.normalize(liger_data)
+    pyliger.select_genes(liger_data)
     pyliger.scale_not_center(liger_data)
     pyliger.optimize_ALS(liger_data, k=k)
     pyliger.quantile_norm(liger_data)
