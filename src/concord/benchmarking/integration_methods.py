@@ -157,6 +157,7 @@ def run_concord(
     p_intra_domain: float | None = None,
     sampler_knn: Any = None,
     input_feature: str | None = None,
+    lr: float | None = None,
     # ------------------------------------------------- NEW: free-form extras
     concord_kwargs: Optional[Dict[str, Any]] = None,
 ):
@@ -197,6 +198,7 @@ def run_concord(
         "p_intra_domain":        p_intra_domain,
         "sampler_knn":           sampler_knn,
         "input_feature":         input_feature,
+        "lr":                    lr,
     }
     kwargs.update({k: v for k, v in optional_params.items() if v is not None})
 
