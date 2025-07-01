@@ -134,6 +134,26 @@ def run_integration_methods_pipeline(
     out_key = ckws.pop("output_key", None)
 
     # ------------------------------ CONCORD variants ------------------------
+    if "concord" in methods:
+        key = out_key or "concord"
+        _run_and_log(
+            "concord",
+            lambda: run_concord(
+                adata,
+                batch_key=batch_key,
+                output_key=key,
+                return_corrected=return_corrected,
+                device=device,
+                seed=seed,
+                verbose=verbose,
+                **_merge(
+                    dict(latent_dim=latent_dim), 
+                    ckws
+                ),
+            ),
+            output_key=key,
+        )
+        
     if "concord_knn" in methods:
         key = out_key or "concord_knn"
         _run_and_log(
