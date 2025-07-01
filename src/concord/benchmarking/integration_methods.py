@@ -55,7 +55,7 @@ def run_liger(adata, batch_key="batch", count_layer="counts", output_key="LIGER"
 
     # Run LIGER integration steps
     pyliger.normalize(liger_data)
-    pyliger.select_genes(liger_data)
+    # pyliger.select_genes(liger_data)
     pyliger.scale_not_center(liger_data)
     pyliger.optimize_ALS(liger_data, k=k)
     pyliger.quantile_norm(liger_data)
