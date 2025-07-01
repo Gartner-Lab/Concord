@@ -14,4 +14,3 @@ from .coverage_estimator import *
 from .feature_selector import *
 from .estimate_dropout_rate import *
 from .visCello import *
-from .integration_methods import *

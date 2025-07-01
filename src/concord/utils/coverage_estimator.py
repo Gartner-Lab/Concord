@@ -1,8 +1,6 @@
+from __future__ import annotations
 import numpy as np
-from .. import logger
-
 import pandas as pd
-import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
