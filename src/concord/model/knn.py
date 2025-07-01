@@ -5,7 +5,10 @@ from sklearn.neighbors import NearestNeighbors
 import logging
 import math
 import torch
-logger = logging.getLogger(__name__)
+import logging
+
+PKG_ROOT = __package__.split(".")[0]          # → "concord"
+logger   = logging.getLogger(f"{PKG_ROOT}")
 
 
 class Neighborhood:
