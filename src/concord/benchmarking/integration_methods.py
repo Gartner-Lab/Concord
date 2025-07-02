@@ -50,7 +50,7 @@ def run_liger(adata, batch_key="batch", count_layer="counts", output_key="LIGER"
         ad.uns["var_gene_idx"] = np.arange(bdata.n_vars)  # Ensures same genes are used in each adata
 
     # Create a LIGER object from the list of adata per batch
-    liger_data = pyliger.create_liger(adata_list)
+    liger_data = pyliger.create_liger(adata_list, remove_missing=False, make_sparse=False)
     liger_data.var_genes = bdata.var_names  # Set genes for LIGER data consistency
 
     # Run LIGER integration steps
