@@ -6,7 +6,7 @@ from ..utils.anndata_utils import get_adata_basis
 from torch.utils.data import DataLoader
 import numpy as np
 import scanpy as sc
-import pandas as pd
+import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,8 @@ class DataLoaderManager:
                  use_faiss=True, 
                  use_ivf=False,
                  ivf_nprobe=8,
+                 load_into_memory=False,
+                 num_workers=None,
                  device=None):
         """
         Initializes the DataLoaderManager.
@@ -104,8 +106,18 @@ class DataLoaderManager:
         self.use_faiss = use_faiss
         self.use_ivf = use_ivf
         self.ivf_nprobe = ivf_nprobe
-        self.device = device
         self.dist_metric = dist_metric
+        
+        self.load_into_memory = load_into_memory
+        if num_workers is None:
+            # Use 1 worker for in-memory, otherwise use available cores
+            self.num_workers = 1 if load_into_memory else min(4, os.cpu_count())
+        else:
+            # Allow user to override
+            self.num_workers = num_workers
+        logger.info(f"Using {self.num_workers} DataLoader workers.")
+        self.device = device
+
 
         # Dynamically set based on adata
         self.adata = None
@@ -188,9 +200,15 @@ class DataLoaderManager:
         dataset = AnnDataset(self.adata, 
                              domain_key=self.domain_key, 
                              class_key=self.class_key, 
-                             covariate_keys=self.covariate_keys)
-        
-        my_collate_fn = AnnDataCollator(dataset)
+                             covariate_keys=self.covariate_keys,
+                             load_into_memory=self.load_into_memory)
+
+        if self.load_into_memory:
+            my_collate_fn = None
+            logger.info("Loading all data into memory for fast access. This may consume a lot of RAM. If you run out of memory, please set `load_data_into_memory=False`.")
+        else:
+            my_collate_fn = AnnDataCollator(dataset)
+            logger.info("Using AnnData collator for batching. This is more memory efficient but may slightly reduce speed. Set `load_data_into_memory=True` to load all data into memory for faster access.")
 
         if self.use_sampler:
             if self.train_frac == 1.0:
@@ -199,8 +217,8 @@ class DataLoaderManager:
 
                 self.train_sampler = self.build_sampler(ConcordSampler, neighborhood=self.neighborhood)
                 train_dataloader = DataLoader(dataset, batch_sampler=self.train_sampler, 
-                                              num_workers=4,  
-                                              collate_fn=my_collate_fn, 
+                                              num_workers=self.num_workers,
+                                              collate_fn=my_collate_fn,
                                               pin_memory=True)
                 val_dataloader = None
             else:
@@ -215,17 +233,17 @@ class DataLoaderManager:
                 self.train_sampler = self.build_sampler(ConcordSampler, indices=train_indices, neighborhood=None)
                 self.val_sampler = self.build_sampler(ConcordSampler, indices=val_indices, neighborhood=None)
                 train_dataloader = DataLoader(train_dataset, batch_sampler=self.train_sampler, 
-                                              num_workers=4,  
-                                              collate_fn=my_collate_fn, 
+                                              num_workers=self.num_workers,
+                                              collate_fn=my_collate_fn,
                                               pin_memory=True)
                 val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler, 
-                                             num_workers=4,  
-                                             collate_fn=my_collate_fn, 
+                                            num_workers=self.num_workers,
+                                             collate_fn=my_collate_fn,
                                              pin_memory=True)
         else: 
             train_dataloader = DataLoader(dataset, batch_size=self.batch_size, 
-                                           num_workers=4,  
-                                           collate_fn=my_collate_fn, 
+                                          num_workers=self.num_workers,  
+                                           collate_fn=my_collate_fn,
                                            pin_memory=True)
             val_dataloader = None
 

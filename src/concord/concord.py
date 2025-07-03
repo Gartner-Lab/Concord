@@ -152,8 +152,9 @@ class Concord:
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
-
             pretrained_model=None,
+            load_data_into_memory=False,  # Whether to load the entire dataset into memory
+            num_workers=None,  # Number of workers for DataLoader
             chunked=False,
             chunk_size=10000,
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -399,6 +400,7 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
+            load_into_memory=self.config.load_data_into_memory,
             device=self.config.device
         )
 
@@ -413,7 +415,6 @@ class Concord:
                 data_manager=self.data_manager
             )
         else:
-            logger.info("Loading all data into memory.")
             train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
             self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
             self.preprocessed = True  # Mark as preprocessed since we loaded the data into memory

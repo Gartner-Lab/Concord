@@ -28,7 +28,7 @@ class AnnDataset(Dataset):
         covariate_tensors (dict): A dictionary containing tensors for covariate labels.
         indices (np.ndarray): Array of dataset indices.
     """
-    def __init__(self, adata, domain_key='domain', class_key=None, covariate_keys=None, device=None):
+    def __init__(self, adata, domain_key='domain', class_key=None, covariate_keys=None, load_into_memory=False):
         """
         Initializes a lightweight AnnDataset that only manages labels and indices.
         """
@@ -36,10 +36,17 @@ class AnnDataset(Dataset):
         self.domain_key = domain_key
         self.class_key = class_key
 
-        # --- THIS IS THE FIX ---
-        # Ensure covariate_keys is a list, not a dict_keys object
+        self.load_into_memory = load_into_memory
         self.covariate_keys = list(covariate_keys) if covariate_keys is not None else []
-        # --- END FIX ---
+        
+        # --- MODE-SPECIFIC INITIALIZATION ---
+        if self.load_into_memory:
+            # Get the data matrix and convert to a dense tensor
+            data_matrix = self.adata.X.toarray() if issparse(self.adata.X) else self.adata.X
+            self.data = torch.tensor(data_matrix, dtype=torch.float32)
+        else:
+            # For on-the-fly loading, self.data is not needed
+            self.data = None
 
         # Store labels and covariates as tensors for easy slicing in collate_fn
         self.domain_labels = torch.tensor(self.adata.obs[self.domain_key].cat.codes.values, dtype=torch.long)
@@ -140,7 +147,24 @@ class AnnDataset(Dataset):
     
 
     def __getitem__(self, idx):
-        return idx
+        if self.load_into_memory:
+            # Return a complete dictionary for the sample.
+            # PyTorch's default collator will stack these dicts into a batch.
+            batch = {
+                'input': self.data[idx],
+                'domain': self.domain_labels[idx],
+                'idx': torch.tensor(idx, dtype=torch.long)
+            }
+            if self.class_labels is not None:
+                batch['class'] = self.class_labels[idx]
+
+            for key, tensor in self.covariate_tensors.items():
+                batch[key] = tensor[idx]
+            
+            return batch
+        else:
+            # Return only the index for the custom collator to handle.
+            return idx
 
 
     def shuffle_indices(self):
