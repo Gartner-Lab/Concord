@@ -152,8 +152,9 @@ class Concord:
             use_faiss=True,
             use_ivf=True,
             ivf_nprobe=10,
-
             pretrained_model=None,
+            load_data_into_memory=False,  # Whether to load the entire dataset into memory
+            num_workers=None,  # Number of workers for DataLoader
             chunked=False,
             chunk_size=10000,
             device=torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
@@ -198,7 +199,7 @@ class Concord:
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
-            self.config.input_feature = self.adata.var_names.tolist()
+            #self.config.input_feature = self.adata.var_names.tolist()
 
         if self.config.use_importance_mask:
             logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
@@ -305,7 +306,7 @@ class Concord:
         Raises:
             FileNotFoundError: If the specified pre-trained model file is missing.
         """
-        input_dim = len(self.config.input_feature)
+        input_dim = len(self.config.input_feature) if self.config.input_feature is not None else self.adata.shape[1]
         hidden_dim = self.config.latent_dim
 
         self.model = ConcordModel(input_dim, hidden_dim, 
@@ -399,6 +400,7 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
+            load_into_memory=self.config.load_data_into_memory,
             device=self.config.device
         )
 
@@ -413,7 +415,6 @@ class Concord:
                 data_manager=self.data_manager
             )
         else:
-            logger.info("Loading all data into memory.")
             train_dataloader, val_dataloader, self.data_structure = self.data_manager.anndata_to_dataloader(adata_to_load)
             self.loader = [(train_dataloader, val_dataloader, np.arange(adata_to_load.shape[0]))]
             self.preprocessed = True  # Mark as preprocessed since we loaded the data into memory
@@ -593,7 +594,13 @@ class Concord:
                 
                 for data in loader:
                     # Unpack data based on the provided structure
-                    data_dict = {key: value.to(self.config.device) for key, value in zip(self.data_structure, data)}
+                    data_dict = {}
+                    for key, value in data.items():
+                        if isinstance(value, torch.Tensor):
+                            data_dict[key] = value.to(self.config.device)
+                        else:
+                            # Keep non-tensor data as is (e.g., None for class_labels)
+                            data_dict[key] = value
 
                     inputs = data_dict.get('input')
                     # Use fixed domain id if provided, and make it same length as inputs
