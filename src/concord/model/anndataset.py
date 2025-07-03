@@ -49,21 +49,19 @@ class AnnDataset(Dataset):
         self.domain_key = domain_key
         self.class_key = class_key
         self.covariate_keys = covariate_keys if covariate_keys is not None else []
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = device or torch.device('cpu')
 
-        self.data = torch.tensor(self._get_data_matrix(), dtype=torch.float32)
-        self.domain_labels = torch.tensor(self.adata.obs[self.domain_key].cat.codes.values, dtype=torch.long).to(
-            self.device)
+        #self.data = torch.tensor(self._get_data_matrix(), dtype=torch.float32)
+        self.domain_labels = torch.tensor(self.adata.obs[self.domain_key].cat.codes.values, dtype=torch.long)
         self.indices = np.arange(len(self.adata))
 
         if self.class_key:
-            self.class_labels = torch.tensor(self.adata.obs[self.class_key].cat.codes.values, dtype=torch.long).to(
-                self.device)
+            self.class_labels = torch.tensor(self.adata.obs[self.class_key].cat.codes.values, dtype=torch.long)
         else:
             self.class_labels = None
 
         self.covariate_tensors = {
-            key: torch.tensor(self.adata.obs[key].cat.codes.values, dtype=torch.long).to(self.device)
+            key: torch.tensor(self.adata.obs[key].cat.codes.values, dtype=torch.long)
             for key in self.covariate_keys
         }
 
@@ -161,8 +159,15 @@ class AnnDataset(Dataset):
         """
         if isinstance(idx, torch.Tensor):
             idx = idx.cpu().numpy()
+
         actual_idx = self.indices[idx]
-        data_tensor = self.data[actual_idx]
+        #data_tensor = self.data[actual_idx]
+        rows = self.adata.X[actual_idx]                      # csr_matrix or dense
+        if issparse(rows):
+            rows = rows.toarray()
+
+        rows = np.asarray(rows).squeeze(0)
+        data_tensor = torch.as_tensor(rows, dtype=torch.float32)
         items = []
         for key in self.data_structure:
             if key == 'input':

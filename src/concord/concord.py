@@ -198,7 +198,7 @@ class Concord:
         if self.config.input_feature is None:
             logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
             logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
-            self.config.input_feature = self.adata.var_names.tolist()
+            #self.config.input_feature = self.adata.var_names.tolist()
 
         if self.config.use_importance_mask:
             logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
@@ -305,7 +305,7 @@ class Concord:
         Raises:
             FileNotFoundError: If the specified pre-trained model file is missing.
         """
-        input_dim = len(self.config.input_feature)
+        input_dim = len(self.config.input_feature) if self.config.input_feature is not None else self.adata.shape[1]
         hidden_dim = self.config.latent_dim
 
         self.model = ConcordModel(input_dim, hidden_dim, 
