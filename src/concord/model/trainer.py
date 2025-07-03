@@ -192,7 +192,14 @@ class Trainer:
                 self.optimizer.zero_grad()
 
             # Unpack data based on the provided structure
-            data_dict = {key: value.to(self.device) for key, value in zip(self.data_structure, data)}
+            data_dict = {}
+            for key, value in data.items():
+                if isinstance(value, torch.Tensor):
+                    data_dict[key] = value.to(self.device)
+                else:
+                    # Keep non-tensor data as is (like None for class_labels)
+                    data_dict[key] = value
+
             inputs = data_dict['input']
             domain_labels = data_dict.get('domain')
             class_labels = data_dict.get('class')

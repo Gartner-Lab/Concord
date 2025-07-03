@@ -11,6 +11,51 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from scipy.sparse import issparse
+import torch
+
+class AnnDataCollator:
+    """
+    A callable class to act as the collate_fn for the DataLoader.
+    This is pickleable and works with multiple workers.
+    """
+    def __init__(self, dataset):
+        self.dataset = dataset
+
+    def __call__(self, batch_indices):
+        # batch_indices is a list of indices from __getitem__
+        idx = np.array(batch_indices, dtype=np.int64)
+
+        # 1. Efficiently slice the sparse matrix for the whole batch
+        X_batch = self.dataset.adata.X[idx]
+
+        # 2. Convert the entire batch slice to dense at once
+        if issparse(X_batch):
+            X_batch = X_batch.toarray()
+        
+        # 3. Convert to tensor
+        X_tensor = torch.as_tensor(X_batch, dtype=torch.float32)
+
+        # Prepare other items in the batch
+        domain_tensor = self.dataset.domain_labels[idx]
+        
+        class_tensor = None
+        if self.dataset.class_labels is not None:
+            class_tensor = self.dataset.class_labels[idx]
+            
+        covariate_tensors = {key: tensor[idx] for key, tensor in self.dataset.covariate_tensors.items()}
+
+        # Return a dictionary compatible with your model's forward pass
+        batch = {
+            'input': X_tensor,
+            'domain': domain_tensor,
+            'class': class_tensor,
+            'idx': torch.from_numpy(idx)
+        }
+        batch.update(covariate_tensors)
+        
+        return batch
+    
 
 class DataLoaderManager:
     """
@@ -141,11 +186,11 @@ class DataLoaderManager:
         self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)
         
         dataset = AnnDataset(self.adata, 
-                             data_structure=self.data_structure,
-                             input_layer_key='X', 
                              domain_key=self.domain_key, 
                              class_key=self.class_key, 
-                             covariate_keys=self.covariate_keys, device=self.device)
+                             covariate_keys=self.covariate_keys)
+        
+        my_collate_fn = AnnDataCollator(dataset)
 
         if self.use_sampler:
             if self.train_frac == 1.0:
@@ -153,7 +198,10 @@ class DataLoaderManager:
                     self.compute_neighborhood(self.adata, self.sampler_emb)
 
                 self.train_sampler = self.build_sampler(ConcordSampler, neighborhood=self.neighborhood)
-                train_dataloader = DataLoader(dataset, batch_sampler=self.train_sampler)
+                train_dataloader = DataLoader(dataset, batch_sampler=self.train_sampler, 
+                                              num_workers=4,  
+                                              collate_fn=my_collate_fn, 
+                                              pin_memory=True)
                 val_dataloader = None
             else:
                 train_size = int(self.train_frac * len(dataset))
@@ -166,10 +214,19 @@ class DataLoaderManager:
 
                 self.train_sampler = self.build_sampler(ConcordSampler, indices=train_indices, neighborhood=None)
                 self.val_sampler = self.build_sampler(ConcordSampler, indices=val_indices, neighborhood=None)
-                train_dataloader = DataLoader(train_dataset, batch_sampler=self.train_sampler)
-                val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler)
+                train_dataloader = DataLoader(train_dataset, batch_sampler=self.train_sampler, 
+                                              num_workers=4,  
+                                              collate_fn=my_collate_fn, 
+                                              pin_memory=True)
+                val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler, 
+                                             num_workers=4,  
+                                             collate_fn=my_collate_fn, 
+                                             pin_memory=True)
         else: 
-            train_dataloader = DataLoader(dataset, batch_size=self.batch_size)
+            train_dataloader = DataLoader(dataset, batch_size=self.batch_size, 
+                                           num_workers=4,  
+                                           collate_fn=my_collate_fn, 
+                                           pin_memory=True)
             val_dataloader = None
 
         return train_dataloader, val_dataloader, self.data_structure

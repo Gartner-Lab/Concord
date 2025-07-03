@@ -593,7 +593,13 @@ class Concord:
                 
                 for data in loader:
                     # Unpack data based on the provided structure
-                    data_dict = {key: value.to(self.config.device) for key, value in zip(self.data_structure, data)}
+                    data_dict = {}
+                    for key, value in data.items():
+                        if isinstance(value, torch.Tensor):
+                            data_dict[key] = value.to(self.config.device)
+                        else:
+                            # Keep non-tensor data as is (e.g., None for class_labels)
+                            data_dict[key] = value
 
                     inputs = data_dict.get('input')
                     # Use fixed domain id if provided, and make it same length as inputs
