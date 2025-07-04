@@ -1,3 +1,4 @@
+from __future__ import annotations
 import scanpy as sc
 
 def score_cell_cycle(adata, organism='Hs'):

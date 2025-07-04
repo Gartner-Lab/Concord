@@ -6,4 +6,5 @@ from .tda import *
 from .time_memory import *
 from .pipeline_dim_reduction import *
 from .pipeline_integration import *
+from .integration_methods import *
 

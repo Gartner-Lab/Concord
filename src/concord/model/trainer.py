@@ -2,6 +2,9 @@
 import torch
 from torch import nn, optim
 from tqdm import tqdm
+import sys
+from contextlib import nullcontext
+import logging
 from .loss import NTXent_general, importance_penalty_loss
 
 
@@ -86,6 +89,7 @@ class Trainer:
 
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1, gamma=schedule_ratio)
+        self.verbose  = logger.isEnabledFor(logging.INFO)
 
     def forward_pass(self, inputs, class_labels, domain_labels, covariate_tensors=None):
         """
@@ -167,18 +171,35 @@ class Trainer:
 
     def _run_epoch(self, epoch, dataloader, train=True):
         self.model.train() if train else self.model.eval()
+
+        phase = "Training" if train else "Validation"
+        header = f"Epoch {epoch} {phase}"
         total_loss, total_mse, total_clr, total_classifier, total_importance_penalty = 0.0, 0.0, 0.0, 0.0, 0.0
         preds, labels = [], []
 
-        progress_desc = f"Epoch {epoch} {'Training' if train else 'Validation'}"
-        progress_bar = tqdm(dataloader, desc=progress_desc, position=0, leave=True, dynamic_ncols=True)
+        if self.verbose:
+            iterator = tqdm(
+                dataloader, desc=header,
+                position=0, leave=True, dynamic_ncols=True,
+                disable=False                       # bar ON
+            )
+        else:
+            print(header, file=sys.stdout, flush=True)
+            iterator = dataloader                   # bar OFF     
 
-        for i, data in enumerate(progress_bar):
+        for _, data in enumerate(iterator):
             if train:
                 self.optimizer.zero_grad()
 
             # Unpack data based on the provided structure
-            data_dict = {key: value.to(self.device) for key, value in zip(self.data_structure, data)}
+            data_dict = {}
+            for key, value in data.items():
+                if isinstance(value, torch.Tensor):
+                    data_dict[key] = value.to(self.device)
+                else:
+                    # Keep non-tensor data as is (like None for class_labels)
+                    data_dict[key] = value
+
             inputs = data_dict['input']
             domain_labels = data_dict.get('domain')
             class_labels = data_dict.get('class')
@@ -203,7 +224,8 @@ class Trainer:
                 preds.extend(torch.argmax(class_pred, dim=1).cpu().numpy())
                 labels.extend(class_labels.cpu().numpy())
 
-            progress_bar.set_postfix({"loss": loss.item()})
+            if self.verbose:  
+                iterator.set_postfix(loss=f"{loss.item():.3f}")
         
         if train:
             self.scheduler.step()

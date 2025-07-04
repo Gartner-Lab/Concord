@@ -4,6 +4,9 @@ import os
 import time
 import psutil
 import resource
+import gc
+import logging
+from typing import Any, Callable, Dict, Tuple
 
 try:
     import torch
@@ -92,3 +95,57 @@ class MemoryProfiler:
             return torch.mps.current_allocated_memory() / 1024 ** 2  # type: ignore[attr‑defined]
         return 0.0
 
+
+
+# -----------------------------------------------------------------------------
+# Generic function profiler
+# -----------------------------------------------------------------------------
+
+def profiled_run(
+    name: str,
+    fn: Callable[[], None],
+    *,
+    profiler: MemoryProfiler,
+    logger: logging.Logger | None = None,
+    compute_umap: bool = False,
+    adata=None,
+    output_key: str | None = None,
+    umap_params: Dict[str, Any] | None = None,
+) -> Tuple[float | None, float | None, float | None]:
+    """Execute *fn* and return (time_sec, ΔRAM_MB, peak_VRAM_MB).
+
+    A small helper so other scripts can time/profile any function with the same
+    logic we use in the integration pipeline.
+    """
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    gc.collect()
+    ram_before = profiler.get_ram_mb()
+    profiler.reset_peak_vram()
+
+    try:
+        with Timer() as t:
+            fn()
+    except Exception as exc:
+        logger.error("❌ %s failed: %s", name, exc)
+        return None, None, None
+
+    # success ----------------------------------------------------------------
+    gc.collect()
+    ram_after = profiler.get_ram_mb()
+    delta_ram = max(0.0, ram_after - ram_before)
+    peak_vram = profiler.get_peak_vram_mb()
+
+    logger.info("%s: %.2fs | %.2f MB RAM | %.2f MB VRAM", name, t.interval, delta_ram, peak_vram)
+
+    # optional UMAP
+    if compute_umap and output_key and adata is not None and umap_params is not None:
+        from ..utils.dim_reduction import run_umap  # local import avoids heavy deps
+        try:
+            logger.info("Running UMAP on %s …", output_key)
+            run_umap(adata, source_key=output_key, result_key=f"{output_key}_UMAP", **umap_params)
+        except Exception as exc:
+            logger.error("❌ UMAP for %s failed: %s", output_key, exc)
+
+    return t.interval, delta_ram, peak_vram

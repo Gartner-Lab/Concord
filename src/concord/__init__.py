@@ -1,30 +1,38 @@
-__version__ = "1.0.0"
+__version__ = "1.0.3"
 import logging
 import sys
 
-logger = logging.getLogger("Concord")
-# check if logger has been initialized
-if not logger.hasHandlers() or len(logger.handlers) == 0:
-    logger.propagate = False
-    logger.setLevel(logging.INFO)
+PKG_LOGGER_NAME = __name__                # "concord"
+logger = logging.getLogger(PKG_LOGGER_NAME)
+
+if not logger.handlers:                   # configure only once
+    logger.setLevel(logging.INFO)         # default = verbose
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        "%(name)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
+    handler.setFormatter(
+        logging.Formatter(
+            "%(name)s - %(levelname)s - %(message)s",
+            datefmt="%H:%M:%S"
+        )
     )
-    handler.setFormatter(formatter)
     logger.addHandler(handler)
+    logger.propagate = False              
 
-def set_verbose_mode(verbose):
-    if verbose:
-        logger.setLevel(logging.INFO)
-        for handler in logger.handlers:
-            handler.setLevel(logging.INFO)
-    else:
-        logger.setLevel(logging.WARNING)
-        for handler in logger.handlers:
-            handler.setLevel(logging.WARNING)
 
+def set_verbose_mode(verbose: bool = True):
+    """
+    Toggle INFO/DEBUG messages for the whole package.
+
+    Parameters
+    ----------
+    verbose : bool
+        True  → log level INFO (default)  
+        False → log level WARNING
+    """
+    level = logging.INFO if verbose else logging.WARNING
+    logger.setLevel(level)
+    for h in logger.handlers:
+        h.setLevel(level)
+        
 
 def lazy_import(module_name, install_instructions=None):
     """

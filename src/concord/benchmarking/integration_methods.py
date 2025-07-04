@@ -1,3 +1,6 @@
+from __future__ import annotations
+from typing import Any, Dict, Optional
+
 
 def run_scanorama(adata, batch_key="batch", output_key="Scanorama", dimred=100, return_corrected=False):
     import scanorama
@@ -127,45 +130,83 @@ def run_scanvi(adata, scvi_model=None, layer="counts", batch_key="batch", labels
     adata.obsm[output_key] = lvae.get_latent_representation()
     
 
+
 def run_concord(
     adata,
-    batch_key="batch",
-    class_key=None,
-    output_key="Concord",
-    clr_beta=1.0,
-    p_intra_knn=0.0,
-    p_intra_domain=1.0,
-    latent_dim=30,
-    return_corrected=False,
-    seed=42,
-    device="cpu",
-    save_dir=None,
-    mode="knn",  # Options: "knn", "hcl", "decoder", "class", "naive"
-    n_epochs=10,
-    batch_size=64,
-    verbose=False,
+    *,
+    # ------------------------------------------------- “fixed” args
+    batch_key: str = "batch",
+    class_key: Optional[str] = None,
+    output_key: str = "Concord",
+    mode: str = "default",                # "default" | "decoder" | "class" | "naive"
+    n_epochs: int = 10,
+    seed: int = 42,
+    device: str = "cpu",
+    save_dir: str | None = None,
+    verbose: bool = False,
+    return_corrected: bool = False,
+    # ------------------------------------------------- convenience optionals
+    latent_dim: int | None = None,
+    batch_size: int | None = None,
+    encoder_dims: Optional[list[int]] = None,
+    decoder_dims: Optional[list[int]] = None,
+    augmentation_mask_prob: float | None = None,
+    clr_temperature: float | None = None,
+    clr_beta: float | None = None,
+    p_intra_knn: float | None = None,
+    p_intra_domain: float | None = None,
+    sampler_knn: Any = None,
+    input_feature: str | None = None,
+    lr: float | None = None,
+    # ------------------------------------------------- NEW: free-form extras
+    concord_kwargs: Optional[Dict[str, Any]] = None,
 ):
-    from .. import Concord
-    kwargs = {
-        "adata": adata,
-        "input_feature": None,
-        "clr_beta": clr_beta,
-        "p_intra_knn": p_intra_knn,
-        "p_intra_domain": p_intra_domain if mode != "hcl" else 1.0,
-        "latent_dim": latent_dim,
-        "batch_size": batch_size,
-        "n_epochs": n_epochs,
-        "domain_key": batch_key if mode != "naive" else None,
-        "class_key": class_key if mode == "class" else None,
-        "use_classifier": mode == "class",
-        "use_decoder": mode == "decoder",
-        "domain_embedding_dim": 8,
-        "seed": seed,
-        "verbose": verbose,
-        "device": device,
-        "save_dir": save_dir,
-    }
+    """
+    Thin wrapper around `Concord`.
 
+    Any keys in `concord_kwargs` are forwarded to the model constructor after
+    the standard parameters, so they **override** duplicates.
+    """
+
+    from .. import Concord     # local import keeps import-time cost minimal
+
+    # ---------- core (always supplied) -------------------------------------
+    kwargs: Dict[str, Any] = dict(
+        adata=adata,
+        n_epochs=n_epochs,
+        domain_key=batch_key if mode != "naive" else None,
+        class_key=class_key if mode == "class" else None,
+        use_classifier=(mode == "class"),
+        use_decoder=(mode == "decoder"),
+        domain_embedding_dim=8,
+        seed=seed,
+        verbose=verbose,
+        device=device,
+        save_dir=save_dir,
+    )
+
+    # ---------- convenience optionals --------------------------------------
+    optional_params = {
+        "latent_dim":            latent_dim,
+        "batch_size":            batch_size,
+        "encoder_dims":          encoder_dims,
+        "decoder_dims":          decoder_dims,
+        "augmentation_mask_prob": augmentation_mask_prob,
+        "clr_temperature":       clr_temperature,
+        "clr_beta":              clr_beta,
+        "p_intra_knn":           p_intra_knn,
+        "p_intra_domain":        p_intra_domain,
+        "sampler_knn":           sampler_knn,
+        "input_feature":         input_feature,
+        "lr":                    lr,
+    }
+    kwargs.update({k: v for k, v in optional_params.items() if v is not None})
+
+    # ---------- free-form overrides ----------------------------------------
+    if concord_kwargs:
+        kwargs.update(concord_kwargs)     # user takes ultimate precedence
+
+    # ---------- run ---------------------------------------------------------
     model = Concord(**kwargs)
     model.fit_transform(output_key=output_key, return_decoded=return_corrected)
-
+    return model            # handy if caller wants the trained model
