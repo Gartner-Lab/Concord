@@ -114,7 +114,7 @@ class Concord:
             input_feature=None,
             normalize_total=False, # default adata.X should be normalized
             log1p=False,
-            batch_size=64,
+            batch_size=256,
             n_epochs=10,
             lr=1e-2,
             schedule_ratio=0.97,
