@@ -120,9 +120,9 @@ class Concord:
             schedule_ratio=0.97,
             train_frac=1.0,
             latent_dim=100,
-            encoder_dims=[512],
-            decoder_dims=[512],
-            augmentation_mask_prob=0.4,  
+            encoder_dims=[1000],
+            decoder_dims=[1000],
+            augmentation_mask_prob=0.3,  
             domain_key=None,
             class_key=None,
             domain_embedding_dim=8,
@@ -130,7 +130,7 @@ class Concord:
             use_decoder=False, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
-            clr_temperature=0.5,
+            clr_temperature=0.3,
             clr_beta=1.0,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
