@@ -303,7 +303,7 @@ def run_integration_methods_pipeline(
         )
 
     if "harmony" in methods:
-        if "X_pca" not in adata.obsm:
+        if "X_pca" not in adata.obsm or adata.obsm["X_pca"].shape[1] < latent_dim:
             logger.info("Running PCA for harmony …")
             sc.tl.pca(adata, n_comps=latent_dim)
         _run_and_log(

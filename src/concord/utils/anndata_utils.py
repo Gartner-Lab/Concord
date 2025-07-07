@@ -4,7 +4,6 @@ import anndata as ad
 import os  
 import scanpy as sc 
 import numpy as np
-import pandas as pd
 from typing import List, Optional
 from .. import logger
 
@@ -418,3 +417,48 @@ def check_adata_X(adata, n_samples=100):
     else:
         return 'normalized'
     
+
+
+def filter_cells_min_genes(
+    adata: sc.AnnData,
+    min_genes: int = 10,
+    verbose: bool = True,
+) -> sc.AnnData:
+    """
+    Remove cells that express fewer than `min_genes` genes (non-zero counts)
+    in the *current* adata.X matrix.
+
+    Parameters
+    ----------
+    adata
+        AnnData object (already subset to your HVGs, etc.).
+    min_genes
+        Minimum number of expressed genes a cell must have to be retained.
+    verbose
+        Whether to print a summary.
+
+    Returns
+    -------
+    AnnData
+        New AnnData containing only cells passing the filter.
+    """
+    
+    from scipy.sparse import issparse
+    # --- per-cell expressed-gene counts -------------------------------------
+    if issparse(adata.X):
+        n_expressed = np.asarray((adata.X > 0).sum(axis=1)).ravel()  # shape (n_cells,)
+    else:
+        n_expressed = (adata.X > 0).sum(axis=1)                      # ndarray (n_cells,)
+
+    keep_mask = n_expressed >= min_genes
+    n_before  = adata.n_obs
+    n_after   = keep_mask.sum()
+
+    if verbose:
+        dropped = n_before - n_after
+        print(f"ℹ️  Keeping cells with ≥{min_genes} expressed genes "
+              f"({n_after}/{n_before} kept, {dropped} dropped).")
+
+    # --- return filtered AnnData --------------------------------------------
+    return adata[keep_mask].copy()
+
