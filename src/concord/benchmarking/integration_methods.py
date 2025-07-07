@@ -2,10 +2,24 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 
+def ensure_csr(adata: AnnData) -> None:
+    """
+    Make sure `adata.X` is row-compressed (CSR).
+    Converts in place; safe to call multiple times.
+    """
+    from scipy.sparse import isspmatrix_csr, issparse
+    import scipy.sparse as sp
+    if issparse(adata.X):
+        if not isspmatrix_csr(adata.X):           # CSC → CSR (one copy)
+            adata.X = adata.X.tocsr()
+    else:                                         # dense → CSR
+        adata.X = sp.csr_matrix(adata.X)
+
+
 def run_scanorama(adata, batch_key="batch", output_key="Scanorama", dimred=100, return_corrected=False):
     import scanorama
     import numpy as np
-
+    ensure_csr(adata)
     batch_cats = adata.obs[batch_key].cat.categories
     adata_list = [adata[adata.obs[batch_key] == b].copy() for b in batch_cats]
 

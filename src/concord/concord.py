@@ -131,7 +131,7 @@ class Concord:
             decoder_final_activation='relu',
             decoder_weight=1.0,
             clr_temperature=0.3,
-            clr_beta=1.0,  # Beta for NT-Xent loss
+            clr_beta=0.5,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
             classifier_weight=1.0,
