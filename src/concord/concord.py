@@ -299,14 +299,22 @@ class Concord:
         self.config = Config(initial_params)
 
 
-    def init_model(self):
+    def init_model(self, input_dim=None):
         """
         Initializes the CONCORD model and loads a pre-trained model if specified.
 
         Raises:
             FileNotFoundError: If the specified pre-trained model file is missing.
         """
-        input_dim = len(self.config.input_feature) if self.config.input_feature is not None else self.adata.shape[1]
+        if self.config.input_feature is not None:
+            input_dim = len(self.config.input_feature)
+        elif self.adata is not None:
+            input_dim = self.adata.shape[1]
+        elif input_dim is not None:
+            input_dim = input_dim
+        else:
+            raise ValueError("Input dimension must be specified either through config.input_feature, adata, or input_dim argument.")
+        
         hidden_dim = self.config.latent_dim
 
         self.model = ConcordModel(input_dim, hidden_dim, 
@@ -819,6 +827,13 @@ class Concord:
         with open(config_file, 'r') as f:
             concord_args = load_json(str(config_file))
             concord_args['pretrained_model'] = model_file
+
+        # infer input_dim from the checkpoint
+        sd = torch.load(model_file, map_location='cpu')
+        if "encoder.0.weight" in sd:
+            input_dim = sd["encoder.0.weight"].shape[1]
+        else:
+            raise KeyError("'encoder.0.weight' not found in checkpoint")
         
         # Override device if specified by user
         if device:
@@ -835,7 +850,7 @@ class Concord:
         
         instance.pretrained_model = model_file
         # --- 4. Initialize the model with the loaded config and load weights ---
-        instance.init_model()
+        instance.init_model(input_dim=input_dim)
         
         logger.info("Pre-trained Concord model loaded successfully.")
         
@@ -860,11 +875,12 @@ class Concord:
             raise RuntimeError("Model has not been loaded or initialized. Call `Concord.load()` first.")
 
         # Validate that new data has the required features
-        missing_features = set(self.config.input_feature) - set(adata_new.var_names)
-        if missing_features:
-            raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
-                             f"required by the model. Missing features: {list(missing_features)[:5]}...")
-        
+        if self.config.input_feature is not None:
+            missing_features = set(self.config.input_feature) - set(adata_new.var_names)
+            if missing_features:
+                raise ValueError(f"The new anndata object is missing {len(missing_features)} features "
+                                f"required by the model. Missing features: {list(missing_features)[:5]}...")
+            
         self.preprocessed = False # Use the same preprocessing as during training
         self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
 
