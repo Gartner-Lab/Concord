@@ -717,10 +717,11 @@ def run_probe_benchmark(adata,
     )
 
     # ── 2.1 run linear probe
-    key_name_mapping = {
-        "state": state_key,
-        "batch": batch_key,
-    }
+    key_name_mapping = {}
+    if state_key is not None:
+        key_name_mapping["state"] = state_key
+    if batch_key is not None:
+        key_name_mapping["batch"] = batch_key
     linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")

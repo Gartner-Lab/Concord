@@ -63,6 +63,7 @@ def run_integration_methods_pipeline(
     verbose: bool = True,
     # NEW: user-supplied Concord kwargs
     concord_kwargs: Optional[Dict[str, Any]] = None,
+    save_dir: Optional[str] = None,
 ) -> pd.DataFrame:
     
     """Run selected single‑cell integration methods and profile run‑time & memory."""
@@ -202,13 +203,15 @@ def run_integration_methods_pipeline(
                 batch_key=batch_key,
                 class_key=class_key,
                 output_key="concord_class",
-                latent_dim=latent_dim,
                 mode="class",
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                **ckws,
+                **_merge(
+                    dict(latent_dim=latent_dim), 
+                    ckws
+                ),
             ),
             output_key="concord_class",
         )
@@ -221,13 +224,15 @@ def run_integration_methods_pipeline(
                 batch_key=batch_key,
                 class_key=class_key,
                 output_key="concord_decoder",
-                latent_dim=latent_dim,
                 mode="decoder",
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                **ckws,
+                **_merge(
+                    dict(latent_dim=latent_dim), 
+                    ckws
+                ),
             ),
             output_key="concord_decoder",
         )
@@ -239,7 +244,6 @@ def run_integration_methods_pipeline(
                 adata,
                 batch_key=None,                # “naive” – ignore batch/domain
                 output_key="contrastive",
-                latent_dim=latent_dim,
                 p_intra_knn=0.0,
                 clr_beta=0.0,
                 mode="naive",
@@ -247,7 +251,10 @@ def run_integration_methods_pipeline(
                 device=device,
                 seed=seed,
                 verbose=verbose,
-                **ckws,
+                **_merge(
+                    dict(latent_dim=latent_dim), 
+                    ckws
+                ),
             ),
             output_key="contrastive",
         )
@@ -296,7 +303,7 @@ def run_integration_methods_pipeline(
         )
 
     if "harmony" in methods:
-        if "X_pca" not in adata.obsm:
+        if "X_pca" not in adata.obsm or adata.obsm["X_pca"].shape[1] < latent_dim:
             logger.info("Running PCA for harmony …")
             sc.tl.pca(adata, n_comps=latent_dim)
         _run_and_log(
@@ -325,6 +332,11 @@ def run_integration_methods_pipeline(
             transform_batch=transform_batch,
             return_model=True,
         )
+        if save_dir:
+            from pathlib import Path
+            save_path = Path(save_dir) / "scvi_model.pt"
+            scvi_model.save(save_path)
+            logger.info(f"Saved scVI model to {save_path}")
 
     if "scvi" in methods:
         _run_and_log("scvi", _train_scvi, output_key="scvi")
