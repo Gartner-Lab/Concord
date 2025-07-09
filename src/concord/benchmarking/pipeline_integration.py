@@ -34,7 +34,7 @@ def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> L
             kw                    = copy.deepcopy(base)
             kw[param]             = v
             if param == "input_feature":
-                tag = f'{param}_{len(v)}'  # e.g. "input_feature_gene"
+                tag = f'{param}-{len(v)}'  # e.g. "input_feature_gene"
             else:
                 tag                   = f"{param}-{v}"
             kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
