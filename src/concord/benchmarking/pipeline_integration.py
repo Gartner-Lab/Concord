@@ -33,7 +33,10 @@ def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> L
         for v in values:
             kw                    = copy.deepcopy(base)
             kw[param]             = v
-            tag                   = f"{param}-{v}"
+            if param == "input_feature":
+                tag = f'{param}_{len(v)}'  # e.g. "input_feature_gene"
+            else:
+                tag                   = f"{param}-{v}"
             kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
             jobs.append(kw)
     return jobs
