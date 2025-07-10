@@ -35,6 +35,8 @@ def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> L
             kw[param]             = v
             if param == "input_feature":
                 tag = f'{param}-{len(v)}'  # e.g. "input_feature_gene"
+            elif param == "encoder_dims":
+                tag = f"{param}-{v[0]}"
             else:
                 tag                   = f"{param}-{v}"
             kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
