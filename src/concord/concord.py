@@ -9,6 +9,7 @@ from .model.chunkloader import ChunkLoader
 from .utils.other_util import add_file_handler, set_seed
 from .utils.value_check import validate_probability_dict_compatible
 from .model.trainer import Trainer
+from .model.augment import MaskNonZerosAugment, FeatureDropAugment
 import numpy as np
 import scanpy as sc
 import pandas as pd
@@ -16,7 +17,7 @@ import copy
 import json
 from . import logger
 from . import set_verbose_mode
-
+import torch.nn as nn
 
 class Config:
     def __init__(self, config_dict):
@@ -122,7 +123,8 @@ class Concord:
             latent_dim=100,
             encoder_dims=[1000],
             decoder_dims=[1000],
-            augmentation_mask_prob=0.3,  
+            element_mask_prob=0.3, 
+            feature_mask_prob=0.2, 
             domain_key=None,
             class_key=None,
             domain_embedding_dim=8,
@@ -327,7 +329,7 @@ class Concord:
                                   encoder_dims=self.config.encoder_dims,
                                   decoder_dims=self.config.decoder_dims,
                                   decoder_final_activation=self.config.decoder_final_activation,
-                                  augmentation_mask_prob=self.config.augmentation_mask_prob,
+                                  #augmentation_mask_prob=self.config.augmentation_mask_prob,
                                   dropout_prob=self.config.dropout_prob,
                                   norm_type=self.config.norm_type,
                                   use_decoder=self.config.use_decoder,
@@ -351,12 +353,22 @@ class Concord:
         """
         Initializes the model trainer, setting up loss functions, optimizer, and learning rate scheduler.
         """
+        logger.info("Augmentation probabilities:")
+        logger.info(f" - Element mask probability: {self.config.element_mask_prob}")
+        logger.info(f" - Feature mask probability: {self.config.feature_mask_prob}")
+
+        augment = nn.Sequential(
+            MaskNonZerosAugment(p=self.config.element_mask_prob),   # robustness to count noise
+            FeatureDropAugment(p=self.config.feature_mask_prob)        # robustness to feature loss
+        )
+
         self.trainer = Trainer(model=self.model,
                                data_structure=self.data_structure,
                                device=self.config.device,
                                logger=logger,
                                lr=self.config.lr,
                                schedule_ratio=self.config.schedule_ratio,
+                               augment=augment,
                                use_classifier=self.config.use_classifier, 
                                classifier_weight=self.config.classifier_weight,
                                unique_classes=self.config.unique_classes_code,
