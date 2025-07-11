@@ -192,7 +192,10 @@ class DataLoaderManager:
         # Subset features if provided
         if self.feature_list:
             logger.info(f"Filtering features with provided list ({len(self.feature_list)} features)...")
-            self.adata = self.adata[:, self.feature_list]
+            self.adata = self.adata[:, self.feature_list].copy()     # <-- copy!
+            if issparse(self.adata.X):
+                self.adata.X.sort_indices()        
+            #self.adata = self.adata[:, self.feature_list]
 
         self.domain_labels = self.adata.obs[self.domain_key]
         self.domain_ids = torch.tensor(self.domain_labels.cat.codes.values, dtype=torch.long).to(self.device)

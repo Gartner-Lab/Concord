@@ -162,6 +162,7 @@ def run_concord(
     # ------------------------------------------------- convenience optionals
     latent_dim: int | None = None,
     batch_size: int | None = None,
+    input_feature: Optional[list[str]] = None,
     encoder_dims: Optional[list[int]] = None,
     decoder_dims: Optional[list[int]] = None,
     augmentation_mask_prob: float | None = None,
@@ -170,7 +171,7 @@ def run_concord(
     p_intra_knn: float | None = None,
     p_intra_domain: float | None = None,
     sampler_knn: Any = None,
-    input_feature: str | None = None,
+    dropout_prob: float | None = None,
     lr: float | None = None,
     # ------------------------------------------------- NEW: free-form extras
     concord_kwargs: Optional[Dict[str, Any]] = None,
@@ -203,6 +204,7 @@ def run_concord(
     optional_params = {
         "latent_dim":            latent_dim,
         "batch_size":            batch_size,
+        "input_feature":         input_feature,
         "encoder_dims":          encoder_dims,
         "decoder_dims":          decoder_dims,
         "augmentation_mask_prob": augmentation_mask_prob,
@@ -211,8 +213,8 @@ def run_concord(
         "p_intra_knn":           p_intra_knn,
         "p_intra_domain":        p_intra_domain,
         "sampler_knn":           sampler_knn,
-        "input_feature":         input_feature,
         "lr":                    lr,
+        "dropout_prob":          dropout_prob,
     }
     kwargs.update({k: v for k, v in optional_params.items() if v is not None})
 

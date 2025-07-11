@@ -115,7 +115,7 @@ class Concord:
             normalize_total=False, # default adata.X should be normalized
             log1p=False,
             batch_size=256,
-            n_epochs=10,
+            n_epochs=20,
             lr=1e-2,
             schedule_ratio=0.97,
             train_frac=1.0,
@@ -130,7 +130,7 @@ class Concord:
             use_decoder=False, # Default decoder usage
             decoder_final_activation='relu',
             decoder_weight=1.0,
-            clr_temperature=0.3,
+            clr_temperature=0.4,
             clr_beta=0.5,  # Beta for NT-Xent loss
             clr_weight=1.0,
             use_classifier=False,
