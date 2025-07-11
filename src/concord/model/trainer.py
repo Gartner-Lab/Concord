@@ -39,7 +39,9 @@ class Trainer:
     """
     def __init__(self, model, data_structure, 
                  device, logger, lr, schedule_ratio,
-                 use_classifier=False, classifier_weight=1.0, 
+                 augment=None,
+                 use_classifier=False, 
+                 classifier_weight=1.0, 
                  unique_classes=None,
                  unlabeled_class=None,
                  use_decoder=True, decoder_weight=1.0, 
@@ -70,6 +72,9 @@ class Trainer:
         self.data_structure = data_structure
         self.device = device
         self.logger = logger
+        if augment is None:
+            raise ValueError("Augmentation function must be provided.")
+        self.augment = augment
         self.use_classifier = use_classifier
         self.classifier_weight = classifier_weight
         self.unique_classes = unique_classes
@@ -107,17 +112,23 @@ class Trainer:
 
         # Contrastive loss
         loss_clr = torch.tensor(0.0, device=self.device)
-        outputs = self.model(inputs, domain_labels, covariate_tensors)
+
+        # augment two views
+        x1 = self.augment(inputs) 
+        x2 = self.augment(inputs)
+
+        outputs = self.model(x1, domain_labels, covariate_tensors)
+
         z1 = outputs['encoded']
         with torch.no_grad():
-            z2 = self.model.encode(inputs)
+            z2 = self.model.encode(x2)
 
         loss_clr = self.clr_criterion(z1, z2)
         loss_clr *= self.clr_weight
 
         # Reconstruction loss
         decoded = outputs.get('decoded')
-        loss_mse = self.mse_criterion(decoded, inputs) * self.decoder_weight if decoded is not None else torch.tensor(0.0, device=self.device)
+        loss_mse = self.mse_criterion(decoded, x1) * self.decoder_weight if decoded is not None else torch.tensor(0.0, device=self.device)
 
         # Classifier loss
         class_pred = outputs.get('class_pred')
@@ -170,7 +181,12 @@ class Trainer:
         return self._run_epoch(epoch, val_dataloader, train=False)
 
     def _run_epoch(self, epoch, dataloader, train=True):
-        self.model.train() if train else self.model.eval()
+        if train:
+            self.model.train()
+            self.augment.train()
+        else:
+            self.model.eval()
+            self.augment.eval()
 
         phase = "Training" if train else "Validation"
         header = f"Epoch {epoch} {phase}"

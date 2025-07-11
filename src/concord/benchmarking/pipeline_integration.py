@@ -27,18 +27,57 @@ def expand_one_at_a_time(base: dict, grid: dict, base_tag: str = "concord") -> L
     Each dict == base plus ONE (key, value) from grid,
     and includes a unique 'tag' + 'output_key'.
     """
-    import copy, hashlib
+    import copy
     jobs = []
     for param, values in grid.items():
         for v in values:
             kw                    = copy.deepcopy(base)
             kw[param]             = v
             if param == "input_feature":
-                tag = f'{param}_{len(v)}'  # e.g. "input_feature_gene"
+                tag = f'{param}-{len(v)}'  # e.g. "input_feature_gene"
+            elif param == "encoder_dims":
+                tag = f"{param}-{v[0]}"
             else:
                 tag                   = f"{param}-{v}"
             kw["output_key"]      = f"{base_tag}_{tag}"   # you can template this
             jobs.append(kw)
+    return jobs
+
+
+def expand_product(base: dict,
+                   grid: dict,
+                   joint_keys: tuple,
+                   base_tag: str = "concord") -> list[dict]:
+    """
+    Cartesian-product expansion for the parameters in `joint_keys`.
+    All other keys are varied one-at-a-time (like before).
+    """
+    import copy
+    from itertools import product
+    jobs = []
+
+    # 1) parameters to vary jointly
+    pvals = [grid[k] for k in joint_keys]
+    for combo in product(*pvals):
+        kw  = copy.deepcopy(base)
+        tag = []
+        for k, v in zip(joint_keys, combo):
+            kw[k] = v
+            tag.append(f"{k}-{v}")
+        kw["output_key"] = f"{base_tag}_{'_'.join(tag)}"
+        jobs.append(kw)
+
+    # 2) all remaining one-at-a-time params
+    for k, values in grid.items():
+        if k in joint_keys:
+            continue
+        for v in values:
+            kw               = copy.deepcopy(base)
+            kw[k]            = v
+            suffix           = f"{k}-{v if k!='encoder_dims' else v[0]}"
+            kw["output_key"] = f"{base_tag}_{suffix}"
+            jobs.append(kw)
+
     return jobs
 
 

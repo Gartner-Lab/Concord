@@ -7,13 +7,11 @@ class ConcordModel(nn.Module):
     """
     A contrastive learning model for domain-aware and covariate-aware latent representations.
 
-    This model consists of an encoder, decoder, and optional classifier head. It supports 
-    probabilistic augmentation and domain/covariate embeddings.
+    This model consists of an encoder, decoder, and optional classifier head. 
 
     Attributes:
         domain_embedding_dim (int): Dimensionality of domain embeddings.
         input_dim (int): Input feature dimension.
-        augmentation_mask (nn.Dropout): Dropout layer for augmentation masking.
         use_classifier (bool): Whether to include a classifier head.
         use_decoder (bool): Whether to include a decoder head.
         use_importance_mask (bool): Whether to include an importance mask for feature selection.
@@ -27,7 +25,8 @@ class ConcordModel(nn.Module):
                  covariate_embedding_dims={},
                  covariate_num_categories={},
                  encoder_dims=[], decoder_dims=[], 
-                 augmentation_mask_prob: float = 0.3, dropout_prob: float = 0.1, norm_type='layer_norm', 
+                 dropout_prob: float = 0.0, 
+                 norm_type='layer_norm', 
                  #encoder_append_cov=False, 
                  use_decoder=True, decoder_final_activation='leaky_relu',
                  use_classifier=False, use_importance_mask=False):
@@ -44,7 +43,6 @@ class ConcordModel(nn.Module):
             covariate_num_categories (dict, optional): Dictionary mapping covariate keys to category counts.
             encoder_dims (list, optional): List of encoder layer sizes. Defaults to empty list.
             decoder_dims (list, optional): List of decoder layer sizes. Defaults to empty list.
-            augmentation_mask_prob (float, optional): Dropout probability for augmentation mask. Defaults to 0.3.
             dropout_prob (float, optional): Dropout probability for encoder/decoder layers. Defaults to 0.1.
             norm_type (str, optional): Normalization type ('layer_norm' or 'batch_norm'). Defaults to 'layer_norm'.
             use_decoder (bool, optional): Whether to include a decoder. Defaults to True.
@@ -57,7 +55,6 @@ class ConcordModel(nn.Module):
         # Encoder
         self.domain_embedding_dim = domain_embedding_dim 
         self.input_dim = input_dim
-        self.augmentation_mask = nn.Dropout(augmentation_mask_prob)
         self.use_classifier = use_classifier
         self.use_decoder = use_decoder
         self.use_importance_mask = use_importance_mask
@@ -206,10 +203,8 @@ class ConcordModel(nn.Module):
 
     def encode(self, x):
         if self.use_importance_mask:
-            importance_weights = self.get_importance_weights()
-            x = x * importance_weights
+            x = x * self.get_importance_weights()
 
-        x = self.augmentation_mask(x)
         return self.encoder(x)
     
 
