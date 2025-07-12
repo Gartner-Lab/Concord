@@ -123,7 +123,7 @@ class Concord:
             latent_dim=100,
             encoder_dims=[1000],
             decoder_dims=[1000],
-            element_mask_prob=0.2, 
+            element_mask_prob=0.4, 
             feature_mask_prob=0.4, 
             domain_key=None,
             class_key=None,
