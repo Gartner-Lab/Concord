@@ -153,9 +153,9 @@ def run_concord(
     class_key: Optional[str] = None,
     output_key: str = "Concord",
     mode: str = "default",                # "default" | "decoder" | "class" | "naive"
-    n_epochs: int = 10,
     seed: int = 42,
     device: str = "cpu",
+    n_epochs: int | None = None,  
     save_dir: str | None = None,
     verbose: bool = False,
     return_corrected: bool = False,
@@ -165,7 +165,8 @@ def run_concord(
     input_feature: Optional[list[str]] = None,
     encoder_dims: Optional[list[int]] = None,
     decoder_dims: Optional[list[int]] = None,
-    augmentation_mask_prob: float | None = None,
+    element_mask_prob: float | None = None,
+    feature_mask_prob: float | None = None,
     clr_temperature: float | None = None,
     clr_beta: float | None = None,
     p_intra_knn: float | None = None,
@@ -188,7 +189,6 @@ def run_concord(
     # ---------- core (always supplied) -------------------------------------
     kwargs: Dict[str, Any] = dict(
         adata=adata,
-        n_epochs=n_epochs,
         domain_key=batch_key if mode != "naive" else None,
         class_key=class_key if mode == "class" else None,
         use_classifier=(mode == "class"),
@@ -202,12 +202,14 @@ def run_concord(
 
     # ---------- convenience optionals --------------------------------------
     optional_params = {
+        "n_epochs":              n_epochs,
         "latent_dim":            latent_dim,
         "batch_size":            batch_size,
         "input_feature":         input_feature,
         "encoder_dims":          encoder_dims,
         "decoder_dims":          decoder_dims,
-        "augmentation_mask_prob": augmentation_mask_prob,
+        "element_mask_prob":     element_mask_prob,
+        "feature_mask_prob":     feature_mask_prob,
         "clr_temperature":       clr_temperature,
         "clr_beta":              clr_beta,
         "p_intra_knn":           p_intra_knn,
