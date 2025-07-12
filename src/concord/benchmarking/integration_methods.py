@@ -153,9 +153,9 @@ def run_concord(
     class_key: Optional[str] = None,
     output_key: str = "Concord",
     mode: str = "default",                # "default" | "decoder" | "class" | "naive"
-    n_epochs: int = 10,
     seed: int = 42,
     device: str = "cpu",
+    n_epochs: int | None = None,  
     save_dir: str | None = None,
     verbose: bool = False,
     return_corrected: bool = False,
@@ -189,7 +189,6 @@ def run_concord(
     # ---------- core (always supplied) -------------------------------------
     kwargs: Dict[str, Any] = dict(
         adata=adata,
-        n_epochs=n_epochs,
         domain_key=batch_key if mode != "naive" else None,
         class_key=class_key if mode == "class" else None,
         use_classifier=(mode == "class"),
@@ -203,6 +202,7 @@ def run_concord(
 
     # ---------- convenience optionals --------------------------------------
     optional_params = {
+        "n_epochs":              n_epochs,
         "latent_dim":            latent_dim,
         "batch_size":            batch_size,
         "input_feature":         input_feature,
