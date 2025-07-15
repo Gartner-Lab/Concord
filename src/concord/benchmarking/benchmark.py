@@ -961,7 +961,7 @@ def run_benchmark_pipeline(
             adata,
             embedding_keys=embedding_keys,
             state_key=state_key,
-            batch_key=batch_key,
+            #batch_key=batch_key,
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,
@@ -1013,8 +1013,10 @@ def run_benchmark_pipeline(
                 df.drop(columns=[("Topology", "Score")], inplace=True)
             elif block == "probe":
                 #df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
-                keep = [c for c in df.columns
-                if re.search(r"state.*accuracy", c[1], flags=re.I)]
+                keep = [
+                    c for c in df.columns
+                    if re.search(r"state\s*accuracy", c[1], flags=re.I)   # \s matches space, tab, newline
+                ]
                 df = df[keep]
                 df.columns = pd.MultiIndex.from_tuples(
                     [("Bio conservation",
@@ -1025,38 +1027,44 @@ def run_benchmark_pipeline(
             elif block == "scib":
                 drop = [c for c in df.columns
                 if c[0] == "Bio conservation"
-                   and re.search(r"KMeans .*", c[1], flags=re.I)]
+                    and re.search(r"KMeans .*", c[1], flags=re.I)]
                 df.drop(columns=drop, inplace=True, errors="ignore")
                 # strip the SCIB aggregate – you'll rebuild later
                 df.drop(columns=[("Aggregate score", "Total")], inplace=True)
 
             to_concat.append(df)
 
-
     combined_df = pd.concat(to_concat, axis=1)
 
     def _mean_numeric(sub):
         return sub.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
 
-    agg_groups = combined_df.columns.get_level_values(0).unique()
-    agg_groups = [g for g in agg_groups if g not in {"Aggregate score"}]
+    agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
+                if g != "Aggregate score"]
 
+    # build a *flat* 2‑level MultiIndex directly
     agg_df = pd.concat(
-        {g: _mean_numeric(combined_df.xs(g, axis=1, level=0)) for g in agg_groups},
+        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
+            .rename(("Aggregate score", g))
+        for g in agg_groups],
         axis=1
     )
-    agg_df.columns = pd.MultiIndex.from_product(
-        [["Aggregate score"], agg_df.columns]
-    )
-    agg_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+    # attach and de‑duplicate (just in case)
     combined_df = pd.concat([combined_df, agg_df], axis=1)
+    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+
+    # put Aggregate‑score block last
     combined_df = combined_df.loc[
-        :,                                     # all rows
+        :,
         sorted(combined_df.columns,
             key=lambda c: (c[0] == "Aggregate score",  # Aggregate last
                             c[0], str(c[1]).lower()))
     ]
+    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
 
+
+    # final ranking
     combined_df = combined_df.sort_values(
         by=("Aggregate score", "Average"), ascending=False
     )
