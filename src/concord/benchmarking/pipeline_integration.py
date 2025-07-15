@@ -1,12 +1,14 @@
 from __future__ import annotations
 import logging
 from typing import Callable, Dict, Iterable, List, Optional
+from ..utils import args_merge
+from .time_memory import MemoryProfiler
 import scanpy as sc
 import pandas as pd
 
-from .time_memory import MemoryProfiler, profiled_run           # ← generic profiler
+from .time_memory import run_and_log
 # local wrappers around the individual methods
-from .integration_methods import (
+from ..utils.integration_methods import (
     run_concord,
     run_scanorama,
     run_liger,
@@ -81,10 +83,7 @@ def expand_product(base: dict,
     return jobs
 
 
-def _merge(defaults: dict, user: dict) -> dict:
-    out = defaults.copy()
-    out.update(user or {})        # user takes precedence
-    return out
+
 
 def run_integration_methods_pipeline(
     adata,                                   # AnnData
@@ -147,160 +146,76 @@ def run_integration_methods_pipeline(
         random_state=seed,
     )
 
-    profiler = MemoryProfiler(device=device)
     time_log: Dict[str, float | None] = {}
     ram_log: Dict[str, float | None] = {}
     vram_log: Dict[str, float | None] = {}
 
-    # helper to run + fill logs ------------------------------------------------
-    def _run_and_log(
-        method_name: str,
-        fn,                      # () -> None
-        *,
-        output_key: str | None = None,
-    ):
-        t, dr, pv = profiled_run(
-            method_name,
+    profiler = MemoryProfiler()
+
+    def _run(method, fn, output_key=None):
+        run_and_log(
+            method,
             fn,
+            adata=adata,
             profiler=profiler,
             logger=logger,
-            compute_umap=compute_umap,
-            adata=adata,
-            output_key=output_key,
-            umap_params=umap_params,
+            compute_umap=False,
+            output_key=output_key or method,
+            time_log=time_log,
+            ram_log=ram_log,
+            vram_log=vram_log,
         )
-        time_log[method_name] = t
-        ram_log[method_name] = dr
-        vram_log[method_name] = pv
 
     ckws = (concord_kwargs or {}).copy()
     out_key = ckws.pop("output_key", None)
 
-    # ------------------------------ CONCORD variants ------------------------
-    if "concord" in methods:
-        key = out_key or "concord"
-        _run_and_log(
-            "concord",
-            lambda: run_concord(
+    concord_variants = {
+        "concord_knn": {
+            "mode": "default",
+            "extra_kwargs": {"p_intra_knn": 0.3, "clr_beta": 0.0},
+        },
+        "concord_hcl": {
+            "mode": "default",
+            "extra_kwargs": {"p_intra_knn": 0.0, "clr_beta": 1.0},
+        },
+        "concord_class": {
+            "mode": "class",
+            "extra_kwargs": {},
+        },
+        "concord_decoder": {
+            "mode": "decoder",
+            "extra_kwargs": {},
+        },
+        "contrastive": {
+            "mode": "naive",
+            "extra_kwargs": {"p_intra_knn": 0.0, "clr_beta": 0.0},
+        },
+    }
+    
+    for method_name, config in concord_variants.items():
+        if method_name not in methods:
+            continue
+
+        _run(
+            method_name,
+            lambda m=method_name, cfg=config: run_concord(
                 adata,
-                batch_key=batch_key,
-                output_key=key,
+                batch_key=batch_key if m != "contrastive" else None,
+                class_key=class_key,
+                output_key=out_key or m,
+                mode=cfg["mode"],
                 return_corrected=return_corrected,
                 device=device,
                 seed=seed,
-                verbose=verbose,
-                **_merge(
-                    dict(latent_dim=latent_dim), 
-                    ckws
+                **args_merge(
+                    dict(latent_dim=latent_dim, verbose=verbose),
+                    cfg["extra_kwargs"],
+                    ckws,  # concord_kwargs user supplied
                 ),
             ),
-            output_key=key,
+            output_key=out_key or method_name,
         )
         
-    if "concord_knn" in methods:
-        key = out_key or "concord_knn"
-        _run_and_log(
-            "concord_knn",
-            lambda: run_concord(
-                adata,
-                batch_key=batch_key,
-                output_key=key,
-                return_corrected=return_corrected,
-                device=device,
-                seed=seed,
-                verbose=verbose,
-                **_merge(
-                 dict(latent_dim=latent_dim, p_intra_knn=0.3, clr_beta=0.0),
-                 ckws
-                ),
-            ),
-            output_key=key,
-        )
-
-    if "concord_hcl" in methods:
-        key = out_key or "concord_hcl"
-        _run_and_log(
-            "concord_hcl",
-            lambda: run_concord(
-                adata,
-                batch_key=batch_key,
-                output_key=key,
-                return_corrected=return_corrected,
-                device=device,
-                seed=seed,
-                verbose=verbose,
-                **_merge(
-                 dict(latent_dim=latent_dim, p_intra_knn=0.0, clr_beta=1.0),
-                 ckws
-                ),
-            ),
-            output_key=key,
-        )
-
-    if "concord_class" in methods:
-        _run_and_log(
-            "concord_class",
-            lambda: run_concord(
-                adata,
-                batch_key=batch_key,
-                class_key=class_key,
-                output_key="concord_class",
-                mode="class",
-                return_corrected=return_corrected,
-                device=device,
-                seed=seed,
-                verbose=verbose,
-                **_merge(
-                    dict(latent_dim=latent_dim), 
-                    ckws
-                ),
-            ),
-            output_key="concord_class",
-        )
-
-    if "concord_decoder" in methods:
-        _run_and_log(
-            "concord_decoder",
-            lambda: run_concord(
-                adata,
-                batch_key=batch_key,
-                class_key=class_key,
-                output_key="concord_decoder",
-                mode="decoder",
-                return_corrected=return_corrected,
-                device=device,
-                seed=seed,
-                verbose=verbose,
-                **_merge(
-                    dict(latent_dim=latent_dim), 
-                    ckws
-                ),
-            ),
-            output_key="concord_decoder",
-        )
-
-    if "contrastive" in methods:
-        _run_and_log(
-            "contrastive",
-            lambda: run_concord(
-                adata,
-                batch_key=None,                # “naive” – ignore batch/domain
-                output_key="contrastive",
-                p_intra_knn=0.0,
-                clr_beta=0.0,
-                mode="naive",
-                return_corrected=return_corrected,
-                device=device,
-                seed=seed,
-                verbose=verbose,
-                **_merge(
-                    dict(latent_dim=latent_dim), 
-                    ckws
-                ),
-            ),
-            output_key="contrastive",
-        )
-
     # ------------------------------ baseline methods ------------------------
     if "unintegrated" in methods:
         if "X_pca" not in adata.obsm:
@@ -318,7 +233,7 @@ def run_integration_methods_pipeline(
             )
 
     if "scanorama" in methods:
-        _run_and_log(
+        _run(
             "scanorama",
             lambda: run_scanorama(
                 adata,
@@ -331,7 +246,7 @@ def run_integration_methods_pipeline(
         )
 
     if "liger" in methods:
-        _run_and_log(
+        _run(
             "liger",
             lambda: run_liger(
                 adata,
@@ -348,7 +263,7 @@ def run_integration_methods_pipeline(
         if "X_pca" not in adata.obsm or adata.obsm["X_pca"].shape[1] < latent_dim:
             logger.info("Running PCA for harmony …")
             sc.tl.pca(adata, n_comps=latent_dim)
-        _run_and_log(
+        _run(
             "harmony",
             lambda: run_harmony(
                 adata,
@@ -381,10 +296,10 @@ def run_integration_methods_pipeline(
             logger.info(f"Saved scVI model to {save_path}")
 
     if "scvi" in methods:
-        _run_and_log("scvi", _train_scvi, output_key="scvi")
+        _run("scvi", _train_scvi, output_key="scvi")
 
     if "scanvi" in methods:
-        _run_and_log(
+        _run(
             "scanvi",
             lambda: run_scanvi(
                 adata,

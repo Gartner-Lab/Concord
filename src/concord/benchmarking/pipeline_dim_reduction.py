@@ -1,137 +1,156 @@
 
-from .time_memory import Timer
+from __future__ import annotations
+import os
+import json
+from typing import Any, Dict, Optional, Iterable
+from .time_memory import MemoryProfiler
+from ..utils import args_merge
+
+import pandas as pd
+from ..utils import (
+    run_pca, run_umap, run_tsne, run_diffusion_map, run_NMF,
+    run_SparsePCA, run_FactorAnalysis, run_FastICA, run_LDA,
+    run_zifa, run_phate, run_concord, run_scvi
+)
+from .time_memory import run_and_log
 from . import logger
 
-
-def safe_run(method_name, func, **kwargs):
-    """Wrapper to safely run a method, time it, and log errors if it fails."""
-    import traceback
-    timer = Timer()
-    try:
-        with timer:
-            func(**kwargs)
-        logger.info(f"{method_name}: Successfully completed in {timer.interval:.2f} seconds.")
-        used_time = timer.interval
-    except Exception as e:
-        logger.warning(f"{method_name}: Failed to run. Error: {str(e)}")
-        print(traceback.format_exc())
-        used_time = None
-    
-    return used_time
 
 
 def run_dimensionality_reduction_pipeline(
     adata,
-    source_key="X",
-    methods=["PCA", "UMAP", "t-SNE", "DiffusionMap", "NMF", "SparsePCA", 
-             "FactorAnalysis", "FastICA", "LDA", "ZIFA", "scVI", "PHATE", 
-             "Concord", "Concord-decoder", "Concord-pknn0"],
-    n_components=10,
-    random_state=42,
-    device="cpu",
-    save_dir="./",
-    concord_epochs=15
+    source_key: str = "X",
+    methods: Iterable[str] = (
+        "PCA", "UMAP", "t-SNE", "DiffusionMap", "NMF",
+        "SparsePCA", "FactorAnalysis", "FastICA", "LDA",
+        "ZIFA", "scVI", "PHATE", "concord", "concord_hcl", "concord_knn"
+    ),
+    n_components: int = 10,
+    seed: int = 42,
+    device: str = "cpu",
+    save_dir: str = "./",
+    concord_kwargs: Optional[Dict[str, Any]] = None,
 ):
-    from ..utils import run_pca, run_umap, run_tsne, run_diffusion_map, run_NMF, run_SparsePCA, \
-    run_FactorAnalysis, run_FastICA, run_LDA, run_zifa, run_phate
-    """
-    Runs multiple dimensionality reduction techniques on an AnnData object.
-    Logs execution time and errors for each method, and saves time log to save_dir.
 
-    Parameters:
-        adata: AnnData
-            Input AnnData object.
-        methods: list
-            List of methods to run.
-        source_key: str
-            The layer or key in adata to use as the source data for methods.
-        n_components: int
-            Number of components to compute for applicable methods.
-        random_state: int
-            Random seed for reproducibility.
-        device: str
-            Device for Concord/scVI computations, e.g., "cpu" or "cuda".
-        save_dir: str
-            Directory to save the time log and Concord model checkpoints.
-        concord_epochs: int
-            Number of epochs to train Concord.
-        concord_min_pid: float
-            Minimum intra-domain probability for Concord.
+    os.makedirs(save_dir, exist_ok=True)
+    ckws = (concord_kwargs or {}).copy()
 
-    Returns:
-        dict: Dictionary of output keys for each method and their execution time.
-    """
-    import os
-    from . import run_scvi
-    from ..concord import Concord
+    time_log: Dict[str, float | None] = {}
+    ram_log: Dict[str, float | None] = {}
+    vram_log: Dict[str, float | None] = {}
 
-    os.makedirs(save_dir, exist_ok=True)  # Ensure save_dir exists
-    time_log = {}
-    seed = random_state
-    
+    profiler = MemoryProfiler()
+
+    def _run(method, fn, output_key=None):
+        run_and_log(
+            method,
+            fn,
+            adata=adata,
+            profiler=profiler,
+            logger=logger,
+            compute_umap=False,
+            output_key=output_key or method,
+            time_log=time_log,
+            ram_log=ram_log,
+            vram_log=vram_log,
+        )
+
     # Core methods
     if "PCA" in methods:
-        time_log['PCA'] = safe_run("PCA", run_pca, adata=adata, source_key=source_key, result_key='PCA', n_pc=n_components, random_state=seed)
+        _run("PCA", lambda: run_pca(adata, source_key=source_key, result_key='PCA', n_pc=n_components, random_state=seed))
 
     if "UMAP" in methods:
-        time_log['UMAP'] = safe_run("UMAP", run_umap, adata=adata, source_key=source_key, result_key='UMAP', random_state=seed)
+        _run("UMAP", lambda: run_umap(adata, source_key=source_key, result_key="UMAP", random_state=seed), output_key="UMAP")
 
     if "t-SNE" in methods:
-        time_log['t-SNE'] = safe_run("t-SNE", run_tsne, adata=adata, source_key=source_key, result_key='tSNE', random_state=seed)
+        _run("t-SNE", lambda: run_tsne(adata, source_key=source_key, result_key="tSNE", random_state=seed), output_key="tSNE")
 
     if "DiffusionMap" in methods:
-        time_log['DiffusionMap'] = safe_run("DiffusionMap", run_diffusion_map, adata=adata, source_key=source_key, n_neighbors=15, n_components=n_components, result_key='DiffusionMap', seed=seed)
+        _run("DiffusionMap", lambda: run_diffusion_map(adata, source_key=source_key, n_neighbors=15, n_components=n_components, result_key="DiffusionMap", seed=seed), output_key="DiffusionMap")
 
     if "NMF" in methods:
-        time_log['NMF'] = safe_run("NMF", run_NMF, adata=adata, source_key=source_key, n_components=n_components, result_key='NMF', seed=seed)
+        _run("NMF", lambda: run_NMF(adata, source_key=source_key, n_components=n_components, result_key="NMF", seed=seed), output_key="NMF")
 
     if "SparsePCA" in methods:
-        time_log['SparsePCA'] = safe_run("SparsePCA", run_SparsePCA, adata=adata, source_key=source_key, n_components=n_components, result_key='SparsePCA', seed=seed)
+        _run("SparsePCA", lambda: run_SparsePCA(adata, source_key=source_key, n_components=n_components, result_key="SparsePCA", seed=seed), output_key="SparsePCA")
 
     if "FactorAnalysis" in methods:
-        time_log['FactorAnalysis'] = safe_run("FactorAnalysis", run_FactorAnalysis, adata=adata, source_key=source_key, n_components=n_components, result_key='FactorAnalysis', seed=seed)
+        _run("FactorAnalysis", lambda: run_FactorAnalysis(adata, source_key=source_key, n_components=n_components, result_key="FactorAnalysis", seed=seed), output_key="FactorAnalysis")
 
     if "FastICA" in methods:
-        time_log['FastICA'] = safe_run("FastICA", run_FastICA, adata=adata, source_key=source_key, result_key='FastICA', n_components=n_components, seed=seed)
+        _run("FastICA", lambda: run_FastICA(adata, source_key=source_key, result_key="FastICA", n_components=n_components, seed=seed), output_key="FastICA")
 
     if "LDA" in methods:
-        time_log['LDA'] = safe_run("LDA", run_LDA, adata=adata, source_key=source_key, result_key='LDA', n_components=n_components, seed=seed)
+        _run("LDA", lambda: run_LDA(adata, source_key=source_key, result_key="LDA", n_components=n_components, seed=seed), output_key="LDA")
 
     if "ZIFA" in methods:
-        time_log['ZIFA'] = safe_run("ZIFA", run_zifa, adata=adata, source_key=source_key, log=True, result_key='ZIFA', n_components=n_components)
+        _run("ZIFA", lambda: run_zifa(adata, source_key=source_key, log=True, result_key="ZIFA", n_components=n_components), output_key="ZIFA")
 
     if "scVI" in methods:
-        time_log['scVI'] = safe_run("scVI", run_scvi, adata=adata, batch_key=None, output_key='scVI', return_model=False, return_corrected=False, transform_batch=None)
+        _run("scVI", lambda: run_scvi(adata, batch_key=None, output_key="scVI", return_model=False, return_corrected=False, transform_batch=None), output_key="scVI")
 
     if "PHATE" in methods:
-        time_log['PHATE'] = safe_run("PHATE", run_phate, adata=adata, layer=source_key, n_components=2, result_key='PHATE', seed=seed)
+        _run("PHATE", lambda: run_phate(adata, layer=source_key, n_components=2, result_key="PHATE", seed=seed), output_key="PHATE")
 
-    # Concord methods
-    concord_args = {
-        'adata': adata,
-        'input_feature': None,
-        'latent_dim': n_components,
-        'n_epochs': concord_epochs,
-        'domain_key': None,
-        'seed': seed,
-        'device': device,
-        'save_dir': save_dir
+
+    concord_variants = {
+        "concord_knn": {
+            "mode": "default",
+            "extra_kwargs": {"p_intra_knn": 0.3, "clr_beta": 0.0},
+        },
+        "concord_hcl": {
+            "mode": "default",
+            "extra_kwargs": {"p_intra_knn": 0.0, "clr_beta": 1.0},
+        },
+        "concord_class": {
+            "mode": "class",
+            "extra_kwargs": {},
+        },
+        "concord_decoder": {
+            "mode": "decoder",
+            "extra_kwargs": {},
+        },
+        "contrastive": {
+            "mode": "naive",
+            "extra_kwargs": {"p_intra_knn": 0.0, "clr_beta": 0.0},
+        },
     }
-    if "Concord" in methods:
-        time_log['Concord'] = safe_run("Concord", Concord(use_decoder=False, **concord_args).fit_transform, output_key='Concord')
+    
+    for method_name, config in concord_variants.items():
+        if method_name not in methods:
+            logger.warning(f"Skipping {method_name} as it is not in the methods list.")
+            continue
+        
+        logger.info(f"Running {method_name} with configuration: {config}")
+        _run(
+            method_name,
+            lambda m=method_name, cfg=config: run_concord(
+                adata,
+                batch_key=None,
+                output_key=m,
+                mode=cfg["mode"],
+                device=device,
+                seed=seed,
+                **args_merge(
+                    dict(latent_dim=n_components),
+                    cfg["extra_kwargs"],
+                    ckws,  # concord_kwargs user supplied
+                ),
+            ),
+            output_key=method_name,
+        )
 
-    if "Concord-decoder" in methods:
-        time_log['Concord-decoder'] = safe_run("Concord-decoder", Concord(use_decoder=True, **concord_args).fit_transform, output_key='Concord-decoder')
-
-    if "Concord-pknn0" in methods:
-        time_log['Concord-pknn0'] = safe_run("Concord-pknn0", Concord(use_decoder=False, p_intra_knn=0.0, **concord_args).fit_transform, output_key='Concord-pknn0')
-    # Save the time log
+    # ------------------------ Save results ------------------------
     time_log_path = os.path.join(save_dir, "dimensionality_reduction_timelog.json")
     with open(time_log_path, "w") as f:
-        import json
-        json.dump(time_log, f, indent=4)
-    logger.info(f"Time log saved to: {time_log_path}")
+        json.dump({"time_sec": time_log, "ram_MB": ram_log, "vram_MB": vram_log}, f, indent=4)
+    logger.info(f"📝 Time log saved to {time_log_path}")
 
-    return time_log
+    return pd.DataFrame({
+        "time_sec": pd.Series(time_log),
+        "ram_MB": pd.Series(ram_log),
+        "vram_MB": pd.Series(vram_log),
+    }).sort_index()
+
 
 
