@@ -8,6 +8,7 @@ from typing import Sequence, Mapping, Literal, Optional
 import numpy as np
 import pandas as pd
 import pickle
+import re
 
 from ..plotting import plot_benchmark_table
 from .tda import compute_persistent_homology
@@ -706,7 +707,7 @@ def run_probe_benchmark(adata,
                         *,
                         embedding_keys: Sequence[str],
                         state_key = "state",
-                        batch_key = "batch",
+                        #batch_key = "batch",
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
                         rank: bool = True,
                         save_table: Optional[Path] = None,
@@ -720,8 +721,8 @@ def run_probe_benchmark(adata,
     key_name_mapping = {}
     if state_key is not None:
         key_name_mapping["state"] = state_key
-    if batch_key is not None:
-        key_name_mapping["batch"] = batch_key
+    # if batch_key is not None:
+    #     key_name_mapping["batch"] = batch_key
     linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
@@ -731,10 +732,10 @@ def run_probe_benchmark(adata,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
-        # invert batch accuracy by 1-acc
-        if key == 'batch':
-            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
-            linear_res[key].drop(columns=["accuracy"], inplace=True)
+        # # invert batch accuracy by 1-acc
+        # if key == 'batch':
+        #     linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
+        #     linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
@@ -744,10 +745,10 @@ def run_probe_benchmark(adata,
             adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
-        # invert batch accuracy by 1-acc
-        if key == 'batch':
-            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
-            knn_res[key].drop(columns=["accuracy"], inplace=True)
+        # # invert batch accuracy by 1-acc
+        # if key == 'batch':
+        #     knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
+        #     knn_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
@@ -960,7 +961,7 @@ def run_benchmark_pipeline(
             adata,
             embedding_keys=embedding_keys,
             state_key=state_key,
-            batch_key=batch_key,
+            #batch_key=batch_key,
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,
@@ -1011,21 +1012,62 @@ def run_benchmark_pipeline(
                 df[("Aggregate score", "Topology")] = df[("Topology", "Score")]
                 df.drop(columns=[("Topology", "Score")], inplace=True)
             elif block == "probe":
-                df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
-                df.drop(columns=[("Probe", "Score")], inplace=True)
+                #df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
+                keep = [
+                    c for c in df.columns
+                    if re.search(r"state\s*accuracy", c[1], flags=re.I)   # \s matches space, tab, newline
+                ]
+                df = df[keep]
+                df.columns = pd.MultiIndex.from_tuples(
+                    [("Bio conservation",
+                    "KNN state accuracy"    if c[0] == "KNN"    else
+                    "Linear state accuracy" if c[0] == "Linear" else c[1])
+                    for c in keep]
+                )
             elif block == "scib":
+                drop = [c for c in df.columns
+                if c[0] == "Bio conservation"
+                    and re.search(r"KMeans .*", c[1], flags=re.I)]
+                df.drop(columns=drop, inplace=True, errors="ignore")
+                # strip the SCIB aggregate – you'll rebuild later
                 df.drop(columns=[("Aggregate score", "Total")], inplace=True)
+
             to_concat.append(df)
 
     combined_df = pd.concat(to_concat, axis=1)
-    combined_df = move_aggregate_last(combined_df, "Aggregate score")
 
-    # Average aggregate
-    agg_cols = combined_df.columns[combined_df.columns.get_level_values(0)
-                                    == "Aggregate score"]
-    combined_df[("Aggregate score", "Average")] = combined_df[agg_cols].mean(axis=1)
+    def _mean_numeric(sub):
+        return sub.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
+
+    agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
+                if g != "Aggregate score"]
+
+    # build a *flat* 2‑level MultiIndex directly
+    agg_df = pd.concat(
+        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
+            .rename(("Aggregate score", g))
+        for g in agg_groups],
+        axis=1
+    )
+
+    # attach and de‑duplicate (just in case)
+    combined_df = pd.concat([combined_df, agg_df], axis=1)
+    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+
+    # put Aggregate‑score block last
+    combined_df = combined_df.loc[
+        :,
+        sorted(combined_df.columns,
+            key=lambda c: (c[0] == "Aggregate score",  # Aggregate last
+                            c[0], str(c[1]).lower()))
+    ]
+    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+
+    # final ranking
     combined_df = combined_df.sort_values(
-        by=("Aggregate score", "Average"), ascending=False)
+        by=("Aggregate score", "Average"), ascending=False
+    )
 
     results["combined"] = combined_df
 

@@ -39,7 +39,7 @@ def run_dimensionality_reduction_pipeline(
     ram_log: Dict[str, float | None] = {}
     vram_log: Dict[str, float | None] = {}
 
-    profiler = MemoryProfiler()
+    profiler = MemoryProfiler(device=device)
 
     def _run(method, fn, output_key=None):
         run_and_log(
