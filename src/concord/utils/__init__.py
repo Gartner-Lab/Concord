@@ -10,6 +10,7 @@ from .value_check import *
 from .cell_cycle import *
 from .Hs_Mm_conversion import *
 from .dim_reduction import *
+from .integration_methods import *
 from .coverage_estimator import *
 from .feature_selector import *
 from .estimate_dropout_rate import *
