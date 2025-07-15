@@ -6,6 +6,7 @@ import psutil
 import resource
 import gc
 import logging
+from ..utils import args_merge
 from typing import Any, Callable, Dict, Tuple
 
 try:
@@ -149,3 +150,33 @@ def profiled_run(
             logger.error("❌ UMAP for %s failed: %s", output_key, exc)
 
     return t.interval, delta_ram, peak_vram
+
+
+
+def run_and_log(
+    method_name: str,
+    fn,                      # () -> None
+    *,
+    adata,
+    profiler,
+    logger,
+    compute_umap: bool,
+    output_key: str | None = None,
+    umap_params: dict = {},
+    time_log: dict = None,
+    ram_log: dict = None,
+    vram_log: dict = None,
+):
+    t, dr, pv = profiled_run(
+        method_name,
+        fn,
+        profiler=profiler,
+        logger=logger,
+        compute_umap=compute_umap,
+        adata=adata,
+        output_key=output_key,
+        umap_params=umap_params,
+    )
+    if time_log is not None: time_log[method_name] = t
+    if ram_log  is not None: ram_log[method_name]  = dr
+    if vram_log is not None: vram_log[method_name] = pv

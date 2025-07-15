@@ -44,3 +44,14 @@ def sort_string_list(string_list):
 
 
 
+
+def args_merge(*dicts: dict) -> dict:
+    """
+    Merge multiple dictionaries left to right, with later dicts overriding earlier ones.
+    Accepts any number of dictionaries.
+    """
+    out = {}
+    for d in dicts:
+        if d:
+            out.update(d)
+    return out

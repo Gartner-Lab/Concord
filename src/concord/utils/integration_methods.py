@@ -157,6 +157,7 @@ def run_concord(
     device: str = "cpu",
     n_epochs: int | None = None,  
     save_dir: str | None = None,
+    load_data_into_memory: bool = False,
     verbose: bool = False,
     return_corrected: bool = False,
     # ------------------------------------------------- convenience optionals
@@ -217,6 +218,7 @@ def run_concord(
         "sampler_knn":           sampler_knn,
         "lr":                    lr,
         "dropout_prob":          dropout_prob,
+        "load_data_into_memory": load_data_into_memory,
     }
     kwargs.update({k: v for k, v in optional_params.items() if v is not None})
 
@@ -228,3 +230,5 @@ def run_concord(
     model = Concord(**kwargs)
     model.fit_transform(output_key=output_key, return_decoded=return_corrected)
     return model            # handy if caller wants the trained model
+
+
