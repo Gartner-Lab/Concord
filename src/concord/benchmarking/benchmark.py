@@ -624,18 +624,6 @@ def probe_dict_to_df(results: dict,
 
 
 
-
-# ------------------------------------------------------------------ #
-#  Utility: keep Aggregate-score blocks at the end
-# ------------------------------------------------------------------ #
-def move_aggregate_last(df: pd.DataFrame,
-                        outer_name: str = "Aggregate score") -> pd.DataFrame:
-    outer = df.columns.get_level_values(0)
-    is_agg = outer == outer_name
-    new_cols = list(df.columns[~is_agg]) + list(df.columns[is_agg])
-    return df[new_cols]
-
-
 # ------------------------------------------------------------------ #
 #  1. SCIB benchmark
 # ------------------------------------------------------------------ #
@@ -653,13 +641,22 @@ def run_scib_benchmark(adata,
         Benchmarker, BioConservation, BatchCorrection,
     )
 
+    bio_metrics = BioConservation(
+        nmi_ari_cluster_labels_leiden=True,   # ← ENABLE Leiden version
+        nmi_ari_cluster_labels_kmeans=False,  #   (optional) disable K‑means version
+        # you can still keep / toggle the others:
+        isolated_labels=True,
+        silhouette_label=True,
+        clisi_knn=True,
+    )
+
     bm = Benchmarker(
         adata,
         batch_key=batch_key,
         label_key=state_key,
         embedding_obsm_keys=list(embedding_keys),
         n_jobs=n_jobs,
-        bio_conservation_metrics=BioConservation(),
+        bio_conservation_metrics=bio_metrics,
         batch_correction_metrics=BatchCorrection(),
     )
     bm.benchmark()
@@ -909,6 +906,117 @@ def run_geometry_benchmark(adata,
     return geom_scores
 
 
+
+def combine_benchmark_results(
+        results: dict[str, pd.DataFrame],
+        *,
+        block_order: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
+        plot: bool = False,
+        save_path: Optional[Path] = None,
+        table_plot_kw: Optional[dict] = None
+) -> pd.DataFrame:
+    """
+    Standardises, concatenates and re‑aggregates individual benchmark blocks.
+
+    Parameters
+    ----------
+    results       dict returned by run_benchmark_pipeline (or similar)
+                  containing any subset of {"geometry","topology","scib","probe"}.
+    block_order   order in which the blocks should be concatenated.
+    plot          if True, render a combined heat‑map via plot_benchmark_table.
+    save_path     optional PDF/PNG path for the combined plot.
+    table_plot_kw kwargs forwarded to plot_benchmark_table.
+
+    Returns
+    -------
+    combined_df   two‑level MultiIndex DataFrame with a freshly computed
+                  ("Aggregate score", <sub‑group>) for each metric family plus
+                  ("Aggregate score","Average") as the right‑most column.
+    """
+    table_plot_kw = table_plot_kw or {}
+    to_concat = []
+
+    # ---------- helpers ----------------------------------------------------
+    def _mean_numeric(df):
+        return df.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
+
+    # ---------- iterate over blocks ---------------------------------------
+    for block in block_order:
+        if block not in results:
+            continue
+
+        df = results[block].copy()
+
+        if block == "geometry":
+            df[("Aggregate score", "Geometry")] = df.pop(("Geometry", "Score"))
+
+        elif block == "topology":
+            df[("Aggregate score", "Topology")] = df.pop(("Topology", "Score"))
+
+        elif block == "probe":
+            # keep only KNN / Linear state‑accuracy, remap under Bio conservation
+            keep = [c for c in df.columns
+                    if "state" in c[1].lower() and "accuracy" in c[1].lower()]
+            df = df[keep]
+            df.columns = pd.MultiIndex.from_tuples(
+                [("Bio conservation",
+                  "KNN state accuracy"    if c[0] == "KNN"
+                  else "Linear state accuracy") for c in keep]
+            )
+
+        elif block == "scib":
+            # drop KMeans NMI/ARI & SCIB’s own aggregate
+            drop = [c for c in df.columns
+                    if c[0] == "Bio conservation"
+                    and re.search(r"KMeans\s", c[1])]
+            df.drop(columns=drop, inplace=True, errors="ignore")
+            df.drop(columns=[("Aggregate score", "Total")],
+                    inplace=True, errors="ignore")
+
+        to_concat.append(df)
+
+    # ---------- stitch tables together ------------------------------------
+    combined_df = pd.concat(to_concat, axis=1)
+
+    # ---------- per‑family aggregate means --------------------------------
+    agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
+                  if g != "Aggregate score"]
+
+    agg_df = pd.concat(
+        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
+            .rename(("Aggregate score", g))
+         for g in agg_groups],
+        axis=1
+    )
+    combined_df = pd.concat([combined_df, agg_df], axis=1)
+
+    # ---------- overall average (added *after* ordering so it is last) ----
+    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+    combined_df = combined_df.loc[
+        :,
+        sorted(combined_df.columns,
+               key=lambda c: (c[0] == "Aggregate score",
+                              c[0], str(c[1]).lower()))
+    ]
+    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+    # ---------- ranking ----------------------------------------------------
+    combined_df = combined_df.sort_values(
+        by=("Aggregate score", "Average"), ascending=False
+    )
+
+    # ---------- optional plot ---------------------------------------------
+    if plot:
+        plot_benchmark_table(
+            combined_df,
+            save_path=save_path,
+            agg_name="Aggregate score",
+            figsize=(max(8, 1.5 * len(combined_df.columns)), 7),
+            **table_plot_kw
+        )
+
+    return combined_df
+
 # ------------------------------------------------------------------ #
 #  5. Master pipeline
 # ------------------------------------------------------------------ #
@@ -998,89 +1106,16 @@ def run_benchmark_pipeline(
                     plot_kw=table_plot_kw
                 )
 
-    # ------------------------------------------------------------------
-    #  Combine selected results
-    # ------------------------------------------------------------------
-    to_concat = []
-    for block in ("geometry", "topology", "scib", "probe"):
-        if block in results:
-            df = results[block].copy()
-            if block == "geometry":
-                df[("Aggregate score", "Geometry")] = df[("Geometry", "Score")]
-                df.drop(columns=[("Geometry", "Score")], inplace=True)
-            elif block == "topology":
-                df[("Aggregate score", "Topology")] = df[("Topology", "Score")]
-                df.drop(columns=[("Topology", "Score")], inplace=True)
-            elif block == "probe":
-                #df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
-                keep = [
-                    c for c in df.columns
-                    if re.search(r"state\s*accuracy", c[1], flags=re.I)   # \s matches space, tab, newline
-                ]
-                df = df[keep]
-                df.columns = pd.MultiIndex.from_tuples(
-                    [("Bio conservation",
-                    "KNN state accuracy"    if c[0] == "KNN"    else
-                    "Linear state accuracy" if c[0] == "Linear" else c[1])
-                    for c in keep]
-                )
-            elif block == "scib":
-                drop = [c for c in df.columns
-                if c[0] == "Bio conservation"
-                    and re.search(r"KMeans .*", c[1], flags=re.I)]
-                df.drop(columns=drop, inplace=True, errors="ignore")
-                # strip the SCIB aggregate – you'll rebuild later
-                df.drop(columns=[("Aggregate score", "Total")], inplace=True)
-
-            to_concat.append(df)
-
-    combined_df = pd.concat(to_concat, axis=1)
-
-    def _mean_numeric(sub):
-        return sub.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
-
-    agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
-                if g != "Aggregate score"]
-
-    # build a *flat* 2‑level MultiIndex directly
-    agg_df = pd.concat(
-        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
-            .rename(("Aggregate score", g))
-        for g in agg_groups],
-        axis=1
+    combined_df = combine_benchmark_results(
+        results,
+        block_order=("geometry", "topology", "scib", "probe"),
+        plot=combine_plots,
+        save_path=save_dir / f"combined_res_{file_suffix}.pdf",
+        table_plot_kw=table_plot_kw,
     )
-
-    # attach and de‑duplicate (just in case)
-    combined_df = pd.concat([combined_df, agg_df], axis=1)
-    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
-
-    # put Aggregate‑score block last
-    combined_df = combined_df.loc[
-        :,
-        sorted(combined_df.columns,
-            key=lambda c: (c[0] == "Aggregate score",  # Aggregate last
-                            c[0], str(c[1]).lower()))
-    ]
-    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
-
-
-    # final ranking
-    combined_df = combined_df.sort_values(
-        by=("Aggregate score", "Average"), ascending=False
-    )
-
     results["combined"] = combined_df
-
-    if combine_plots:
-        plot_benchmark_table(
-            combined_df,
-            save_path=save_dir / f"combined_res_{file_suffix}.pdf",
-            agg_name="Aggregate score",
-            figsize=(max(8, 1.5 * len(combined_df.columns)), 7),
-            **table_plot_kw
-        )
-
     return results
+
 
 
 
