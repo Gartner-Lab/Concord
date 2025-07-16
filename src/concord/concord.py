@@ -741,11 +741,11 @@ class Concord:
         )
         
         # --- 4. SAVE RESULTS ---
-        self._add_results_to_adata(self.adata, results_tuple, output_key, decoder_domain=decoder_domain)
+        #self._add_results_to_adata(self.adata, results_tuple, output_key, decoder_domain=decoder_domain)
 
-        if self.copy_adata:
-            logger.info("Copying results back to the original AnnData object.")
-            self._add_results_to_adata(self._adata_original, results_tuple, output_key, decoder_domain=decoder_domain)
+        # if self.copy_adata:
+        #     logger.info("Copying results back to the original AnnData object.")
+        self._add_results_to_adata(self._adata_original, results_tuple, output_key, decoder_domain=decoder_domain)
             
 
     def get_domain_embeddings(self):
