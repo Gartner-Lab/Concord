@@ -8,6 +8,7 @@ from typing import Sequence, Mapping, Literal, Optional
 import numpy as np
 import pandas as pd
 import pickle
+import re
 
 from ..plotting import plot_benchmark_table
 from .tda import compute_persistent_homology
@@ -623,18 +624,6 @@ def probe_dict_to_df(results: dict,
 
 
 
-
-# ------------------------------------------------------------------ #
-#  Utility: keep Aggregate-score blocks at the end
-# ------------------------------------------------------------------ #
-def move_aggregate_last(df: pd.DataFrame,
-                        outer_name: str = "Aggregate score") -> pd.DataFrame:
-    outer = df.columns.get_level_values(0)
-    is_agg = outer == outer_name
-    new_cols = list(df.columns[~is_agg]) + list(df.columns[is_agg])
-    return df[new_cols]
-
-
 # ------------------------------------------------------------------ #
 #  1. SCIB benchmark
 # ------------------------------------------------------------------ #
@@ -652,13 +641,22 @@ def run_scib_benchmark(adata,
         Benchmarker, BioConservation, BatchCorrection,
     )
 
+    bio_metrics = BioConservation(
+        nmi_ari_cluster_labels_leiden=True,   # ← ENABLE Leiden version
+        nmi_ari_cluster_labels_kmeans=False,  #   (optional) disable K‑means version
+        # you can still keep / toggle the others:
+        isolated_labels=True,
+        silhouette_label=True,
+        clisi_knn=True,
+    )
+
     bm = Benchmarker(
         adata,
         batch_key=batch_key,
         label_key=state_key,
         embedding_obsm_keys=list(embedding_keys),
         n_jobs=n_jobs,
-        bio_conservation_metrics=BioConservation(),
+        bio_conservation_metrics=bio_metrics,
         batch_correction_metrics=BatchCorrection(),
     )
     bm.benchmark()
@@ -706,7 +704,7 @@ def run_probe_benchmark(adata,
                         *,
                         embedding_keys: Sequence[str],
                         state_key = "state",
-                        batch_key = "batch",
+                        #batch_key = "batch",
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
                         rank: bool = True,
                         save_table: Optional[Path] = None,
@@ -720,8 +718,8 @@ def run_probe_benchmark(adata,
     key_name_mapping = {}
     if state_key is not None:
         key_name_mapping["state"] = state_key
-    if batch_key is not None:
-        key_name_mapping["batch"] = batch_key
+    # if batch_key is not None:
+    #     key_name_mapping["batch"] = batch_key
     linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
@@ -731,10 +729,10 @@ def run_probe_benchmark(adata,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
-        # invert batch accuracy by 1-acc
-        if key == 'batch':
-            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
-            linear_res[key].drop(columns=["accuracy"], inplace=True)
+        # # invert batch accuracy by 1-acc
+        # if key == 'batch':
+        #     linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
+        #     linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
@@ -744,10 +742,10 @@ def run_probe_benchmark(adata,
             adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
-        # invert batch accuracy by 1-acc
-        if key == 'batch':
-            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
-            knn_res[key].drop(columns=["accuracy"], inplace=True)
+        # # invert batch accuracy by 1-acc
+        # if key == 'batch':
+        #     knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
+        #     knn_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
@@ -908,6 +906,117 @@ def run_geometry_benchmark(adata,
     return geom_scores
 
 
+
+def combine_benchmark_results(
+        results: dict[str, pd.DataFrame],
+        *,
+        block_order: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
+        plot: bool = False,
+        save_path: Optional[Path] = None,
+        table_plot_kw: Optional[dict] = None
+) -> pd.DataFrame:
+    """
+    Standardises, concatenates and re‑aggregates individual benchmark blocks.
+
+    Parameters
+    ----------
+    results       dict returned by run_benchmark_pipeline (or similar)
+                  containing any subset of {"geometry","topology","scib","probe"}.
+    block_order   order in which the blocks should be concatenated.
+    plot          if True, render a combined heat‑map via plot_benchmark_table.
+    save_path     optional PDF/PNG path for the combined plot.
+    table_plot_kw kwargs forwarded to plot_benchmark_table.
+
+    Returns
+    -------
+    combined_df   two‑level MultiIndex DataFrame with a freshly computed
+                  ("Aggregate score", <sub‑group>) for each metric family plus
+                  ("Aggregate score","Average") as the right‑most column.
+    """
+    table_plot_kw = table_plot_kw or {}
+    to_concat = []
+
+    # ---------- helpers ----------------------------------------------------
+    def _mean_numeric(df):
+        return df.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
+
+    # ---------- iterate over blocks ---------------------------------------
+    for block in block_order:
+        if block not in results:
+            continue
+
+        df = results[block].copy()
+
+        if block == "geometry":
+            df[("Aggregate score", "Geometry")] = df.pop(("Geometry", "Score"))
+
+        elif block == "topology":
+            df[("Aggregate score", "Topology")] = df.pop(("Topology", "Score"))
+
+        elif block == "probe":
+            # keep only KNN / Linear state‑accuracy, remap under Bio conservation
+            keep = [c for c in df.columns
+                    if "state" in c[1].lower() and "accuracy" in c[1].lower()]
+            df = df[keep]
+            df.columns = pd.MultiIndex.from_tuples(
+                [("Bio conservation",
+                  "KNN state accuracy"    if c[0] == "KNN"
+                  else "Linear state accuracy") for c in keep]
+            )
+
+        elif block == "scib":
+            # drop KMeans NMI/ARI & SCIB’s own aggregate
+            drop = [c for c in df.columns
+                    if c[0] == "Bio conservation"
+                    and re.search(r"KMeans\s", c[1])]
+            df.drop(columns=drop, inplace=True, errors="ignore")
+            df.drop(columns=[("Aggregate score", "Total")],
+                    inplace=True, errors="ignore")
+
+        to_concat.append(df)
+
+    # ---------- stitch tables together ------------------------------------
+    combined_df = pd.concat(to_concat, axis=1)
+
+    # ---------- per‑family aggregate means --------------------------------
+    agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
+                  if g != "Aggregate score"]
+
+    agg_df = pd.concat(
+        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
+            .rename(("Aggregate score", g))
+         for g in agg_groups],
+        axis=1
+    )
+    combined_df = pd.concat([combined_df, agg_df], axis=1)
+
+    # ---------- overall average (added *after* ordering so it is last) ----
+    combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+    combined_df = combined_df.loc[
+        :,
+        sorted(combined_df.columns,
+               key=lambda c: (c[0] == "Aggregate score",
+                              c[0], str(c[1]).lower()))
+    ]
+    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+    # ---------- ranking ----------------------------------------------------
+    combined_df = combined_df.sort_values(
+        by=("Aggregate score", "Average"), ascending=False
+    )
+
+    # ---------- optional plot ---------------------------------------------
+    if plot:
+        plot_benchmark_table(
+            combined_df,
+            save_path=save_path,
+            agg_name="Aggregate score",
+            figsize=(max(8, 1.5 * len(combined_df.columns)), 7),
+            **table_plot_kw
+        )
+
+    return combined_df
+
 # ------------------------------------------------------------------ #
 #  5. Master pipeline
 # ------------------------------------------------------------------ #
@@ -960,7 +1069,7 @@ def run_benchmark_pipeline(
             adata,
             embedding_keys=embedding_keys,
             state_key=state_key,
-            batch_key=batch_key,
+            #batch_key=batch_key,
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,
@@ -997,48 +1106,16 @@ def run_benchmark_pipeline(
                     plot_kw=table_plot_kw
                 )
 
-    # ------------------------------------------------------------------
-    #  Combine selected results
-    # ------------------------------------------------------------------
-    to_concat = []
-    for block in ("geometry", "topology", "scib", "probe"):
-        if block in results:
-            df = results[block].copy()
-            if block == "geometry":
-                df[("Aggregate score", "Geometry")] = df[("Geometry", "Score")]
-                df.drop(columns=[("Geometry", "Score")], inplace=True)
-            elif block == "topology":
-                df[("Aggregate score", "Topology")] = df[("Topology", "Score")]
-                df.drop(columns=[("Topology", "Score")], inplace=True)
-            elif block == "probe":
-                df[("Aggregate score", "Probe")] = df[("Probe", "Score")]
-                df.drop(columns=[("Probe", "Score")], inplace=True)
-            elif block == "scib":
-                df.drop(columns=[("Aggregate score", "Total")], inplace=True)
-            to_concat.append(df)
-
-    combined_df = pd.concat(to_concat, axis=1)
-    combined_df = move_aggregate_last(combined_df, "Aggregate score")
-
-    # Average aggregate
-    agg_cols = combined_df.columns[combined_df.columns.get_level_values(0)
-                                    == "Aggregate score"]
-    combined_df[("Aggregate score", "Average")] = combined_df[agg_cols].mean(axis=1)
-    combined_df = combined_df.sort_values(
-        by=("Aggregate score", "Average"), ascending=False)
-
+    combined_df = combine_benchmark_results(
+        results,
+        block_order=("geometry", "topology", "scib", "probe"),
+        plot=combine_plots,
+        save_path=save_dir / f"combined_res_{file_suffix}.pdf",
+        table_plot_kw=table_plot_kw,
+    )
     results["combined"] = combined_df
-
-    if combine_plots:
-        plot_benchmark_table(
-            combined_df,
-            save_path=save_dir / f"combined_res_{file_suffix}.pdf",
-            agg_name="Aggregate score",
-            figsize=(max(8, 1.5 * len(combined_df.columns)), 7),
-            **table_plot_kw
-        )
-
     return results
+
 
 
 
