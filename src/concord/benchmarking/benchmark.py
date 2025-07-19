@@ -203,11 +203,10 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
 
     entropy_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Entropy']]
     average_entropy = entropy_columns.mean(axis=1)
-    variance_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Variance']]
-    average_variance = variance_columns.mean(axis=1)
-    final_metrics = pd.concat([average_entropy, average_variance], axis=1)
-    final_metrics.columns = pd.MultiIndex.from_tuples([('Betti curve', 'Entropy'), ('Betti curve', 'Variance')])
-    final_metrics[('Betti number', 'L1 distance')] = distance_metrics_df['L1 Distance']
+    # variance_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Variance']]
+    # average_variance = variance_columns.mean(axis=1)
+    final_metrics = pd.DataFrame(average_entropy, columns=pd.MultiIndex.from_tuples([('Topology', 'Betti curve Entropy')]))
+    final_metrics[('Topology', 'Betti number L1')] = distance_metrics_df['L1 Distance']
     results['combined_metrics'] = final_metrics
 
     if save_dir is not None and file_suffix is not None:
@@ -452,11 +451,10 @@ def benchmark_geometry(adata, keys,
     
 
 def simplify_geometry_benchmark_table(df):
-    # Simplify the dataframe by computing average for each metric
     if "Cell distance correlation" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "Cell distance correlation")] = df["Cell distance correlation"][
-            ["pearsonr(cd)", "spearmanr(cd)", "kendalltau(cd)"]
-        ].mean(axis=1)
+        df[("Geometry", "Cell distance correlation")] = df["Cell distance correlation"][
+            ["pearsonr(cd)"]#, "spearmanr(cd)", "kendalltau(cd)"]
+        ]#.mean(axis=1)
 
         df.drop(
             columns=[
@@ -466,21 +464,23 @@ def simplify_geometry_benchmark_table(df):
                 ("Cell distance correlation", "Local spearmanr"),
                 ("Cell distance correlation", "Distal spearmanr")
             ],
-            inplace=True
+            inplace=True,
+            errors="ignore"
         )
 
     if "Trustworthiness" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "Trustworthiness")] = df["Trustworthiness"][["Mean"]]
+        df[("Geometry", "Trustworthiness")] = df["Trustworthiness"][["Mean"]]
         df.drop(
             columns=[
                 ("Trustworthiness", "Decay"),
                 ("Trustworthiness", "Mean")
             ],
-            inplace=True
+            inplace=True, 
+            errors="ignore"
         )
 
     if "State distance" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "State distance correlation")] = df["State distance"][
+        df[("Geometry", "State distance correlation")] = df["State distance"][
             ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
         ].mean(axis=1)
         df.drop(
@@ -489,20 +489,22 @@ def simplify_geometry_benchmark_table(df):
                 ("State distance", "spearmanr(sd)"),
                 ("State distance", "kendalltau(sd)"),
             ],
-            inplace=True
+            inplace=True,
+            errors="ignore"
         )
 
     if "Dispersion" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "State dispersion correlation")] = df["Dispersion"][
-            ["pearsonr(sv)", "spearmanr(sv)", "kendalltau(sv)"]
-        ].mean(axis=1)
+        df[("Geometry", "State dispersion correlation")] = df["Dispersion"][
+            ["pearsonr(sv)"]#, "spearmanr(sv)", "kendalltau(sv)"]
+        ]#.mean(axis=1)
         df.drop(
             columns=[
                 ("Dispersion", "pearsonr(sv)"),
                 ("Dispersion", "spearmanr(sv)"),
                 ("Dispersion", "kendalltau(sv)"),
             ],
-            inplace=True
+            inplace=True,
+            errors="ignore"
         )
     return df
 
@@ -813,8 +815,8 @@ def run_topology_benchmark(adata,
     topo_df = topo_res["combined_metrics"]
 
     # cap very large distances
-    topo_df[("Betti number", "L1 distance")] = topo_df[
-        ("Betti number", "L1 distance")
+    topo_df[("Topology", "Betti number L1")] = topo_df[
+        ("Topology", "Betti number L1")
     ].clip(upper=5)
 
     # score + rank
@@ -856,10 +858,9 @@ def run_geometry_benchmark(adata,
                            plot_kw: Optional[dict] = None,
                            save_dir: Optional[Path] = None,
                            file_suffix: str = ""):
-    bm_keys = [groundtruth_key, "wt_noise"] + list(embedding_keys)
     geom_df, geom_full = benchmark_geometry(
         adata,
-        keys=bm_keys,
+        keys=embedding_keys,
         eval_metrics=geometry_metrics,
         dist_metric=dist_metric,
         corr_types=corr_types,
@@ -873,7 +874,7 @@ def run_geometry_benchmark(adata,
         save_dir=save_dir,
         file_suffix=file_suffix,
     )
-
+    geom_df = simplify_geometry_benchmark_table(geom_df)
     # Save full results if save_dir is provided
     if save_dir is not None:
         geom_full_path = save_dir / f"geometry_results_{file_suffix}.pkl"
@@ -1031,6 +1032,7 @@ def run_benchmark_pipeline(
         file_suffix: str = "",
         run: Sequence[Literal["scib", "probe", "topology", "geometry"]] = (
             "scib", "probe", "topology", "geometry"),
+        expected_betti_numbers: Optional[tuple[int, ...]] = (0, 0, 0),
         plot_individual: bool = True,
         combine_plots: bool = True,
         table_plot_kw: Optional[dict] = None,
@@ -1084,7 +1086,8 @@ def run_benchmark_pipeline(
             save_dir=save_dir,
             file_suffix=file_suffix,
             plot=plot_individual,
-            plot_kw=table_plot_kw
+            plot_kw=table_plot_kw,
+            expected_betti_numbers=expected_betti_numbers
         )
 
     if "geometry" in run:

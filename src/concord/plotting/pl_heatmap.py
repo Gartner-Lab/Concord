@@ -228,6 +228,7 @@ def heatmap_with_annotations(
         )
         if title:
             ax.set_title(title, fontsize=title_fontsize)
+            
         # ensure only the QuadMesh is rasterised
         if rasterize:
             for artist in ax.findobj(mcoll.QuadMesh):
@@ -249,7 +250,7 @@ def heatmap_with_annotations(
     if save_path:
         plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
-    if show:
+    if show and ax is None:     
         plt.show()
 
     return g if use_clustermap else ax

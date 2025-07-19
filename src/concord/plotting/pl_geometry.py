@@ -1,79 +1,43 @@
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
+import numpy as np
 
-def plot_trustworthiness(trustworthiness_df, text_label=True, text_shift=1, legend=False, fontsize=8, legend_fontsize=8, figsize=(6,4), dpi=300, save_path=None):
-    """
-    Plots trustworthiness scores for different latent embeddings over a range of neighborhood sizes.
+def plot_trustworthiness(df, text_shift=1, min_gap=0.015,
+                         fontsize=8, figsize=(6,4), dpi=300, **kw):
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
-    Args:
-        trustworthiness_df (pd.DataFrame): 
-            DataFrame containing columns `Embedding`, `n_neighbors`, and `Trustworthiness`.
-        text_label (bool, optional): 
-            Whether to display text labels for the last data point of each embedding. Defaults to `True`.
-        text_shift (float, optional): 
-            Horizontal shift applied to text labels for readability. Defaults to `1`.
-        legend (bool, optional): 
-            Whether to show a legend on the right. Defaults to `False`.
-        fontsize (int, optional): 
-            Font size for plot labels. Defaults to `8`.
-        legend_fontsize (int, optional): 
-            Font size for legend text. Defaults to `8`.
-        figsize (tuple, optional): 
-            Figure size in inches (width, height). Defaults to `(6, 4)`.
-        dpi (int, optional): 
-            Resolution (dots per inch) for saving the figure. Defaults to `300`.
-        save_path (str, optional): 
-            File path to save the figure. If `None`, the plot is displayed instead. Defaults to `None`.
+    # --- 1. draw the lines and remember last points -----------------------
+    label_pos = []   # (embedding, x_last, y_last)
+    for emb, grp in df.groupby("Embedding"):
+        ax.plot(grp["n_neighbors"], grp["Trustworthiness"], label=emb)
+        label_pos.append((emb,
+                          grp["n_neighbors"].values[-1],
+                          grp["Trustworthiness"].values[-1]))
 
-    Returns:
-        None
+    # --- 2. sort by y (top‑to‑bottom) & enforce minimal spacing ----------
+    label_pos.sort(key=lambda t: -t[2])           # highest first
+    for i in range(1, len(label_pos)):
+        prev_y = label_pos[i-1][2]
+        cur_y  = label_pos[i][2]
+        if prev_y - cur_y < min_gap:
+            # push current label down just enough
+            label_pos[i] = (label_pos[i][0], label_pos[i][1],
+                            prev_y - min_gap)
 
-    Example:
-        ```python
-        plot_trustworthiness(trustworthiness_df, legend=True, save_path="trustworthiness_plot.png")
-        ```
-    """
-    plt.figure(figsize=figsize, dpi=dpi)
+    # --- 3. add the texts at the adjusted y‑positions ---------------------
+    for emb, x_last, y_adj in label_pos:
+        ax.text(x_last + text_shift, y_adj, emb,
+                fontsize=fontsize, va='center')
 
-    # Plot trustworthiness for each embedding
-    for embedding_key in trustworthiness_df['Embedding'].unique():
-        # Select data for the current embedding
-        embedding_data = trustworthiness_df[trustworthiness_df['Embedding'] == embedding_key]
-        
-        # Plot trustworthiness over n_neighbors for the embedding
-        plt.plot(embedding_data['n_neighbors'], embedding_data['Trustworthiness'], label=embedding_key)
-        
-        # Add text label at the last point for each embedding
-        if text_label:
-            plt.text(
-                embedding_data['n_neighbors'].values[-1]+text_shift, 
-                embedding_data['Trustworthiness'].values[-1], 
-                embedding_key, 
-                fontsize=fontsize
-            )
+    # give labels some room
+    ax.set_xlim(right=ax.get_xlim()[1] + text_shift*1.5)
 
-    # Add plot details
-    plt.title('Trustworthiness of Latent Embeddings', fontsize=9)
-    plt.xlabel('Number of Neighbors', fontsize=8)
-    plt.ylabel('Trustworthiness', fontsize=8)
-    plt.xticks(fontsize=7)
-    plt.yticks(fontsize=7)
-    
-    # Add legend at right margin
-    if legend:
-        plt.legend(
-            title=None, 
-            loc='center left', 
-            bbox_to_anchor=(1, 0.5),
-            markerscale=1.5,
-            handletextpad=0.2,
-            fontsize=legend_fontsize,
-            title_fontsize=legend_fontsize
-        )
-
-    # Save and show the plot
-    if save_path:
-        plt.savefig(save_path)
+    ax.set_title('Trustworthiness of Latent Embeddings', fontsize=9)
+    ax.set_xlabel('Number of Neighbors', fontsize=8)
+    ax.set_ylabel('Trustworthiness', fontsize=8)
+    ax.tick_params(labelsize=7)
     plt.show()
+
 
 
 def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, rasterize=True, dpi=300, save_path=None):
