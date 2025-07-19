@@ -218,10 +218,13 @@ def run_integration_methods_pipeline(
         
     # ------------------------------ baseline methods ------------------------
     if "unintegrated" in methods:
-        if "X_pca" not in adata.obsm:
+        if "X_pca" not in adata.obsm or adata.obsm["X_pca"].shape[1] < latent_dim:
             logger.info("Running PCA for 'unintegrated' embedding …")
             sc.tl.pca(adata, n_comps=latent_dim)
-        adata.obsm["unintegrated"] = adata.obsm["X_pca"]
+
+        # Only take the latent_dim components and store them in "unintegrated"
+        adata.obsm["unintegrated"] = adata.obsm["X_pca"][:, :latent_dim].copy()
+        
         if compute_umap:
             from ..utils.dim_reduction import run_umap
             logger.info("Running UMAP on unintegrated …")
