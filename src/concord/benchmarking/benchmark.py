@@ -1117,6 +1117,12 @@ def run_benchmark_pipeline(
         table_plot_kw=table_plot_kw,
     )
     results["combined"] = combined_df
+
+    if save_dir is not None:
+        # pickle save the results
+        with (save_dir / f"benchmark_results_{file_suffix}.pkl").open("wb") as f:
+            pickle.dump(results, f)
+        logger.info(f"Saved benchmark results to {save_dir / f'benchmark_results_{file_suffix}.pkl'}")
     return results
 
 
