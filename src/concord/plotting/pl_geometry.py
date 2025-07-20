@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 def plot_trustworthiness(df, text_shift=1, min_gap=0.015,
-                         fontsize=8, figsize=(6,4), dpi=300, **kw):
+                         fontsize=8, figsize=(6,4), dpi=300, 
+                         save_path=None, **kwargs):
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
 
     # --- 1. draw the lines and remember last points -----------------------
@@ -36,6 +37,9 @@ def plot_trustworthiness(df, text_shift=1, min_gap=0.015,
     ax.set_xlabel('Number of Neighbors', fontsize=8)
     ax.set_ylabel('Trustworthiness', fontsize=8)
     ax.tick_params(labelsize=7)
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
+    
     plt.show()
 
 

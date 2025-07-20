@@ -201,11 +201,9 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
     results['betti_stats'] = betti_stats_pivot
     results['distance_metrics'] = distance_metrics_df
 
-    entropy_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Entropy']]
-    average_entropy = entropy_columns.mean(axis=1)
-    # variance_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Variance']]
-    # average_variance = variance_columns.mean(axis=1)
-    final_metrics = pd.DataFrame(average_entropy, columns=pd.MultiIndex.from_tuples([('Topology', 'Betti curve Entropy')]))
+    stability_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Stability']]
+    average_stability = stability_columns.mean(axis=1)
+    final_metrics = pd.DataFrame(average_stability, columns=pd.MultiIndex.from_tuples([('Topology', 'Betti curve stability')]))
     final_metrics[('Topology', 'Betti number L1')] = distance_metrics_df['L1 Distance']
     results['combined_metrics'] = final_metrics
 
@@ -479,33 +477,38 @@ def simplify_geometry_benchmark_table(df):
             errors="ignore"
         )
 
-    if "State distance" in df.columns.get_level_values(0):
-        df[("Geometry", "State distance correlation")] = df["State distance"][
-            ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
-        ].mean(axis=1)
-        df.drop(
-            columns=[
-                ("State distance", "pearsonr(sd)"),
-                ("State distance", "spearmanr(sd)"),
-                ("State distance", "kendalltau(sd)"),
-            ],
-            inplace=True,
-            errors="ignore"
-        )
+    # Drop 'State distance' and 'Dispersion' columns if present
+    drop_lv0 = {"State distance", "Dispersion"}
+    mask = df.columns.get_level_values(0).isin(drop_lv0)
+    df = df.loc[:, ~mask]   
 
-    if "Dispersion" in df.columns.get_level_values(0):
-        df[("Geometry", "State dispersion correlation")] = df["Dispersion"][
-            ["pearsonr(sv)"]#, "spearmanr(sv)", "kendalltau(sv)"]
-        ]#.mean(axis=1)
-        df.drop(
-            columns=[
-                ("Dispersion", "pearsonr(sv)"),
-                ("Dispersion", "spearmanr(sv)"),
-                ("Dispersion", "kendalltau(sv)"),
-            ],
-            inplace=True,
-            errors="ignore"
-        )
+    # if "State distance" in df.columns.get_level_values(0):
+    #     df[("Geometry", "State distance correlation")] = df["State distance"][
+    #         ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
+    #     ].mean(axis=1)
+    #     df.drop(
+    #         columns=[
+    #             ("State distance", "pearsonr(sd)"),
+    #             ("State distance", "spearmanr(sd)"),
+    #             ("State distance", "kendalltau(sd)"),
+    #         ],
+    #         inplace=True,
+    #         errors="ignore"
+    #     )
+
+    # if "Dispersion" in df.columns.get_level_values(0):
+    #     df[("Geometry", "State dispersion correlation")] = df["Dispersion"][
+    #         ["pearsonr(sv)"]#, "spearmanr(sv)", "kendalltau(sv)"]
+    #     ]#.mean(axis=1)
+    #     df.drop(
+    #         columns=[
+    #             ("Dispersion", "pearsonr(sv)"),
+    #             ("Dispersion", "spearmanr(sv)"),
+    #             ("Dispersion", "kendalltau(sv)"),
+    #         ],
+    #         inplace=True,
+    #         errors="ignore"
+        # )
     return df
 
 
@@ -814,30 +817,30 @@ def run_topology_benchmark(adata,
     )
     topo_df = topo_res["combined_metrics"]
 
-    # cap very large distances
-    topo_df[("Topology", "Betti number L1")] = topo_df[
-        ("Topology", "Betti number L1")
-    ].clip(upper=5)
+    # cap very large distances, set to max (maximum of expected_betti_numbers * 2, 2)
+    L1_col  = ("Topology", "Betti number L1")
+    ACC_col = ("Topology", "Betti number accuracy")
+    topo_df[ACC_col] = 1 / (1 + topo_df[L1_col])
+    # ── 2. drop the raw L1 distance so only accuracy is scored
+    topo_df.drop(columns=[L1_col], inplace=True)
+    # Rename ("Topology", "Betti curve Stability") to ("Topology", "Betti stability")
 
-    # score + rank
-    topo_scores = benchmark_stats_to_score(
-        topo_df,
-        min_max_scale=True,
-        one_minus=True,
-        aggregate_score=True,
-        aggregate_score_name=("Topology", "Score"),
-        rank=rank,
-        rank_col=("Topology", "Score"),
+    WEIGHTED_COL = ("Topology", "Score")         # final column name
+    w_acc, w_stab = 0.8, 0.2
+
+    topo_df[WEIGHTED_COL] = (
+        w_acc  * topo_df[("Topology", "Betti number accuracy")]
+    + w_stab * topo_df[("Topology", "Betti curve stability")]
     )
 
     if plot:
         plot_benchmark_table(
-            topo_scores,
+            topo_df,
             agg_name="Topology",
             **(plot_kw or {})
         )
 
-    return topo_scores
+    return topo_df
 
 
 # ------------------------------------------------------------------ #
@@ -966,13 +969,8 @@ def combine_benchmark_results(
             )
 
         elif block == "scib":
-            # drop KMeans NMI/ARI & SCIB’s own aggregate
-            drop = [c for c in df.columns
-                    if c[0] == "Bio conservation"
-                    and re.search(r"KMeans\s", c[1])]
-            df.drop(columns=drop, inplace=True, errors="ignore")
-            df.drop(columns=[("Aggregate score", "Total")],
-                    inplace=True, errors="ignore")
+            # Drop any columns that are under "Aggregate score"
+            df = df.loc[:, ~df.columns.get_level_values(0).isin(["Aggregate score"])]
 
         to_concat.append(df)
 
@@ -981,14 +979,21 @@ def combine_benchmark_results(
 
     # ---------- per‑family aggregate means --------------------------------
     agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
-                  if g != "Aggregate score"]
+              if g != "Aggregate score"]
 
-    agg_df = pd.concat(
-        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
-            .rename(("Aggregate score", g))
-         for g in agg_groups],
-        axis=1
-    )
+    agg_parts = []
+    for g in agg_groups:
+        if g in ("Geometry", "Topology"):   # these already have per‑block scores
+            continue
+        s = _mean_numeric(combined_df.xs(g, axis=1, level=0))
+        s.name = ("Aggregate score", g)     # give Series the final 2‑level name
+        agg_parts.append(s)
+
+    if agg_parts:                           # <-- ▸ only concat when we have parts
+        agg_df = pd.concat(agg_parts, axis=1)
+    else:
+        agg_df = pd.DataFrame(index=combined_df.index) 
+    
     combined_df = pd.concat([combined_df, agg_df], axis=1)
 
     # ---------- overall average (added *after* ordering so it is last) ----
@@ -999,7 +1004,9 @@ def combine_benchmark_results(
                key=lambda c: (c[0] == "Aggregate score",
                               c[0], str(c[1]).lower()))
     ]
-    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+    agg_cols = [col for col in combined_df.columns if col[0] == "Aggregate score"]
+    combined_df[("Aggregate score", "Average")] = combined_df[agg_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
 
     # ---------- ranking ----------------------------------------------------
     combined_df = combined_df.sort_values(
