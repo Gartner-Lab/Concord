@@ -74,6 +74,33 @@ def compute_betti_entropy(betti_values):
     return entropy(prob_dist)
 
 
+# ──────────────────────────────────────────────────────────────
+def betti_stability(betti_values: np.ndarray) -> float:
+    """
+    Return a stability score in [0,1] from a Betti‑curve vector.
+
+    Stability := 1 − H / H_max,          where
+        H      = Shannon entropy of the (normalised) Betti values
+        H_max  = log(k) with k = number of *occupied* bins (non‑zero entries)
+
+    * 1  → perfectly concentrated Betti curve (all mass in one bin)
+    * 0  → maximally spread across its support
+    """
+    from scipy.stats import entropy
+    n_bins = betti_values.size
+    total = betti_values.sum()
+    if total == 0:
+        return 0.0                       # degenerate curve → unstable
+
+    # probability mass function
+    p = betti_values / total
+
+    H     = entropy(p)                  # natural‑log entropy
+    Hmax  = np.log(n_bins)           # maximum entropy for n_bins
+
+    return 1.0 - H / Hmax
+
+
 def interpolate_betti_curve(betti_values, original_sampling, common_sampling):
     """
     Interpolates Betti curve onto a common filtration grid.
@@ -170,13 +197,15 @@ def compute_betti_statistics(diagram, expected_betti_numbers, n_bins=100):
         betti_median = compute_betti_median_or_mode(betti_values, statistic="median")
         betti_mode = compute_betti_median_or_mode(betti_values, statistic="mode")
         betti_entropy = compute_betti_entropy(betti_values)
+        betti_stab     = betti_stability(betti_values)
 
         betti_stats[dim] = {
             'variance': betti_variance,
             'mean': betti_mean,
             'median': betti_median,
             'mode': betti_mode,
-            'entropy': betti_entropy
+            'entropy': betti_entropy,
+            'stability': betti_stab
         }
 
         # Use mode as the observed Betti number for distance calculations
