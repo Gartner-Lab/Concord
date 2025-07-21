@@ -110,8 +110,8 @@ class DataLoaderManager:
         
         self.load_into_memory = load_into_memory
         if num_workers is None:
-            # Use 1 worker for in-memory, otherwise use available cores
-            self.num_workers = 1 if load_into_memory else min(4, os.cpu_count())
+            # Use 0 worker for in-memory, otherwise use available cores
+            self.num_workers = 0 if load_into_memory else min(4, os.cpu_count())
         else:
             # Allow user to override
             self.num_workers = num_workers
