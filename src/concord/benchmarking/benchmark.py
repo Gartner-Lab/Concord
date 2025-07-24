@@ -989,6 +989,9 @@ def combine_benchmark_results(
             continue
         s = _mean_numeric(combined_df.xs(g, axis=1, level=0))
         s.name = ("Aggregate score", g)     # give Series the final 2‑level name
+        # If s.name is already in combined_df, remove that column
+        if s.name in combined_df.columns:
+            combined_df = combined_df.drop(columns=[s.name])
         agg_parts.append(s)
 
     if agg_parts:                           # <-- ▸ only concat when we have parts
