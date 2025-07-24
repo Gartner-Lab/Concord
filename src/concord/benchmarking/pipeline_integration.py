@@ -159,7 +159,7 @@ def run_integration_methods_pipeline(
             adata=adata,
             profiler=profiler,
             logger=logger,
-            compute_umap=False,
+            compute_umap=compute_umap,
             output_key=output_key or method,
             time_log=time_log,
             ram_log=ram_log,
@@ -295,7 +295,7 @@ def run_integration_methods_pipeline(
         if save_dir:
             from pathlib import Path
             save_path = Path(save_dir) / "scvi_model.pt"
-            scvi_model.save(save_path)
+            scvi_model.save(save_path, overwrite=True)
             logger.info(f"Saved scVI model to {save_path}")
 
     if "scvi" in methods:

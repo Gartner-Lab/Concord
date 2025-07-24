@@ -1,8 +1,19 @@
 
 # Code to compute persistent homology of data
 import numpy as np
+from typing import Optional
 
-def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2]):
+from .. import get_logger
+logger = get_logger(__name__)
+
+def compute_persistent_homology(
+        adata, 
+        key='X_pca', 
+        homology_dimensions=[0,1,2],
+        *,
+        max_points: Optional[int] = None,
+        random_state: Optional[int] = None,
+):
     """
     Computes persistent homology using Vietoris-Rips complex.
 
@@ -17,11 +28,17 @@ def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2])
     Returns:
         np.ndarray
             Persistence diagrams representing homology classes across filtration values.
-    """
+    """ 
     from gtda.homology import VietorisRipsPersistence
-    data = adata.obsm[key][None, :, :]
+    X = adata.obsm[key]
+    if max_points is not None and X.shape[0] > max_points:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(X.shape[0], size=max_points, replace=False)
+        X = X[idx]
+    
+    logger.info(f"Computing persistent homology for {X.shape[0]} points in {X.shape[1]} dimensions...")
     VR = VietorisRipsPersistence(homology_dimensions=homology_dimensions)  # Parameter explained in the text
-    diagrams = VR.fit_transform(data)
+    diagrams = VR.fit_transform(X[None, :, :])
     return diagrams
 
 
