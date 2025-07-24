@@ -916,7 +916,7 @@ def run_geometry_benchmark(adata,
 def combine_benchmark_results(
         results: dict[str, pd.DataFrame],
         *,
-        block_order: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
+        block_include: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
         plot: bool = False,
         save_path: Optional[Path] = None,
         table_plot_kw: Optional[dict] = None
@@ -928,7 +928,7 @@ def combine_benchmark_results(
     ----------
     results       dict returned by run_benchmark_pipeline (or similar)
                   containing any subset of {"geometry","topology","scib","probe"}.
-    block_order   order in which the blocks should be concatenated.
+    block_include   which blocks should be concatenated.
     plot          if True, render a combined heat‑map via plot_benchmark_table.
     save_path     optional PDF/PNG path for the combined plot.
     table_plot_kw kwargs forwarded to plot_benchmark_table.
@@ -947,7 +947,7 @@ def combine_benchmark_results(
         return df.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
 
     # ---------- iterate over blocks ---------------------------------------
-    for block in block_order:
+    for block in block_include:
         if block not in results:
             continue
 
@@ -1000,11 +1000,17 @@ def combine_benchmark_results(
 
     # ---------- overall average (added *after* ordering so it is last) ----
     combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+
+    # sort columns: Aggregate score last, then by group, then by name
+    # with special handling to put probe accuracies at the end of Bio conservation
+    probe_acc_cols = {"KNN state accuracy", "Linear state accuracy"}
     combined_df = combined_df.loc[
         :,
         sorted(combined_df.columns,
                key=lambda c: (c[0] == "Aggregate score",
-                              c[0], str(c[1]).lower()))
+                              c[0],
+                              c[1] in probe_acc_cols,
+                              str(c[1]).lower()))
     ]
 
     agg_cols = [col for col in combined_df.columns if col[0] == "Aggregate score"]
@@ -1128,7 +1134,7 @@ def run_benchmark_pipeline(
 
     combined_df = combine_benchmark_results(
         results,
-        block_order=("geometry", "topology", "scib", "probe"),
+        block_include=("geometry", "topology", "scib", "probe"),
         plot=combine_plots,
         save_path=save_dir / f"combined_res_{file_suffix}.pdf",
         table_plot_kw=table_plot_kw,
