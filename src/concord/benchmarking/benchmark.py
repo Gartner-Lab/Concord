@@ -1,6 +1,5 @@
 from __future__ import annotations
 import pandas as pd
-import logging
 import numpy as np
 import logging
 from pathlib import Path
@@ -14,7 +13,8 @@ from ..plotting import plot_benchmark_table
 from .tda import compute_persistent_homology
 
 
-logger = logging.getLogger(__name__)
+from .. import get_logger
+logger = get_logger(__name__)
 
 def count_total_runs(param_grid):
     total_runs = 0
@@ -796,15 +796,17 @@ def run_topology_benchmark(adata,
                            save_dir: Path,
                            file_suffix: str,
                            homology_dimensions=(0, 1, 2),
-                           expected_betti_numbers=(0, 0, 0),
-                           rank: bool = True,
+                           expected_betti_numbers=[0, 0, 0],
+                           max_points: Optional[int] = None,
+                           random_state: Optional[int] = None,
                            plot: bool = False,
                            plot_kw: Optional[dict] = None):
     diagrams = {}
     for key in embedding_keys:
         logger.info(f"Computing persistent homology for {key}")
         diagrams[key] = compute_persistent_homology(
-            adata, key=key, homology_dimensions=homology_dimensions
+            adata, key=key, homology_dimensions=homology_dimensions,
+            max_points=max_points, random_state=random_state
         )
 
     with (save_dir / f"topology_diagrams_{file_suffix}.pkl").open("wb") as f:
@@ -1039,10 +1041,13 @@ def run_benchmark_pipeline(
         file_suffix: str = "",
         run: Sequence[Literal["scib", "probe", "topology", "geometry"]] = (
             "scib", "probe", "topology", "geometry"),
-        expected_betti_numbers: Optional[tuple[int, ...]] = (0, 0, 0),
+        expected_betti_numbers: Optional[tuple[int, ...]] = [0, 0, 0],
+        max_points: Optional[int] = None,
+        seed: Optional[int] = 0,
         plot_individual: bool = True,
         combine_plots: bool = True,
         table_plot_kw: Optional[dict] = None,
+        verbose: bool = True
 ) -> dict[str, pd.DataFrame]:
     """
     Run selected benchmarking blocks and return a dict with their score tables
@@ -1054,6 +1059,9 @@ def run_benchmark_pipeline(
     plot_individual   : show / save each block's table
     combine_plots     : plot the final merged table
     """
+    if verbose:
+        logger.setLevel(logging.INFO)
+        
     save_dir.mkdir(parents=True, exist_ok=True)
     table_plot_kw = table_plot_kw or dict(
         pal="PRGn", pal_agg="RdYlBu_r", cmap_method="minmax", dpi=300)
@@ -1094,7 +1102,9 @@ def run_benchmark_pipeline(
             file_suffix=file_suffix,
             plot=plot_individual,
             plot_kw=table_plot_kw,
-            expected_betti_numbers=expected_betti_numbers
+            expected_betti_numbers=expected_betti_numbers,
+            max_points=max_points,
+            random_state=seed
         )
 
     if "geometry" in run:

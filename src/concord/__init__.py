@@ -17,6 +17,16 @@ if not logger.handlers:                   # configure only once
     logger.addHandler(handler)
     logger.propagate = False              
 
+def get_logger(name: str | None = None) -> logging.Logger:
+    """
+    Return the package root logger (`concord`) or one of its children.
+
+    >>> from concord import get_logger
+    >>> logger = get_logger(__name__)
+    """
+    if name is None or name == PKG_LOGGER_NAME:
+        return logger
+    return logger.getChild(name.split("concord.", 1)[-1])
 
 def set_verbose_mode(verbose: bool = True):
     """
