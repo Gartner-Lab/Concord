@@ -137,10 +137,17 @@ class Simulation:
 
         batch_list, state_list = [], []
         for i in range(self.batch_config.n_batches):
-            batch_adata, batch_adata_pre = self.simulate_batch(
-                adata_state,
-                batch_idx=i,
-                seed=self.sim_config.seed + i
+            rng = np.random.default_rng(self.sim_config.seed)
+        
+            # Determine cells for this batch
+            cell_proportion = self.batch_config.cell_proportion[i]
+            n_cells = int(adata_state.n_obs * cell_proportion)
+            #cell_indices = rng.choice(adata.n_obs, n_cells, replace=False)
+            cell_indices = np.sort(rng.choice(adata_state.n_obs, n_cells, replace=False))
+            batch_adata_pre = adata_state[cell_indices].copy()
+            batch_adata = self.simulate_batch(
+                batch_adata_pre,
+                batch_idx=i
             )
             batch_list.append(batch_adata)
             state_list.append(batch_adata_pre)
@@ -520,19 +527,11 @@ class Simulation:
 
     # ────────────────── BATCH SIMULATION ───────────────────
 
-    def simulate_batch(self, adata: ad.AnnData, batch_idx: int, seed: int) -> Tuple[ad.AnnData, ad.AnnData]:
+    def simulate_batch(self, adata: ad.AnnData, batch_idx: int) -> Tuple[ad.AnnData, ad.AnnData]:
         """Applies a batch-specific effect to a subset of data."""
-        rng = np.random.default_rng(seed)
-        
-        # Determine cells for this batch
-        cell_proportion = self.batch_config.cell_proportion[batch_idx]
-        n_cells = int(adata.n_obs * cell_proportion)
-        #cell_indices = rng.choice(adata.n_obs, n_cells, replace=False)
-        cell_indices = np.sort(rng.choice(adata.n_obs, n_cells, replace=False))
-        
-        batch_adata_pre = adata[cell_indices].copy()
-        batch_adata_pre.obs['batch'] = f"batch_{batch_idx+1}"
-        batch_adata = batch_adata_pre.copy()
+
+        adata.obs['batch'] = f"batch_{batch_idx+1}"
+        batch_adata = adata.copy()
         
         # Apply the corresponding batch effect
         effect_type = self.batch_config.effect_type[batch_idx]
@@ -544,7 +543,7 @@ class Simulation:
                 "dispersion": self.batch_config.dispersion[batch_idx],
                 "batch_feature_frac": self.batch_config.feature_frac[batch_idx],
                 "batch_name": f"batch_{batch_idx+1}",
-                "rng": rng,
+                "rng": self.rng,
             }
             result = effect_fn(batch_adata, **effect_params)
             if isinstance(result, ad.AnnData):
@@ -557,7 +556,7 @@ class Simulation:
         if self.sim_config.to_int:
             batch_adata.X = batch_adata.X.astype(int)
             
-        return batch_adata, batch_adata_pre
+        return batch_adata
 
     def _be_variance_inflation(self, adata, *, dispersion, rng, **_):
         """Multiply each entry by 1 + N(0,σ²)."""
