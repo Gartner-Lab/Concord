@@ -1,8 +1,19 @@
 
 # Code to compute persistent homology of data
 import numpy as np
+from typing import Optional
 
-def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2]):
+from .. import get_logger
+logger = get_logger(__name__)
+
+def compute_persistent_homology(
+        adata, 
+        key='X_pca', 
+        homology_dimensions=[0,1,2],
+        *,
+        max_points: Optional[int] = None,
+        random_state: Optional[int] = None,
+):
     """
     Computes persistent homology using Vietoris-Rips complex.
 
@@ -17,11 +28,17 @@ def compute_persistent_homology(adata, key='X_pca', homology_dimensions=[0,1,2])
     Returns:
         np.ndarray
             Persistence diagrams representing homology classes across filtration values.
-    """
+    """ 
     from gtda.homology import VietorisRipsPersistence
-    data = adata.obsm[key][None, :, :]
+    X = adata.obsm[key]
+    if max_points is not None and X.shape[0] > max_points:
+        rng = np.random.default_rng(random_state)
+        idx = rng.choice(X.shape[0], size=max_points, replace=False)
+        X = X[idx]
+    
+    logger.info(f"Computing persistent homology for {X.shape[0]} points in {X.shape[1]} dimensions...")
     VR = VietorisRipsPersistence(homology_dimensions=homology_dimensions)  # Parameter explained in the text
-    diagrams = VR.fit_transform(data)
+    diagrams = VR.fit_transform(X[None, :, :])
     return diagrams
 
 
@@ -72,6 +89,33 @@ def compute_betti_entropy(betti_values):
     # Normalize values to get a probability distribution
     prob_dist = betti_values / total
     return entropy(prob_dist)
+
+
+# ──────────────────────────────────────────────────────────────
+def betti_stability(betti_values: np.ndarray) -> float:
+    """
+    Return a stability score in [0,1] from a Betti‑curve vector.
+
+    Stability := 1 − H / H_max,          where
+        H      = Shannon entropy of the (normalised) Betti values
+        H_max  = log(k) with k = number of *occupied* bins (non‑zero entries)
+
+    * 1  → perfectly concentrated Betti curve (all mass in one bin)
+    * 0  → maximally spread across its support
+    """
+    from scipy.stats import entropy
+    n_bins = betti_values.size
+    total = betti_values.sum()
+    if total == 0:
+        return 0.0                       # degenerate curve → unstable
+
+    # probability mass function
+    p = betti_values / total
+
+    H     = entropy(p)                  # natural‑log entropy
+    Hmax  = np.log(n_bins)           # maximum entropy for n_bins
+
+    return 1.0 - H / Hmax
 
 
 def interpolate_betti_curve(betti_values, original_sampling, common_sampling):
@@ -170,13 +214,15 @@ def compute_betti_statistics(diagram, expected_betti_numbers, n_bins=100):
         betti_median = compute_betti_median_or_mode(betti_values, statistic="median")
         betti_mode = compute_betti_median_or_mode(betti_values, statistic="mode")
         betti_entropy = compute_betti_entropy(betti_values)
+        betti_stab     = betti_stability(betti_values)
 
         betti_stats[dim] = {
             'variance': betti_variance,
             'mean': betti_mean,
             'median': betti_median,
             'mode': betti_mode,
-            'entropy': betti_entropy
+            'entropy': betti_entropy,
+            'stability': betti_stab
         }
 
         # Use mode as the observed Betti number for distance calculations

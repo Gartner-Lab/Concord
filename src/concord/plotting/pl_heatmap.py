@@ -24,156 +24,175 @@ def add_legend(ax, palette, title=None, fontsize=8, bbox_anchor=(1, 1)):
               title_fontsize=fontsize, bbox_to_anchor=bbox_anchor, borderaxespad=0)
 
 
-def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None, 
-                             cmap='viridis', vmin=None, vmax=None, 
-                             cluster_rows=True, cluster_cols=True, pal=None, add_color_legend=False,
-                             value_annot=False, title=None, title_fontsize=16, annot_fontsize=8,
-                             yticklabels=True, xticklabels=False, 
-                             use_clustermap=True, 
-                             cluster_method='ward',        
-                             cluster_metric='euclidean',
-                             rasterize=True,
-                             ax=None,
-                             figsize=(12, 8), seed=42,
-                             dpi=300, show=True, save_path=None):
+
+def heatmap_with_annotations(
+    adata,
+    val,
+    *,
+    transpose=True,
+    obs_keys=None,
+    cmap="viridis",
+    vmin=None,
+    vmax=None,
+    cluster_rows=True,
+    cluster_cols=True,
+    pal=None,
+    add_color_legend=False,
+    value_annot=False,
+    title=None,
+    title_fontsize=16,
+    annot_fontsize=8,
+    yticklabels=True,
+    xticklabels=False,
+    use_clustermap=True,
+    cluster_method="ward",
+    cluster_metric="euclidean",
+    rasterize=True,
+    ax=None,
+    figsize=(12, 8),
+    seed=42,
+    dpi=300,
+    show=True,
+    save_path=None,
+    # ───────── NEW OPTIONS ─────────
+    log_transform=False,
+    pseudocount=1e-6,
+    row_scale=False,
+    col_scale=False,
+    clip_limits=None,       # e.g. (-3, 3)  or  (None, 3)  or  None
+):
     """
-    Creates a heatmap colored by multiple columns in `adata.obs`, optionally clusters the rows/columns, 
-    and provides categorical or continuous annotations.
+    Plot a heat‑map (optionally via seaborn.clustermap) with colour bars for
+    `adata.obs` columns, plus flexible transformation / scaling.
 
-    Args:
-        adata (AnnData): 
-            AnnData object containing the dataset.
-        val (str | np.ndarray | pd.DataFrame): 
-            Data source for heatmap. Can be:
-                - `'X'`: Uses `adata.X`
-                - A layer name from `adata.layers`
-                - An embedding from `adata.obsm`
-                - A `numpy.ndarray` or `pandas.DataFrame`
-        transpose (bool, optional): 
-            If `True`, transposes the data matrix. Defaults to `True`.
-        obs_keys (list, optional): 
-            List of column names in `adata.obs` to use for categorical or numerical coloring. Defaults to `None`.
-        cmap (str, optional): 
-            Colormap for heatmap values. Defaults to `'viridis'`.
-        vmin (float, optional): 
-            Minimum value for color scaling. Defaults to `None`.
-        vmax (float, optional): 
-            Maximum value for color scaling. Defaults to `None`.
-        cluster_rows (bool, optional): 
-            Whether to cluster rows. Defaults to `True`.
-        cluster_cols (bool, optional): 
-            Whether to cluster columns. Defaults to `True`.
-        pal (dict, optional): 
-            Dictionary mapping category values to colors. Defaults to `None`.
-        add_color_legend (bool, optional): 
-            If `True`, adds a legend for categorical annotations. Defaults to `False`.
-        value_annot (bool, optional): 
-            If `True`, annotates each heatmap cell with values. Defaults to `False`.
-        title (str, optional): 
-            Title of the heatmap. Defaults to `None`.
-        title_fontsize (int, optional): 
-            Font size for title. Defaults to `16`.
-        annot_fontsize (int, optional): 
-            Font size for annotations (if `value_annot=True`). Defaults to `8`.
-        yticklabels (bool, optional): 
-            Whether to show row labels. Defaults to `True`.
-        xticklabels (bool, optional): 
-            Whether to show column labels. Defaults to `False`.
-        use_clustermap (bool, optional): 
-            If `True`, uses `seaborn.clustermap` for hierarchical clustering. Otherwise, uses `sns.heatmap`. Defaults to `True`.
-        cluster_method (str, optional): 
-            Clustering method for hierarchical clustering (e.g., `'ward'`, `'average'`, `'single'`). Defaults to `'ward'`.
-        cluster_metric (str, optional): 
-            Distance metric for hierarchical clustering (e.g., `'euclidean'`, `'correlation'`). Defaults to `'euclidean'`.
-        rasterize (bool, optional): 
-            If `True`, rasterizes heatmap elements for efficient plotting. Defaults to `True`.
-        ax (matplotlib.axes.Axes, optional): 
-            Matplotlib Axes object to plot on. Defaults to `None`.
-        figsize (tuple, optional): 
-            Size of the figure `(width, height)`. Defaults to `(12, 8)`.
-        seed (int, optional): 
-            Random seed for reproducibility. Defaults to `42`.
-        dpi (int, optional): 
-            Resolution of the saved figure. Defaults to `300`.
-        show (bool, optional): 
-            If `True`, displays the plot. Defaults to `True`.
-        save_path (str, optional): 
-            Path to save the figure. If `None`, the figure is not saved. Defaults to `None`.
+    NEW ARGS
+    --------
+    log_transform : bool
+        If True, apply log10(x + pseudocount) **before** any scaling.
+    pseudocount   : float
+        Small value added prior to log‑transform (ignored if log_transform=False).
+    row_scale     : bool
+        Z‑score across each row (genes) *after* log/clip. Mutually exclusive with
+        `col_scale`.  Equivalent to `t(scale(t(..)))` in your R helper.
+    col_scale     : bool
+        Z‑score across each column (cells).  If both row_scale and col_scale are
+        True a ValueError is raised.
+    clip_limits   : tuple | None
+        `(low, high)` limits applied via `np.clip` **after** scaling.  Use
+        `None` for one side to leave it un‑clipped, e.g. `(None, 3)`.
 
-    Returns:
-        matplotlib.Axes | seaborn.ClusterGrid: 
-            - If `use_clustermap=True`, returns a `seaborn.ClusterGrid` object.
-            - Otherwise, returns a `matplotlib.Axes` object.
+    All original parameters remain unchanged.
     """
-
+    # --------------------------------------------------------------
     import seaborn as sns
     import scipy.sparse as sp
     import numpy as np
-    import matplotlib.pyplot as plt
     import pandas as pd
+    import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
     import matplotlib.collections as mcoll
+    from sklearn.preprocessing import StandardScaler
 
     np.random.seed(seed)
-    if not isinstance(pal, dict):
-        pal = {col: pal for col in obs_keys}
 
-    # Check if val is string or a matrix
+    # ----------------------- prepare data -------------------------
     if isinstance(val, str):
-        if val == 'X':
-            data = pd.DataFrame(adata.X.toarray() if sp.issparse(adata.X) else adata.X)
-            # Set the index to the gene names if available
-            if adata.var_names is not None:
-                data.columns = adata.var_names
-        elif val in adata.layers.keys():
-            data = pd.DataFrame(adata.layers[val].toarray() if sp.issparse(adata.layers[val]) else adata.layers[val])
-            # Set the index to the gene names if available
-            if adata.var_names is not None:
-                data.columns = adata.var_names
-        elif val in adata.obsm.keys():
-            data = pd.DataFrame(adata.obsm[val])
+        if val == "X":
+            data = adata.X
+        elif val in adata.layers:
+            data = adata.layers[val]
+        elif val in adata.obsm:
+            data = adata.obsm[val]
         else:
             raise ValueError(f"val '{val}' not found in adata")
+        data = data.toarray() if sp.issparse(data) else np.asarray(data)
+        data = pd.DataFrame(data)
+        # attach var names if gene matrix
+        if val in ("X", *adata.layers.keys()) and adata.var_names is not None:
+            data.columns = adata.var_names
     elif isinstance(val, pd.DataFrame):
-        data = val.reset_index(drop=True)
+        data = val.copy()
     elif isinstance(val, np.ndarray):
         data = pd.DataFrame(val)
     else:
-        raise ValueError("val must be a string, pandas DataFrame, or numpy array")
-    
+        raise TypeError("val must be a string, numpy.ndarray, or pandas.DataFrame")
+
     if transpose:
-        data = data.T
-    
+        data = data.T  # genes become rows
+        data.columns = adata.obs_names
+
+    # ------------------- optional transformations -----------------
+    if log_transform:
+        data = np.log10(data + pseudocount)
+
+    if row_scale and col_scale:
+        raise ValueError("Choose row_scale or col_scale, not both")
+
+    # --- row‑wise scaling: final fix ------------------------------------
+    if row_scale:
+        data = pd.DataFrame(
+            StandardScaler(with_mean=True, with_std=True)
+            .fit_transform(data.T)   # cells as rows, genes as columns
+            .T,                      # back to genes × cells
+            index=data.index,
+            columns=data.columns,
+        )
+
+    if col_scale:
+        scaler = StandardScaler(with_mean=True, with_std=True)
+        data = pd.DataFrame(
+            scaler.fit_transform(data.T).T, index=data.index, columns=data.columns
+        )
+
+    lo, hi = (None, None)
+    if clip_limits is not None:
+        lo, hi = clip_limits
+        data = data.clip(lower=lo, upper=hi)
+
+    heat_vmin = vmin
+    heat_vmax = vmax
+
+    # --------------------- colour‑bar assembly --------------------
+    def _color_mapper(series, palette=None):
+        """Map categorical or numeric series to RGBA colours + legend info."""
+        if palette is None:
+            palette = sns.color_palette("Set2", series.nunique())
+        if pd.api.types.is_numeric_dtype(series):
+            norm = mcolors.Normalize(vmin=series.min(), vmax=series.max())
+            cmap = sns.color_palette("viridis", as_cmap=True)
+            colors = [cmap(norm(v)) for v in series]
+            return colors, None  # numeric legend usually skipped
+        else:
+            lut = palette if isinstance(palette, dict) else dict(zip(series.unique(), palette))
+            colors = series.map(lut)
+            return colors, lut
+
     if obs_keys is not None:
-        colors_df = adata.obs[obs_keys].copy()
-        use_colors = pd.DataFrame(index=colors_df.index)
-        legend_data = []
-        for col in obs_keys:
-            data_col = colors_df[col]
-            data_col, col_cmap, palette = get_color_mapping(adata, col, pal)
-            if pd.api.types.is_numeric_dtype(data_col):
-                norm = mcolors.Normalize(vmin=data_col.min(), vmax=data_col.max())
-                use_colors[col] = [col_cmap(norm(val)) for val in data_col]
-            else:
-                use_colors[col] = data_col.map(palette).to_numpy()       
-                if add_color_legend:
-                    legend_data.append((palette, col))
-
-        use_colors.reset_index(drop=True, inplace=True)
+        if pal is None:
+            pal = {}
+        # colours per column
+        col_colours = {}
+        legends = []
+        for key in obs_keys:
+            coldata = adata.obs.loc[data.columns, key]
+            colors, lut = _color_mapper(coldata, pal.get(key))
+            col_colours[key] = colors
+            if add_color_legend and lut is not None:
+                legends.append((key, lut))
+        col_colors_df = pd.DataFrame(col_colours, index=data.columns)
     else:
-        use_colors = None
+        col_colors_df = None
+        legends = []
 
-    if ax is None and not use_clustermap:
-        fig, ax = plt.subplots(figsize=figsize)
-
+    # ---------------------- plotting section ----------------------
     if use_clustermap:
         g = sns.clustermap(
             data,
             cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            col_colors=use_colors if transpose else None,
-            row_colors=use_colors if not transpose else None,
+            vmin=heat_vmin,
+            vmax=heat_vmax,
+            col_colors=col_colors_df if transpose else None,
+            row_colors=col_colors_df if not transpose else None,
             annot=value_annot,
             annot_kws={"size": annot_fontsize},
             figsize=figsize if ax is None else None,
@@ -183,45 +202,59 @@ def heatmap_with_annotations(adata, val, transpose=True, obs_keys=None,
             xticklabels=xticklabels,
             method=cluster_method,
             metric=cluster_metric,
+            rasterized=rasterize,
         )
         ax = g.ax_heatmap
+        # rasterize *only* heat‑map cells, keep text/vector on top
+        if rasterize:
+            for artist in ax.findobj(mcoll.QuadMesh):
+                artist.set_rasterized(True)
         if title:
             g.figure.suptitle(title, fontsize=title_fontsize)
     else:
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
         sns.heatmap(
             data,
             cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            #cbar_kws={'label': 'Expression'},
-            annot=value_annot,
-            fmt='.2f',
+            vmin=heat_vmin,
+            vmax=heat_vmax,
             xticklabels=xticklabels,
             yticklabels=yticklabels,
-            ax=ax
+            annot=value_annot,
+            annot_kws={"size": annot_fontsize},
+            ax=ax,
+            rasterized=rasterize,
         )
-        cbar = ax.collections[0].colorbar  # Access the color bar
-        cbar.ax.tick_params(labelsize=title_fontsize-2)
         if title:
             ax.set_title(title, fontsize=title_fontsize)
-
-    # Rasterize only the heatmap cells
-    if rasterize:
-        for artist in ax.get_children():
-            if isinstance(artist, mcoll.QuadMesh):
+            
+        # ensure only the QuadMesh is rasterised
+        if rasterize:
+            for artist in ax.findobj(mcoll.QuadMesh):
                 artist.set_rasterized(True)
 
-    if add_color_legend and legend_data:
-        for palette, title in legend_data:
-            add_legend(ax, palette, title=title, bbox_anchor=(1, 1))
+    # ---------------------- add legends ---------------------------
+    if add_color_legend and legends:
+        for key, lut in legends:
+            handles = [Patch(facecolor=c, label=k) for k, c in lut.items()]
+            ax.legend(
+                handles=handles,
+                title=key,
+                bbox_to_anchor=(1.02, 1),
+                loc="upper left",
+                borderaxespad=0,
+                fontsize=annot_fontsize,
+            )
 
     if save_path:
-        plt.savefig(save_path, dpi=dpi)
+        plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
-    if show and ax is None:
+    if show and ax is None:     
         plt.show()
 
     return g if use_clustermap else ax
+
 
 
 

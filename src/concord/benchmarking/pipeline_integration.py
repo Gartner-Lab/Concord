@@ -159,7 +159,7 @@ def run_integration_methods_pipeline(
             adata=adata,
             profiler=profiler,
             logger=logger,
-            compute_umap=False,
+            compute_umap=compute_umap,
             output_key=output_key or method,
             time_log=time_log,
             ram_log=ram_log,
@@ -218,10 +218,13 @@ def run_integration_methods_pipeline(
         
     # ------------------------------ baseline methods ------------------------
     if "unintegrated" in methods:
-        if "X_pca" not in adata.obsm:
+        if "X_pca" not in adata.obsm or adata.obsm["X_pca"].shape[1] < latent_dim:
             logger.info("Running PCA for 'unintegrated' embedding …")
             sc.tl.pca(adata, n_comps=latent_dim)
-        adata.obsm["unintegrated"] = adata.obsm["X_pca"]
+
+        # Only take the latent_dim components and store them in "unintegrated"
+        adata.obsm["unintegrated"] = adata.obsm["X_pca"][:, :latent_dim].copy()
+        
         if compute_umap:
             from ..utils.dim_reduction import run_umap
             logger.info("Running UMAP on unintegrated …")
@@ -292,7 +295,7 @@ def run_integration_methods_pipeline(
         if save_dir:
             from pathlib import Path
             save_path = Path(save_dir) / "scvi_model.pt"
-            scvi_model.save(save_path)
+            scvi_model.save(save_path, overwrite=True)
             logger.info(f"Saved scVI model to {save_path}")
 
     if "scvi" in methods:
