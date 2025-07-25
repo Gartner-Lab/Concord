@@ -13,8 +13,7 @@ from ..plotting import plot_benchmark_table
 from .tda import compute_persistent_homology
 
 
-from .. import get_logger
-logger = get_logger(__name__)
+from .. import set_verbose_mode, logger
 
 def count_total_runs(param_grid):
     total_runs = 0
@@ -297,9 +296,7 @@ def benchmark_geometry(adata, keys,
     from .geometry import pairwise_distance, local_vs_distal_corr, compute_trustworthiness, compute_centroid_distance, compute_state_batch_distance_ratio, compute_dispersion_across_states
     results_df = {}
     results_full = {}
-    if verbose:
-        logger.setLevel(logging.INFO)
-
+    set_verbose_mode(verbose)
 
     # Pseudotime correlation
     if 'pseudotime' in eval_metrics:
@@ -557,8 +554,7 @@ def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=Fals
 def compute_nmi_ari(adata, emb_key, label_key, resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
     import scanpy as sc
     import scib
-    if verbose:
-        logger.setLevel(logging.INFO)
+    set_verbose_mode(verbose)
 
     sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=emb_key, metric=metric)
     cluster_key = f'leiden_{emb_key}'
@@ -576,8 +572,7 @@ def compute_nmi_ari(adata, emb_key, label_key, resolution_range = np.arange(0.1,
 
 def benchmark_nmi_ari(adata, emb_keys, label_key='cell_type', resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
     import pandas as pd
-    if verbose:
-        logger.setLevel(logging.INFO)
+    set_verbose_mode(verbose)
     nmi_vals = {}
     ari_vals = {}
     for key in emb_keys:
@@ -637,6 +632,7 @@ def run_scib_benchmark(adata,
                        embedding_keys: Sequence[str],
                        batch_key: str,
                        state_key: str,
+                       scib_benchmark_batch: bool = True,
                        n_jobs: int = 6,
                        rank: bool = True,
                        save_table: Optional[Path] = None,
@@ -654,6 +650,10 @@ def run_scib_benchmark(adata,
         silhouette_label=True,
         clisi_knn=True,
     )
+    if scib_benchmark_batch:
+        batch_metrics = BatchCorrection()
+    else:
+        batch_metrics = None
 
     bm = Benchmarker(
         adata,
@@ -662,7 +662,7 @@ def run_scib_benchmark(adata,
         embedding_obsm_keys=list(embedding_keys),
         n_jobs=n_jobs,
         bio_conservation_metrics=bio_metrics,
-        batch_correction_metrics=BatchCorrection(),
+        batch_correction_metrics=batch_metrics,
     )
     bm.benchmark()
     scib_scores = bm.get_results(min_max_scale=False)
@@ -680,7 +680,7 @@ def run_scib_benchmark(adata,
         min_max_scale=False,
         one_minus=False,
         aggregate_score=False,
-        rank=rank,
+        rank=False,
         rank_col=("Aggregate score", "Total"),
         name_exact=False,
     )
@@ -1050,6 +1050,7 @@ def run_benchmark_pipeline(
         file_suffix: str = "",
         run: Sequence[Literal["scib", "probe", "topology", "geometry"]] = (
             "scib", "probe", "topology", "geometry"),
+        scib_benchmark_batch: bool = True,
         expected_betti_numbers: Optional[tuple[int, ...]] = [0, 0, 0],
         max_points: Optional[int] = None,
         seed: Optional[int] = 0,
@@ -1068,8 +1069,7 @@ def run_benchmark_pipeline(
     plot_individual   : show / save each block's table
     combine_plots     : plot the final merged table
     """
-    if verbose:
-        logger.setLevel(logging.INFO)
+    set_verbose_mode(verbose)
         
     save_dir.mkdir(parents=True, exist_ok=True)
     table_plot_kw = table_plot_kw or dict(
@@ -1084,6 +1084,7 @@ def run_benchmark_pipeline(
             embedding_keys=embedding_keys,
             batch_key=batch_key,
             state_key=state_key,
+            scib_benchmark_batch=scib_benchmark_batch,
             save_table=save_dir / f"scib_results_{file_suffix}.pdf",
             plot=plot_individual,
             plot_kw=table_plot_kw
