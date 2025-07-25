@@ -3,8 +3,7 @@
 import numpy as np
 from typing import Optional
 
-from .. import get_logger
-logger = get_logger(__name__)
+from .. import logger
 
 def compute_persistent_homology(
         adata, 

@@ -50,6 +50,7 @@ class TrajectoryConfig(StateConfig):
     program_on_time_fraction: float = 0.3
     cell_block_size_ratio: float = 0.3
     loop_to: Optional[Union[int, List[int]]] = None
+    global_non_specific_gene_fraction: float = 0.0
 
 @dataclass
 class TreeConfig(StateConfig):
@@ -392,6 +393,14 @@ class Simulation:
 
         # centre crop back to `n_cells`
         X = X[blk_size // 2 : blk_size // 2 + n_cells, :]
+
+        if cfg.global_non_specific_gene_fraction:
+            n_extra = int(X.shape[1] * cfg.global_non_specific_gene_fraction)
+            extra_g = rng.choice(X.shape[1], n_extra, replace=False)
+            X = self.simulate_expression_block(
+                X, cfg.program_structure, extra_g, np.arange(X.shape[0]),
+                cfg.level, cfg.min_level, 1.0,  # global genes are always on
+            )
 
         # add stochastic noise ------------------------------------------
         X_w = self.simulate_distribution(cfg.distribution, X, cfg.dispersion)
