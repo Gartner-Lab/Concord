@@ -138,7 +138,7 @@ class Simulation:
 
         batch_list, state_list = [], []
         for i in range(self.batch_config.n_batches):
-            rng = np.random.default_rng(self.sim_config.seed)
+            rng = np.random.default_rng(self.sim_config.seed + i)
         
             # Determine cells for this batch
             cell_proportion = self.batch_config.cell_proportion[i]
