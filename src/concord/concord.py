@@ -124,7 +124,7 @@ class Concord:
             encoder_dims=[1000],
             decoder_dims=[1000],
             element_mask_prob=0.4, 
-            feature_mask_prob=0.4, 
+            feature_mask_prob=0.3, 
             domain_key=None,
             class_key=None,
             domain_embedding_dim=8,
