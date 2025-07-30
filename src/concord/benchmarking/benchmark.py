@@ -709,22 +709,24 @@ def run_probe_benchmark(adata,
                         *,
                         embedding_keys: Sequence[str],
                         state_key = "state",
-                        #batch_key = "batch",
+                        batch_key = None,
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
                         rank: bool = True,
                         save_table: Optional[Path] = None,
                         plot: bool = False,
-                        plot_kw: Optional[dict] = None):
+                        plot_kw: Optional[dict] = None,
+                        verbose: Optional[bool] = False):
     from concord.benchmarking import (
         LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
     )
+    set_verbose_mode(verbose)
 
     # ── 2.1 run linear probe
     key_name_mapping = {}
     if state_key is not None:
         key_name_mapping["state"] = state_key
-    # if batch_key is not None:
-    #     key_name_mapping["batch"] = batch_key
+    if batch_key is not None:
+        key_name_mapping["batch"] = batch_key
     linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
@@ -734,10 +736,10 @@ def run_probe_benchmark(adata,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
-        # # invert batch accuracy by 1-acc
-        # if key == 'batch':
-        #     linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
-        #     linear_res[key].drop(columns=["accuracy"], inplace=True)
+        # invert batch accuracy by 1-acc
+        if key == 'batch':
+            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
+            linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
@@ -747,10 +749,10 @@ def run_probe_benchmark(adata,
             adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
-        # # invert batch accuracy by 1-acc
-        # if key == 'batch':
-        #     knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
-        #     knn_res[key].drop(columns=["accuracy"], inplace=True)
+        # invert batch accuracy by 1-acc
+        if key == 'batch':
+            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
+            knn_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
@@ -1096,7 +1098,7 @@ def run_benchmark_pipeline(
             adata,
             embedding_keys=embedding_keys,
             state_key=state_key,
-            #batch_key=batch_key,
+            #batch_key=batch_key, # not used in default benchmark due to batches may not perfectly overlap
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,

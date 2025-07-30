@@ -71,29 +71,7 @@ class Concord:
         set_verbose_mode(verbose)
 
         self._adata_original = adata # reference to the original AnnData object
-        self.copy_adata = copy_adata
-
-        if adata.isbacked:
-            logger.info("Running CONCORD on a backed AnnData object. ")
-            if not copy_adata:
-                logger.warning("Input AnnData object is in backed mode. Preprocessing will not modify the file on disk.")
-            
-            if adata.is_view:
-                raise ValueError(
-                    "CONCORD does not support operating on a view of a backed AnnData object. "
-                    "This is due to limitations in modifying on-disk data structures. \n"
-                    "Please either use the full backed AnnData object directly, or load your "
-                    "desired subset into memory first using `adata_view.to_memory()`."
-                )
-            
-            self.adata = adata
-        else:
-            if copy_adata:
-                logger.info("Creating a copy of the AnnData object to work on. Final results will be copied back.")
-                self.adata = adata.copy()
-            else:
-                logger.info("Operating directly on the provided AnnData object. Object may be modified.")
-                self.adata = adata
+        self._check_adata(adata, copy_adata)
 
         self.config = None
         self.loader = None
@@ -165,104 +143,14 @@ class Concord:
         self.setup_config(**kwargs)
         set_seed(self.config.seed)
 
-        detected_format = check_adata_X(self.adata)
-        if detected_format == 'raw' and not self.config.normalize_total:
-            logger.warning("Input data in adata.X appears to be raw counts. "
-                           "CONCORD performs best on normalized and log-transformed data. "
-                           "Consider setting normalize_total=True and log1p=True.")
-        elif detected_format == 'normalized' and (self.config.normalize_total or self.config.log1p):
-            logger.warning("Input data in adata.X appears to be already normalized, "
-                           "but preprocessing flags (normalize_total or log1p) are set to True. "
-                           "This may lead to unexpected results. Please ensure this is intended.")
-
-        if self.config.p_intra_knn > 0:
-            ncells = self.adata.shape[0]
-            if ncells > 100000:
-                logger.warning(f"Dataset contains {ncells} cells, which is large. "
-                               "Using k-NN sampling may be computationally expensive and non-optimal. "
-                               "We recommend using the HCL mode by setting `clr_beta = 1.0 or 2.0`, and setting `p_intra_knn = 0.0` to disable k-NN sampling.")
-            if self.config.sampler_knn is None:
-                self.config.sampler_knn = min(1000, ncells // 10)
-                logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
-            logger.info("KNN sampling mode is enabled.")
-
-        if self.config.clr_beta > 0:
-            logger.info(f"Using NT-Xent loss with beta={self.config.clr_beta}. This will apply hard-negative weighting to the contrastive loss.")
-            if self.config.p_intra_domain < .95:
-                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 0.95 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best integration results.")
-            logger.info("HCL (Contrastive learning with hard negative samples) mode is enabled.")
-
-        if self.config.clr_temperature <= 0 or self.config.clr_temperature > 1:
-            raise ValueError("clr_temperature must be in the range (0, 1]. "
-                             "This is a scaling factor for the contrastive loss. "
-                             "Consider setting it to a value between 0.2 to 0.6 for best results.")
-        
-        # Checks to convert None values to default values
-        if self.config.input_feature is None:
-            logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
-            logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
-            #self.config.input_feature = self.adata.var_names.tolist()
-
-        if self.config.use_importance_mask:
-            logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
-            if self.config.importance_penalty_weight == 0.0:
-                logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
-
-        if self.config.domain_key is not None:
-            if(self.config.domain_key not in self.adata.obs.columns):
-                raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
-            ensure_categorical(self.adata, obs_key=self.config.domain_key, drop_unused=True)
-        else:
-            logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
-            self.config.domain_key = 'tmp_domain_label'
-            self.adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=self.adata.obs_names).astype('category')
-            self.config.p_intra_domain = 1.0
-
-        self.config.unique_domains = self.adata.obs[self.config.domain_key].cat.categories.tolist()
-        self.config.num_domains = len(self.adata.obs[self.config.domain_key].cat.categories)
-
-        validate_probability_dict_compatible(self.config.p_intra_domain, "p_intra_domain")
-        if self.config.num_domains == 1:
-            logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
-            self.config.p_intra_domain = 1.0
-
-        validate_probability_dict_compatible(self.config.p_intra_knn, "p_intra_knn")
-        if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
-            logger.warning("Nearest neighbor contrastive loss is currently not supported for training fraction less than 1.0. Setting p_intra_knn to 0.")
-            self.config.p_intra_knn = 0
-
-        if self.config.use_classifier:
-            if self.config.class_key is None:
-                raise ValueError("Cannot use classifier without providing a class key.")
-            if(self.config.class_key not in self.adata.obs.columns):
-                raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
-            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
-
-            self.config.unique_classes = self.adata.obs[self.config.class_key].cat.categories.tolist()
-            self.config.unique_classes_code = [code for code, _ in enumerate(self.config.unique_classes)]
-            if self.config.unlabeled_class is not None:
-                if self.config.unlabeled_class in self.config.unique_classes:
-                    self.config.unlabeled_class_code = self.config.unique_classes.get_loc(self.config.unlabeled_class)
-                    self.config.unique_classes_code = self.config.unique_classes_code[self.config.unique_classes_code != self.config.unlabeled_class_code]
-                    self.config.unique_classes = self.config.unique_classes[self.config.unique_classes != self.config.unlabeled_class]
-                else:
-                    raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
-            else:
-                self.config.unlabeled_class_code = None
-
-            self.config.num_classes = len(self.config.unique_classes_code)
-        else:
-            self.config.unique_classes = None
-            self.config.unique_classes_code = None
-            self.config.unlabeled_class_code = None
-            self.config.num_classes = None
-
-        # Compute the number of categories for each covariate
-        self.config.covariate_num_categories = {}
-        for covariate_key in self.config.covariate_embedding_dims.keys():
-            if covariate_key in self.adata.obs:
-                ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
-                self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)
+        self._check_input_format(self.adata)
+        self._check_input_features()
+        self._check_knn_sampler_settings()
+        self._check_hcl_sampler_settings()
+        self._check_importance_mask()
+        self._check_domain_settings(self.adata)
+        self._check_class_settings()
+        self._check_covariate_settings()
 
         self.preprocessed = False
         
@@ -871,7 +759,9 @@ class Concord:
 
     def predict_adata(self, adata_new: 'AnnData', 
                     output_key="Concord_pred",
-                    return_decoded=False, decoder_domain=None,
+                    return_decoded=False, 
+                    domain_key=None,
+                    decoder_domain=None,
                     return_class=True, return_class_prob=True):
         """
         Generates predictions for a new, unseen AnnData object using the loaded model.
@@ -894,6 +784,10 @@ class Concord:
                                 f"required by the model. Missing features: {list(missing_features)[:5]}...")
             
         self.preprocessed = False # Use the same preprocessing as during training
+        
+        self.config.domain_key = domain_key
+        self._check_domain_settings(adata_new)
+
         self.init_dataloader(adata=adata_new, train_frac=1.0, use_sampler=False)
 
         results_tuple = self.predict(
@@ -908,4 +802,139 @@ class Concord:
         self._add_results_to_adata(adata_new, results_tuple, output_key, decoder_domain=decoder_domain)
 
 
+    # Helper check methods:
 
+    def _check_adata(self, adata: sc.AnnData, copy_adata: bool = True):
+        if adata.isbacked:
+            logger.info("Running CONCORD on a backed AnnData object. ")
+            if not copy_adata:
+                logger.warning("Input AnnData object is in backed mode. Preprocessing will not modify the file on disk.")
+            
+            if adata.is_view:
+                raise ValueError(
+                    "CONCORD does not support operating on a view of a backed AnnData object. "
+                    "This is due to limitations in modifying on-disk data structures. \n"
+                    "Please either use the full backed AnnData object directly, or load your "
+                    "desired subset into memory first using `adata_view.to_memory()`."
+                )
+            
+            self.adata = adata
+        else:
+            if copy_adata:
+                logger.info("Creating a copy of the AnnData object to work on. Final results will be copied back.")
+                self.adata = adata.copy()
+            else:
+                logger.info("Operating directly on the provided AnnData object. Object may be modified.")
+                self.adata = adata
+
+    def _check_input_format(self, adata: sc.AnnData):
+        """Warn if counts look raw vs. normalized/log‑transformed."""
+        detected_format = check_adata_X(adata)
+        if detected_format == 'raw' and not self.config.normalize_total:
+            logger.warning("Input data in adata.X appears to be raw counts. "
+                           "CONCORD performs best on normalized and log-transformed data. "
+                           "Consider setting normalize_total=True and log1p=True.")
+        elif detected_format == 'normalized' and (self.config.normalize_total or self.config.log1p):
+            logger.warning("Input data in adata.X appears to be already normalized, "
+                           "but preprocessing flags (normalize_total or log1p) are set to True. "
+                           "This may lead to unexpected results. Please ensure this is intended.")
+
+    def _check_knn_sampler_settings(self):
+        """Sanity‑check k‑NN sampling related parameters."""
+        if self.config.p_intra_knn <= 0:
+            return
+        else: 
+            logger.info("KNN sampling mode is enabled.")
+
+        ncells = self.adata.n_obs
+        if ncells > 100_000:
+            logger.warning(f"Dataset contains {ncells} cells, which is large. "
+                               "Using k-NN sampling may be computationally expensive and non-optimal. "
+                               "We recommend using the HCL mode by setting `clr_beta = 1.0 or 2.0`, and setting `p_intra_knn = 0.0` to disable k-NN sampling.")
+        if self.config.sampler_knn is None:
+            self.config.sampler_knn = min(1000, ncells // 10)
+            logger.info(f"Setting sampler_knn to {self.config.sampler_knn} to be 1/10 the number of cells in the dataset. You can change this value by setting sampler_knn in the configuration.")
+
+        validate_probability_dict_compatible(self.config.p_intra_knn, "p_intra_knn")
+        if self.config.train_frac < 1.0 and self.config.p_intra_knn > 0:
+            logger.warning("kNN mode is currently not supported for training fraction less than 1.0, consider run in HCL mode. Setting p_intra_knn to 0.")
+            self.config.p_intra_knn = 0
+    
+    def _check_hcl_sampler_settings(self):
+        """Sanity-check HCL sampling related parameters."""
+        if self.config.clr_beta > 0:
+            logger.info(f"Using NT-Xent loss with beta={self.config.clr_beta}. This will apply hard-negative weighting to the contrastive loss.")
+            if self.config.p_intra_domain < .95:
+                logger.warning("Using NT-Xent loss with beta > 0 and p_intra_domain < 0.95 may lead to non-ideal batch correction. Consider setting p_intra_domain to 1.0 for best integration results.")
+            logger.info("HCL (Contrastive learning with hard negative samples) mode is enabled.")
+
+        if self.config.clr_temperature <= 0 or self.config.clr_temperature > 1:
+            raise ValueError("clr_temperature must be in the range (0, 1]. "
+                             "This is a scaling factor for the contrastive loss. "
+                             "Consider setting it to a value between 0.2 to 0.6 for best results.")
+        
+    def _check_input_features(self):
+        if self.config.input_feature is None:
+            logger.warning("No input feature list provided. It is recommended to first select features using the command `concord.ul.select_features()`.")
+            logger.info(f"Proceeding with all {self.adata.shape[1]} features in the dataset.")
+
+    def _check_importance_mask(self):
+        if self.config.use_importance_mask:
+            logger.warning("Importance mask is enabled. This will apply differential weighting to features based on their importance. Note this feature is experimental.")
+            if self.config.importance_penalty_weight == 0.0:
+                logger.warning("Importance mask is enabled but importance_penalty_weight is set to 0.0. This will still cause differential weighting of features, but without penalty.")
+
+    def _check_domain_settings(self, adata: sc.AnnData = None):
+        if self.config.domain_key is not None:
+            if(self.config.domain_key not in adata.obs.columns):
+                raise ValueError(f"Domain key {self.config.domain_key} not found in adata.obs. Please provide a valid domain key.")
+            ensure_categorical(adata, obs_key=self.config.domain_key, drop_unused=True)
+        else:
+            logger.warning("domain/batch information not found, all samples will be treated as from single domain/batch.")
+            self.config.domain_key = 'tmp_domain_label'
+            adata.obs[self.config.domain_key] = pd.Series(data='single_domain', index=adata.obs_names).astype('category')
+            self.config.p_intra_domain = 1.0
+
+        self.config.unique_domains = adata.obs[self.config.domain_key].cat.categories.tolist()
+        self.config.num_domains = len(adata.obs[self.config.domain_key].cat.categories)
+
+        validate_probability_dict_compatible(self.config.p_intra_domain, "p_intra_domain")
+        
+        if self.config.num_domains == 1:
+            logger.warning(f"Only one domain found in the data. Setting p_intra_domain to 1.0.")
+            self.config.p_intra_domain = 1.0
+
+    def _check_class_settings(self):
+        if self.config.use_classifier:
+            if self.config.class_key is None:
+                raise ValueError("Cannot use classifier without providing a class key.")
+            if(self.config.class_key not in self.adata.obs.columns):
+                raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
+            ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
+
+            self.config.unique_classes = self.adata.obs[self.config.class_key].cat.categories.tolist()
+            self.config.unique_classes_code = [code for code, _ in enumerate(self.config.unique_classes)]
+            if self.config.unlabeled_class is not None:
+                if self.config.unlabeled_class in self.config.unique_classes:
+                    self.config.unlabeled_class_code = self.config.unique_classes.get_loc(self.config.unlabeled_class)
+                    self.config.unique_classes_code = self.config.unique_classes_code[self.config.unique_classes_code != self.config.unlabeled_class_code]
+                    self.config.unique_classes = self.config.unique_classes[self.config.unique_classes != self.config.unlabeled_class]
+                else:
+                    raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
+            else:
+                self.config.unlabeled_class_code = None
+
+            self.config.num_classes = len(self.config.unique_classes_code)
+        else:
+            self.config.unique_classes = None
+            self.config.unique_classes_code = None
+            self.config.unlabeled_class_code = None
+            self.config.num_classes = None
+
+    def _check_covariate_settings(self):
+        # Compute the number of categories for each covariate
+        self.config.covariate_num_categories = {}
+        for covariate_key in self.config.covariate_embedding_dims.keys():
+            if covariate_key in self.adata.obs:
+                ensure_categorical(self.adata, obs_key=covariate_key, drop_unused=True)
+                self.config.covariate_num_categories[covariate_key] = len(self.adata.obs[covariate_key].cat.categories)

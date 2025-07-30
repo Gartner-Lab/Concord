@@ -567,9 +567,9 @@ class Simulation:
             
         return batch_adata
 
-    def _be_variance_inflation(self, adata, *, dispersion, rng, **_):
+    def _be_variance_inflation(self, adata, *, level, rng, **_):
         """Multiply each entry by 1 + N(0,σ²)."""
-        scale = 1 + rng.normal(0, dispersion, adata.shape).reshape(adata.n_obs, adata.n_vars)
+        scale = 1 + rng.normal(0, level, adata.shape).reshape(adata.n_obs, adata.n_vars)
         adata.X = adata.X.toarray() * scale if sp.issparse(adata.X) else adata.X * scale
 
     def _be_batch_specific_distribution(self, adata, *, distribution, level, dispersion, rng, **_):
