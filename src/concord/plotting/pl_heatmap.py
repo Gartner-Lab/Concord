@@ -153,20 +153,6 @@ def heatmap_with_annotations(
     heat_vmax = vmax
 
     # --------------------- colour‑bar assembly --------------------
-    def _color_mapper(series, palette=None):
-        """Map categorical or numeric series to RGBA colours + legend info."""
-        if palette is None:
-            palette = sns.color_palette("Set2", series.nunique())
-        if pd.api.types.is_numeric_dtype(series):
-            norm = mcolors.Normalize(vmin=series.min(), vmax=series.max())
-            cmap = sns.color_palette("viridis", as_cmap=True)
-            colors = [cmap(norm(v)) for v in series]
-            return colors, None  # numeric legend usually skipped
-        else:
-            lut = palette if isinstance(palette, dict) else dict(zip(series.unique(), palette))
-            colors = series.map(lut)
-            return colors, lut
-
     if obs_keys is not None:
         if pal is None:
             pal = {}
@@ -174,12 +160,24 @@ def heatmap_with_annotations(
         col_colours = {}
         legends = []
         for key in obs_keys:
-            coldata = adata.obs.loc[data.columns, key]
-            colors, lut = _color_mapper(coldata, pal.get(key))
-            col_colours[key] = colors
-            if add_color_legend and lut is not None:
-                legends.append((key, lut))
-        col_colors_df = pd.DataFrame(col_colours, index=data.columns)
+            data_col, obs_cmap, palette = get_color_mapping(adata, key, pal, seed=seed)
+            # 1️⃣  continuous variable  ------------------------------------------
+            if obs_cmap is not None:                              # numeric column
+                norm   = mcolors.Normalize(vmin=data_col.min(), vmax=data_col.max())
+                colour_list = [mcolors.to_hex(obs_cmap(norm(v))) for v in data_col]
+                lut_for_legend = None
+            else:                                             # palette is a dict
+                colour_list    = data_col.map(palette).tolist()
+                lut_for_legend = palette                     # keep for legend
+
+            col_colours[key] = colour_list
+
+            if add_color_legend and lut_for_legend is not None:
+                legends.append((key, lut_for_legend))
+        col_colors_df = (
+            pd.DataFrame(col_colours, index=data.columns)
+            if col_colours else None
+        )
     else:
         col_colors_df = None
         legends = []
