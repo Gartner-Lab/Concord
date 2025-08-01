@@ -50,6 +50,7 @@ class TrajectoryConfig(StateConfig):
     program_on_time_fraction: float = 0.3
     cell_block_size_ratio: float = 0.3
     loop_to: Optional[Union[int, List[int]]] = None
+    global_non_specific_gene_fraction: float = 0.0
 
 @dataclass
 class TreeConfig(StateConfig):
@@ -137,10 +138,17 @@ class Simulation:
 
         batch_list, state_list = [], []
         for i in range(self.batch_config.n_batches):
-            batch_adata, batch_adata_pre = self.simulate_batch(
-                adata_state,
-                batch_idx=i,
-                seed=self.sim_config.seed + i
+            rng = np.random.default_rng(self.sim_config.seed + i)
+        
+            # Determine cells for this batch
+            cell_proportion = self.batch_config.cell_proportion[i]
+            n_cells = int(adata_state.n_obs * cell_proportion)
+            #cell_indices = rng.choice(adata.n_obs, n_cells, replace=False)
+            cell_indices = np.sort(rng.choice(adata_state.n_obs, n_cells, replace=False))
+            batch_adata_pre = adata_state[cell_indices].copy()
+            batch_adata = self.simulate_batch(
+                batch_adata_pre,
+                batch_idx=i
             )
             batch_list.append(batch_adata)
             state_list.append(batch_adata_pre)
@@ -386,6 +394,14 @@ class Simulation:
         # centre crop back to `n_cells`
         X = X[blk_size // 2 : blk_size // 2 + n_cells, :]
 
+        if cfg.global_non_specific_gene_fraction:
+            n_extra = int(X.shape[1] * cfg.global_non_specific_gene_fraction)
+            extra_g = rng.choice(X.shape[1], n_extra, replace=False)
+            X = self.simulate_expression_block(
+                X, cfg.program_structure, extra_g, np.arange(X.shape[0]),
+                cfg.level, cfg.min_level, 1.0,  # global genes are always on
+            )
+
         # add stochastic noise ------------------------------------------
         X_w = self.simulate_distribution(cfg.distribution, X, cfg.dispersion)
 
@@ -520,19 +536,11 @@ class Simulation:
 
     # ────────────────── BATCH SIMULATION ───────────────────
 
-    def simulate_batch(self, adata: ad.AnnData, batch_idx: int, seed: int) -> Tuple[ad.AnnData, ad.AnnData]:
+    def simulate_batch(self, adata: ad.AnnData, batch_idx: int) -> Tuple[ad.AnnData, ad.AnnData]:
         """Applies a batch-specific effect to a subset of data."""
-        rng = np.random.default_rng(seed)
-        
-        # Determine cells for this batch
-        cell_proportion = self.batch_config.cell_proportion[batch_idx]
-        n_cells = int(adata.n_obs * cell_proportion)
-        #cell_indices = rng.choice(adata.n_obs, n_cells, replace=False)
-        cell_indices = np.sort(rng.choice(adata.n_obs, n_cells, replace=False))
-        
-        batch_adata_pre = adata[cell_indices].copy()
-        batch_adata_pre.obs['batch'] = f"batch_{batch_idx+1}"
-        batch_adata = batch_adata_pre.copy()
+
+        adata.obs['batch'] = f"batch_{batch_idx+1}"
+        batch_adata = adata.copy()
         
         # Apply the corresponding batch effect
         effect_type = self.batch_config.effect_type[batch_idx]
@@ -544,7 +552,7 @@ class Simulation:
                 "dispersion": self.batch_config.dispersion[batch_idx],
                 "batch_feature_frac": self.batch_config.feature_frac[batch_idx],
                 "batch_name": f"batch_{batch_idx+1}",
-                "rng": rng,
+                "rng": self.rng,
             }
             result = effect_fn(batch_adata, **effect_params)
             if isinstance(result, ad.AnnData):
@@ -557,11 +565,11 @@ class Simulation:
         if self.sim_config.to_int:
             batch_adata.X = batch_adata.X.astype(int)
             
-        return batch_adata, batch_adata_pre
+        return batch_adata
 
-    def _be_variance_inflation(self, adata, *, dispersion, rng, **_):
+    def _be_variance_inflation(self, adata, *, level, rng, **_):
         """Multiply each entry by 1 + N(0,σ²)."""
-        scale = 1 + rng.normal(0, dispersion, adata.shape).reshape(adata.n_obs, adata.n_vars)
+        scale = 1 + rng.normal(0, level, adata.shape).reshape(adata.n_obs, adata.n_vars)
         adata.X = adata.X.toarray() * scale if sp.issparse(adata.X) else adata.X * scale
 
     def _be_batch_specific_distribution(self, adata, *, distribution, level, dispersion, rng, **_):

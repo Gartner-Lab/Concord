@@ -1,6 +1,5 @@
 from __future__ import annotations
 import pandas as pd
-import logging
 import numpy as np
 import logging
 from pathlib import Path
@@ -14,7 +13,7 @@ from ..plotting import plot_benchmark_table
 from .tda import compute_persistent_homology
 
 
-logger = logging.getLogger(__name__)
+from .. import set_verbose_mode, logger
 
 def count_total_runs(param_grid):
     total_runs = 0
@@ -201,13 +200,10 @@ def benchmark_topology(diagrams, expected_betti_numbers=[1,0,0], n_bins=100, sav
     results['betti_stats'] = betti_stats_pivot
     results['distance_metrics'] = distance_metrics_df
 
-    entropy_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Entropy']]
-    average_entropy = entropy_columns.mean(axis=1)
-    variance_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Variance']]
-    average_variance = variance_columns.mean(axis=1)
-    final_metrics = pd.concat([average_entropy, average_variance], axis=1)
-    final_metrics.columns = pd.MultiIndex.from_tuples([('Betti curve', 'Entropy'), ('Betti curve', 'Variance')])
-    final_metrics[('Betti number', 'L1 distance')] = distance_metrics_df['L1 Distance']
+    stability_columns = betti_stats_pivot.loc[:, pd.IndexSlice[:, 'Stability']]
+    average_stability = stability_columns.mean(axis=1)
+    final_metrics = pd.DataFrame(average_stability, columns=pd.MultiIndex.from_tuples([('Topology', 'Betti curve stability')]))
+    final_metrics[('Topology', 'Betti number L1')] = distance_metrics_df['L1 Distance']
     results['combined_metrics'] = final_metrics
 
     if save_dir is not None and file_suffix is not None:
@@ -300,9 +296,7 @@ def benchmark_geometry(adata, keys,
     from .geometry import pairwise_distance, local_vs_distal_corr, compute_trustworthiness, compute_centroid_distance, compute_state_batch_distance_ratio, compute_dispersion_across_states
     results_df = {}
     results_full = {}
-    if verbose:
-        logger.setLevel(logging.INFO)
-
+    set_verbose_mode(verbose)
 
     # Pseudotime correlation
     if 'pseudotime' in eval_metrics:
@@ -452,11 +446,10 @@ def benchmark_geometry(adata, keys,
     
 
 def simplify_geometry_benchmark_table(df):
-    # Simplify the dataframe by computing average for each metric
     if "Cell distance correlation" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "Cell distance correlation")] = df["Cell distance correlation"][
-            ["pearsonr(cd)", "spearmanr(cd)", "kendalltau(cd)"]
-        ].mean(axis=1)
+        df[("Geometry", "Cell distance correlation")] = df["Cell distance correlation"][
+            ["pearsonr(cd)"]#, "spearmanr(cd)", "kendalltau(cd)"]
+        ]#.mean(axis=1)
 
         df.drop(
             columns=[
@@ -466,44 +459,53 @@ def simplify_geometry_benchmark_table(df):
                 ("Cell distance correlation", "Local spearmanr"),
                 ("Cell distance correlation", "Distal spearmanr")
             ],
-            inplace=True
+            inplace=True,
+            errors="ignore"
         )
 
     if "Trustworthiness" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "Trustworthiness")] = df["Trustworthiness"][["Mean"]]
+        df[("Geometry", "Trustworthiness")] = df["Trustworthiness"][["Mean"]]
         df.drop(
             columns=[
                 ("Trustworthiness", "Decay"),
                 ("Trustworthiness", "Mean")
             ],
-            inplace=True
+            inplace=True, 
+            errors="ignore"
         )
 
-    if "State distance" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "State distance correlation")] = df["State distance"][
-            ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
-        ].mean(axis=1)
-        df.drop(
-            columns=[
-                ("State distance", "pearsonr(sd)"),
-                ("State distance", "spearmanr(sd)"),
-                ("State distance", "kendalltau(sd)"),
-            ],
-            inplace=True
-        )
+    # Drop 'State distance' and 'Dispersion' columns if present
+    drop_lv0 = {"State distance", "Dispersion"}
+    mask = df.columns.get_level_values(0).isin(drop_lv0)
+    df = df.loc[:, ~mask]   
 
-    if "Dispersion" in df.columns.get_level_values(0):
-        df[("Geometric metrics", "State dispersion correlation")] = df["Dispersion"][
-            ["pearsonr(sv)", "spearmanr(sv)", "kendalltau(sv)"]
-        ].mean(axis=1)
-        df.drop(
-            columns=[
-                ("Dispersion", "pearsonr(sv)"),
-                ("Dispersion", "spearmanr(sv)"),
-                ("Dispersion", "kendalltau(sv)"),
-            ],
-            inplace=True
-        )
+    # if "State distance" in df.columns.get_level_values(0):
+    #     df[("Geometry", "State distance correlation")] = df["State distance"][
+    #         ["pearsonr(sd)", "spearmanr(sd)", "kendalltau(sd)"]
+    #     ].mean(axis=1)
+    #     df.drop(
+    #         columns=[
+    #             ("State distance", "pearsonr(sd)"),
+    #             ("State distance", "spearmanr(sd)"),
+    #             ("State distance", "kendalltau(sd)"),
+    #         ],
+    #         inplace=True,
+    #         errors="ignore"
+    #     )
+
+    # if "Dispersion" in df.columns.get_level_values(0):
+    #     df[("Geometry", "State dispersion correlation")] = df["Dispersion"][
+    #         ["pearsonr(sv)"]#, "spearmanr(sv)", "kendalltau(sv)"]
+    #     ]#.mean(axis=1)
+    #     df.drop(
+    #         columns=[
+    #             ("Dispersion", "pearsonr(sv)"),
+    #             ("Dispersion", "spearmanr(sv)"),
+    #             ("Dispersion", "kendalltau(sv)"),
+    #         ],
+    #         inplace=True,
+    #         errors="ignore"
+        # )
     return df
 
 
@@ -552,8 +554,7 @@ def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=Fals
 def compute_nmi_ari(adata, emb_key, label_key, resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
     import scanpy as sc
     import scib
-    if verbose:
-        logger.setLevel(logging.INFO)
+    set_verbose_mode(verbose)
 
     sc.pp.neighbors(adata, n_neighbors=n_neighbors, use_rep=emb_key, metric=metric)
     cluster_key = f'leiden_{emb_key}'
@@ -571,8 +572,7 @@ def compute_nmi_ari(adata, emb_key, label_key, resolution_range = np.arange(0.1,
 
 def benchmark_nmi_ari(adata, emb_keys, label_key='cell_type', resolution_range = np.arange(0.1, 1.1, 0.1), n_neighbors=30, metric='euclidean', verbose=True):
     import pandas as pd
-    if verbose:
-        logger.setLevel(logging.INFO)
+    set_verbose_mode(verbose)
     nmi_vals = {}
     ari_vals = {}
     for key in emb_keys:
@@ -632,6 +632,7 @@ def run_scib_benchmark(adata,
                        embedding_keys: Sequence[str],
                        batch_key: str,
                        state_key: str,
+                       scib_benchmark_batch: bool = True,
                        n_jobs: int = 6,
                        rank: bool = True,
                        save_table: Optional[Path] = None,
@@ -649,6 +650,10 @@ def run_scib_benchmark(adata,
         silhouette_label=True,
         clisi_knn=True,
     )
+    if scib_benchmark_batch:
+        batch_metrics = BatchCorrection()
+    else:
+        batch_metrics = None
 
     bm = Benchmarker(
         adata,
@@ -657,7 +662,7 @@ def run_scib_benchmark(adata,
         embedding_obsm_keys=list(embedding_keys),
         n_jobs=n_jobs,
         bio_conservation_metrics=bio_metrics,
-        batch_correction_metrics=BatchCorrection(),
+        batch_correction_metrics=batch_metrics,
     )
     bm.benchmark()
     scib_scores = bm.get_results(min_max_scale=False)
@@ -675,7 +680,7 @@ def run_scib_benchmark(adata,
         min_max_scale=False,
         one_minus=False,
         aggregate_score=False,
-        rank=rank,
+        rank=False,
         rank_col=("Aggregate score", "Total"),
         name_exact=False,
     )
@@ -704,22 +709,24 @@ def run_probe_benchmark(adata,
                         *,
                         embedding_keys: Sequence[str],
                         state_key = "state",
-                        #batch_key = "batch",
+                        batch_key = None,
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
                         rank: bool = True,
                         save_table: Optional[Path] = None,
                         plot: bool = False,
-                        plot_kw: Optional[dict] = None):
+                        plot_kw: Optional[dict] = None,
+                        verbose: Optional[bool] = False):
     from concord.benchmarking import (
         LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
     )
+    set_verbose_mode(verbose)
 
     # ── 2.1 run linear probe
     key_name_mapping = {}
     if state_key is not None:
         key_name_mapping["state"] = state_key
-    # if batch_key is not None:
-    #     key_name_mapping["batch"] = batch_key
+    if batch_key is not None:
+        key_name_mapping["batch"] = batch_key
     linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
@@ -729,10 +736,10 @@ def run_probe_benchmark(adata,
             device="cpu", return_preds=False
         )
         linear_res[key] = evaluator.run()
-        # # invert batch accuracy by 1-acc
-        # if key == 'batch':
-        #     linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
-        #     linear_res[key].drop(columns=["accuracy"], inplace=True)
+        # invert batch accuracy by 1-acc
+        if key == 'batch':
+            linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
+            linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
     knn_res = {}
@@ -742,10 +749,10 @@ def run_probe_benchmark(adata,
             adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
         )
         knn_res[key] = knn_eval.run()
-        # # invert batch accuracy by 1-acc
-        # if key == 'batch':
-        #     knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
-        #     knn_res[key].drop(columns=["accuracy"], inplace=True)
+        # invert batch accuracy by 1-acc
+        if key == 'batch':
+            knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
+            knn_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.3 collect into one DataFrame
     linear_df = probe_dict_to_df(linear_res, "Linear")
@@ -791,15 +798,17 @@ def run_topology_benchmark(adata,
                            save_dir: Path,
                            file_suffix: str,
                            homology_dimensions=(0, 1, 2),
-                           expected_betti_numbers=(0, 0, 0),
-                           rank: bool = True,
+                           expected_betti_numbers=[0, 0, 0],
+                           max_points: Optional[int] = None,
+                           random_state: Optional[int] = None,
                            plot: bool = False,
                            plot_kw: Optional[dict] = None):
     diagrams = {}
     for key in embedding_keys:
         logger.info(f"Computing persistent homology for {key}")
         diagrams[key] = compute_persistent_homology(
-            adata, key=key, homology_dimensions=homology_dimensions
+            adata, key=key, homology_dimensions=homology_dimensions,
+            max_points=max_points, random_state=random_state
         )
 
     with (save_dir / f"topology_diagrams_{file_suffix}.pkl").open("wb") as f:
@@ -812,30 +821,30 @@ def run_topology_benchmark(adata,
     )
     topo_df = topo_res["combined_metrics"]
 
-    # cap very large distances
-    topo_df[("Betti number", "L1 distance")] = topo_df[
-        ("Betti number", "L1 distance")
-    ].clip(upper=5)
+    # cap very large distances, set to max (maximum of expected_betti_numbers * 2, 2)
+    L1_col  = ("Topology", "Betti number L1")
+    ACC_col = ("Topology", "Betti number accuracy")
+    topo_df[ACC_col] = 1 / (1 + topo_df[L1_col])
+    # ── 2. drop the raw L1 distance so only accuracy is scored
+    topo_df.drop(columns=[L1_col], inplace=True)
+    # Rename ("Topology", "Betti curve Stability") to ("Topology", "Betti stability")
 
-    # score + rank
-    topo_scores = benchmark_stats_to_score(
-        topo_df,
-        min_max_scale=True,
-        one_minus=True,
-        aggregate_score=True,
-        aggregate_score_name=("Topology", "Score"),
-        rank=rank,
-        rank_col=("Topology", "Score"),
+    WEIGHTED_COL = ("Topology", "Score")         # final column name
+    w_acc, w_stab = 0.8, 0.2
+
+    topo_df[WEIGHTED_COL] = (
+        w_acc  * topo_df[("Topology", "Betti number accuracy")]
+    + w_stab * topo_df[("Topology", "Betti curve stability")]
     )
 
     if plot:
         plot_benchmark_table(
-            topo_scores,
+            topo_df,
             agg_name="Topology",
             **(plot_kw or {})
         )
 
-    return topo_scores
+    return topo_df
 
 
 # ------------------------------------------------------------------ #
@@ -856,10 +865,9 @@ def run_geometry_benchmark(adata,
                            plot_kw: Optional[dict] = None,
                            save_dir: Optional[Path] = None,
                            file_suffix: str = ""):
-    bm_keys = [groundtruth_key, "wt_noise"] + list(embedding_keys)
     geom_df, geom_full = benchmark_geometry(
         adata,
-        keys=bm_keys,
+        keys=embedding_keys,
         eval_metrics=geometry_metrics,
         dist_metric=dist_metric,
         corr_types=corr_types,
@@ -873,7 +881,7 @@ def run_geometry_benchmark(adata,
         save_dir=save_dir,
         file_suffix=file_suffix,
     )
-
+    geom_df = simplify_geometry_benchmark_table(geom_df)
     # Save full results if save_dir is provided
     if save_dir is not None:
         geom_full_path = save_dir / f"geometry_results_{file_suffix}.pkl"
@@ -910,7 +918,7 @@ def run_geometry_benchmark(adata,
 def combine_benchmark_results(
         results: dict[str, pd.DataFrame],
         *,
-        block_order: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
+        block_include: tuple[str, ...] = ("geometry", "topology", "scib", "probe"),
         plot: bool = False,
         save_path: Optional[Path] = None,
         table_plot_kw: Optional[dict] = None
@@ -922,7 +930,7 @@ def combine_benchmark_results(
     ----------
     results       dict returned by run_benchmark_pipeline (or similar)
                   containing any subset of {"geometry","topology","scib","probe"}.
-    block_order   order in which the blocks should be concatenated.
+    block_include   which blocks should be concatenated.
     plot          if True, render a combined heat‑map via plot_benchmark_table.
     save_path     optional PDF/PNG path for the combined plot.
     table_plot_kw kwargs forwarded to plot_benchmark_table.
@@ -941,7 +949,7 @@ def combine_benchmark_results(
         return df.apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
 
     # ---------- iterate over blocks ---------------------------------------
-    for block in block_order:
+    for block in block_include:
         if block not in results:
             continue
 
@@ -965,13 +973,8 @@ def combine_benchmark_results(
             )
 
         elif block == "scib":
-            # drop KMeans NMI/ARI & SCIB’s own aggregate
-            drop = [c for c in df.columns
-                    if c[0] == "Bio conservation"
-                    and re.search(r"KMeans\s", c[1])]
-            df.drop(columns=drop, inplace=True, errors="ignore")
-            df.drop(columns=[("Aggregate score", "Total")],
-                    inplace=True, errors="ignore")
+            # Drop any columns that are under "Aggregate score"
+            df = df.loc[:, ~df.columns.get_level_values(0).isin(["Aggregate score"])]
 
         to_concat.append(df)
 
@@ -980,25 +983,43 @@ def combine_benchmark_results(
 
     # ---------- per‑family aggregate means --------------------------------
     agg_groups = [g for g in combined_df.columns.get_level_values(0).unique()
-                  if g != "Aggregate score"]
+              if g != "Aggregate score"]
 
-    agg_df = pd.concat(
-        [_mean_numeric(combined_df.xs(g, axis=1, level=0))
-            .rename(("Aggregate score", g))
-         for g in agg_groups],
-        axis=1
-    )
+    agg_parts = []
+    for g in agg_groups:
+        if g in ("Geometry", "Topology"):   # these already have per‑block scores
+            continue
+        s = _mean_numeric(combined_df.xs(g, axis=1, level=0))
+        s.name = ("Aggregate score", g)     # give Series the final 2‑level name
+        # If s.name is already in combined_df, remove that column
+        if s.name in combined_df.columns:
+            combined_df = combined_df.drop(columns=[s.name])
+        agg_parts.append(s)
+
+    if agg_parts:                           # <-- ▸ only concat when we have parts
+        agg_df = pd.concat(agg_parts, axis=1)
+    else:
+        agg_df = pd.DataFrame(index=combined_df.index) 
+    
     combined_df = pd.concat([combined_df, agg_df], axis=1)
 
     # ---------- overall average (added *after* ordering so it is last) ----
     combined_df = combined_df.loc[:, ~combined_df.columns.duplicated()]
+
+    # sort columns: Aggregate score last, then by group, then by name
+    # with special handling to put probe accuracies at the end of Bio conservation
+    probe_acc_cols = {"KNN state accuracy", "Linear state accuracy"}
     combined_df = combined_df.loc[
         :,
         sorted(combined_df.columns,
                key=lambda c: (c[0] == "Aggregate score",
-                              c[0], str(c[1]).lower()))
+                              c[0],
+                              c[1] in probe_acc_cols,
+                              str(c[1]).lower()))
     ]
-    combined_df[("Aggregate score", "Average")] = _mean_numeric(agg_df)
+
+    agg_cols = [col for col in combined_df.columns if col[0] == "Aggregate score"]
+    combined_df[("Aggregate score", "Average")] = combined_df[agg_cols].apply(pd.to_numeric, errors="coerce").mean(axis=1, skipna=True)
 
     # ---------- ranking ----------------------------------------------------
     combined_df = combined_df.sort_values(
@@ -1031,9 +1052,14 @@ def run_benchmark_pipeline(
         file_suffix: str = "",
         run: Sequence[Literal["scib", "probe", "topology", "geometry"]] = (
             "scib", "probe", "topology", "geometry"),
+        scib_benchmark_batch: bool = True,
+        expected_betti_numbers: Optional[tuple[int, ...]] = [0, 0, 0],
+        max_points: Optional[int] = None,
+        seed: Optional[int] = 0,
         plot_individual: bool = True,
         combine_plots: bool = True,
         table_plot_kw: Optional[dict] = None,
+        verbose: bool = True
 ) -> dict[str, pd.DataFrame]:
     """
     Run selected benchmarking blocks and return a dict with their score tables
@@ -1045,6 +1071,8 @@ def run_benchmark_pipeline(
     plot_individual   : show / save each block's table
     combine_plots     : plot the final merged table
     """
+    set_verbose_mode(verbose)
+        
     save_dir.mkdir(parents=True, exist_ok=True)
     table_plot_kw = table_plot_kw or dict(
         pal="PRGn", pal_agg="RdYlBu_r", cmap_method="minmax", dpi=300)
@@ -1058,6 +1086,7 @@ def run_benchmark_pipeline(
             embedding_keys=embedding_keys,
             batch_key=batch_key,
             state_key=state_key,
+            scib_benchmark_batch=scib_benchmark_batch,
             save_table=save_dir / f"scib_results_{file_suffix}.pdf",
             plot=plot_individual,
             plot_kw=table_plot_kw
@@ -1069,7 +1098,7 @@ def run_benchmark_pipeline(
             adata,
             embedding_keys=embedding_keys,
             state_key=state_key,
-            #batch_key=batch_key,
+            #batch_key=batch_key, # not used in default benchmark due to batches may not perfectly overlap
             ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
             save_table=save_dir / f"probe_results_{file_suffix}.pdf",
             plot=plot_individual,
@@ -1084,7 +1113,10 @@ def run_benchmark_pipeline(
             save_dir=save_dir,
             file_suffix=file_suffix,
             plot=plot_individual,
-            plot_kw=table_plot_kw
+            plot_kw=table_plot_kw,
+            expected_betti_numbers=expected_betti_numbers,
+            max_points=max_points,
+            random_state=seed
         )
 
     if "geometry" in run:
@@ -1108,12 +1140,18 @@ def run_benchmark_pipeline(
 
     combined_df = combine_benchmark_results(
         results,
-        block_order=("geometry", "topology", "scib", "probe"),
+        block_include=("geometry", "topology", "scib", "probe"),
         plot=combine_plots,
         save_path=save_dir / f"combined_res_{file_suffix}.pdf",
         table_plot_kw=table_plot_kw,
     )
     results["combined"] = combined_df
+
+    if save_dir is not None:
+        # pickle save the results
+        with (save_dir / f"benchmark_results_{file_suffix}.pkl").open("wb") as f:
+            pickle.dump(results, f)
+        logger.info(f"Saved benchmark results to {save_dir / f'benchmark_results_{file_suffix}.pkl'}")
     return results
 
 

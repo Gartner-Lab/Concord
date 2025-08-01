@@ -172,9 +172,11 @@ def run_concord(
     clr_beta: float | None = None,
     p_intra_knn: float | None = None,
     p_intra_domain: float | None = None,
-    sampler_knn: Any = None,
+    sampler_emb: str | None = None,
+    sampler_knn: int | None = None,
     dropout_prob: float | None = None,
     lr: float | None = None,
+    domain_coverage: dict[str, float] | None = None,
     # ------------------------------------------------- NEW: free-form extras
     concord_kwargs: Optional[Dict[str, Any]] = None,
 ):
@@ -215,10 +217,12 @@ def run_concord(
         "clr_beta":              clr_beta,
         "p_intra_knn":           p_intra_knn,
         "p_intra_domain":        p_intra_domain,
+        "sampler_emb":           sampler_emb,  
         "sampler_knn":           sampler_knn,
         "lr":                    lr,
         "dropout_prob":          dropout_prob,
         "load_data_into_memory": load_data_into_memory,
+        "domain_coverage":       domain_coverage,
     }
     kwargs.update({k: v for k, v in optional_params.items() if v is not None})
 

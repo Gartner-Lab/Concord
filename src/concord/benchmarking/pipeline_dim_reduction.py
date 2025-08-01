@@ -13,7 +13,7 @@ from ..utils import (
     run_zifa, run_phate, run_concord, run_scvi
 )
 from .time_memory import run_and_log
-from . import logger
+from .. import logger
 
 
 
