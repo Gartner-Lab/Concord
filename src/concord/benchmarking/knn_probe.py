@@ -111,8 +111,10 @@ class KNNProbeEvaluator:
                     "accuracy": accuracy_score(y_val, y_pred),
                 }
 
-                y_pred_store = y_pred
-                y_val_store = y_val
+                # y_pred_store = y_pred
+                # y_val_store = y_val
+                y_pred_store = enc.inverse_transform(y_pred)
+                y_val_store  = enc.inverse_transform(y_val)
 
             else:  # regression
                 model = KNeighborsRegressor(
