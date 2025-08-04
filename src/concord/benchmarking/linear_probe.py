@@ -156,6 +156,10 @@ class LinearProbeEvaluator:
                 X, y_tensor, out_dim, key, mu, sigma, adata_filt.obs_names
             )
             self._history.append(metrics)
+
+            if self.task == "classification":
+                pred_df["y_true"] = enc.inverse_transform(pred_df["y_true"].astype(int))
+                pred_df["y_pred"] = enc.inverse_transform(pred_df["y_pred"].astype(int))
             if self.return_preds:
                 self._pred_bank[key] = pred_df
 

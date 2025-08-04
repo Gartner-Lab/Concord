@@ -510,7 +510,7 @@ def simplify_geometry_benchmark_table(df):
 
 
 # Convert benchmark table to scores
-def benchmark_stats_to_score(df, fillna=None, min_max_scale=True, one_minus=False, aggregate_score=False, aggregate_score_name = ('Aggregate', 'Score'), name_exact=False, rank=False, rank_col=None):
+def benchmark_stats_to_score(df, fillna=None, min_max_scale=False, one_minus=False, aggregate_score=False, aggregate_score_name = ('Aggregate', 'Score'), name_exact=False, rank=False, rank_col=None):
     import pandas as pd
     from sklearn.preprocessing import MinMaxScaler
 
@@ -711,15 +711,20 @@ def run_probe_benchmark(adata,
                         state_key = "state",
                         batch_key = None,
                         ignore_values=("unannotated", "nan", "NaN", np.nan, "NA"),
+                        knn_k: int = 30,
                         rank: bool = True,
                         save_table: Optional[Path] = None,
                         plot: bool = False,
                         plot_kw: Optional[dict] = None,
+                        return_preds: bool = False,
                         verbose: Optional[bool] = False):
     from concord.benchmarking import (
         LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
     )
     set_verbose_mode(verbose)
+
+    linear_res, knn_res   = {}, {}
+    linear_preds, knn_preds = {}, {} 
 
     # ── 2.1 run linear probe
     key_name_mapping = {}
@@ -727,28 +732,39 @@ def run_probe_benchmark(adata,
         key_name_mapping["state"] = state_key
     if batch_key is not None:
         key_name_mapping["batch"] = batch_key
-    linear_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running linear probe for {key} with keys {embedding_keys}")
         evaluator = LinearProbeEvaluator(
             adata, embedding_keys, key_name_mapping[key],
             task="auto", epochs=20, ignore_values=ignore_values,
-            device="cpu", return_preds=False
+            device="cpu", return_preds=return_preds
         )
-        linear_res[key] = evaluator.run()
+        if return_preds:
+            metrics_df, preds_bank   = evaluator.run()
+            linear_preds[key]        = preds_bank             # NEW
+        else:
+            metrics_df = evaluator.run()
+
+        linear_res[key] = metrics_df
         # invert batch accuracy by 1-acc
         if key == 'batch':
             linear_res[key]["error"] = 1 - linear_res[key]["accuracy"]
             linear_res[key].drop(columns=["accuracy"], inplace=True)
 
     # ── 2.2 run k-NN probe
-    knn_res = {}
     for key in key_name_mapping.keys():
         logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
-            adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=30
+            adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=knn_k,
+            return_preds=return_preds
         )
-        knn_res[key] = knn_eval.run()
+        if return_preds:
+            metrics_df, preds_bank   = knn_eval.run()
+            knn_preds[key]        = preds_bank             # NEW
+        else:
+            metrics_df = knn_eval.run()
+
+        knn_res[key] = metrics_df
         # invert batch accuracy by 1-acc
         if key == 'batch':
             knn_res[key]["error"] = 1 - knn_res[key]["accuracy"]
@@ -786,6 +802,11 @@ def run_probe_benchmark(adata,
                 **(plot_kw or {})
             )
 
+    if return_preds:
+        # you get scores **and** a nested dict of DataFrames
+        #   preds["Linear"][target][embedding]  →  DataFrame
+        return probe_scores, {"Linear": linear_preds,
+                              "KNN":    knn_preds}
     return probe_scores
 
 
