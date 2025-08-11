@@ -88,6 +88,7 @@ class LinearProbeEvaluator:
 
     # extras
     return_preds: bool = False
+    predict_all: bool = False
 
     # internal bookkeeping
     _history: List[Dict[str, Any]] = field(default_factory=list, init=False)
@@ -152,16 +153,22 @@ class LinearProbeEvaluator:
         # ------------------ 4) run probe on each emb ----------------- #
         for key in self.emb_keys:
             X = torch.tensor(adata_filt.obsm[key], dtype=torch.float32)
-            metrics, pred_df = self._evaluate_single_rep(
-                X, y_tensor, out_dim, key, mu, sigma, adata_filt.obs_names
+            metrics, pred_df_val, pred_df_all = self._evaluate_single_rep(
+                X, y_tensor, out_dim, key, mu, sigma, adata_filt.obs_names,
+                predict_all=self.predict_all,
             )
             self._history.append(metrics)
 
-            if self.task == "classification":
-                pred_df["y_true"] = enc.inverse_transform(pred_df["y_true"].astype(int))
-                pred_df["y_pred"] = enc.inverse_transform(pred_df["y_pred"].astype(int))
             if self.return_preds:
-                self._pred_bank[key] = pred_df
+                # choose which to store: ALL if requested, else VAL only
+                df_to_store = pred_df_all if (self.predict_all and pred_df_all is not None) else pred_df_val
+
+                if self.task == "classification":
+                    df_to_store["y_true"] = enc.inverse_transform(df_to_store["y_true"].astype(int))
+                    df_to_store["y_pred"] = enc.inverse_transform(df_to_store["y_pred"].astype(int))
+                # regression already back-scaled in helper
+                
+                self._pred_bank[key] = df_to_store
 
         metrics_df = pd.DataFrame(self._history).set_index("embedding")
         if self.return_preds:
@@ -185,6 +192,7 @@ class LinearProbeEvaluator:
         mu: float,
         sigma: float,
         obs_names,
+        predict_all: bool = False,
     ):
         ds = TensorDataset(X, y)
         n_val = int(len(ds) * self.val_frac)
@@ -257,6 +265,10 @@ class LinearProbeEvaluator:
                 "embedding": emb_key,
                 "accuracy": accuracy_score(y_true_scaled, y_pred_final),
             }
+            val_df = pd.DataFrame(
+                {"y_true": y_true_scaled, "y_pred": y_pred_final},
+                index=np.array(obs_names)[idxs],
+            )
         else:
             y_pred_final = y_pred_scaled * sigma + mu
             y_true_final = y_true_scaled * sigma + mu
@@ -265,15 +277,38 @@ class LinearProbeEvaluator:
                 "r2":  r2_score(y_true_final, y_pred_final),
                 "mae": mean_absolute_error(y_true_final, y_pred_final),
             }
+            val_df = pd.DataFrame(
+                {"y_true": y_true_final, "y_pred": y_pred_final},
+                index=np.array(obs_names)[idxs],
+            )
 
-        pred_df = pd.DataFrame(
-            {
-                "y_true": y_true_final if self.task == "regression" else y_true_scaled,
-                "y_pred": y_pred_final,
-            },
-            index=np.array(obs_names)[idxs],
-        )
-        return metric_dict, pred_df
+        all_df = None
+        if predict_all:
+            probe.eval(); preds_all, trues_all = [], []
+            full_loader = DataLoader(TensorDataset(X, y), batch_size=self.batch_size, shuffle=False)
+            with torch.no_grad():
+                for xb, yb in full_loader:
+                    out = probe(xb.to(self.device)).squeeze().cpu()
+                    preds_all.append(out); trues_all.append(yb.cpu())
+
+            y_pred_all_scaled = torch.cat(preds_all).numpy()
+            y_true_all_scaled = torch.cat(trues_all).numpy()
+
+            if self.task == "classification":
+                y_pred_all = y_pred_all_scaled.argmax(1)
+                all_df = pd.DataFrame(
+                    {"y_true": y_true_all_scaled, "y_pred": y_pred_all},
+                    index=np.array(obs_names),   # ALL kept rows
+                )
+            else:
+                y_pred_all = y_pred_all_scaled * sigma + mu
+                y_true_all = y_true_all_scaled * sigma + mu
+                all_df = pd.DataFrame(
+                    {"y_true": y_true_all, "y_pred": y_pred_all},
+                    index=np.array(obs_names),
+                )
+
+        return metric_dict, val_df, all_df
 
 
 # --------------------------------------------------------------------- #

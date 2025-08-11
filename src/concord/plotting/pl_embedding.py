@@ -31,6 +31,7 @@ def plot_embedding(adata, basis, color_by=None,
                    colorbar_loc='right',
                    vmax_quantile=None, vmax=None,
                    font_size=8, point_size=10, path_width=1, legend_loc='on data', 
+                   legend_markerscale=1.0,
                    rasterized=True,
                    seed=42,
                    save_path=None):
@@ -114,31 +115,32 @@ def plot_embedding(adata, basis, color_by=None,
                 else:
                     raise ValueError(f"Unknown column '{col}' in adata")
             else:
-                local_vmax = data_col.max()           
+                local_vmax = data_col.max()  
 
-        if col is None:
-            sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
-                                 legend_loc='right margin', legend_fontsize=font_size,
-                                 size=point_size, alpha=alpha, zorder=1)
-            for collection in ax.collections:
-                collection.set_color(default_color)
-        elif pd.api.types.is_numeric_dtype(data_col):
-            if col in adata.var_names:
-                sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc='right margin', legend_fontsize=font_size,
-                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                                vmin=0, vmax=local_vmax,
-                                zorder=1)
+        with plt.rc_context({'legend.markerscale': legend_markerscale}):
+            if col is None:
+                sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, zorder=1)
+                for collection in ax.collections:
+                    collection.set_color(default_color)
+            elif pd.api.types.is_numeric_dtype(data_col):
+                if col in adata.var_names:
+                    sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                    vmin=0, vmax=local_vmax,
+                                    zorder=1)
+                else:
+                    sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                    vmax=local_vmax,
+                                    zorder=1)
             else:
                 sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc='right margin', legend_fontsize=font_size,
-                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                                vmax=local_vmax,
-                                zorder=1)
-        else:
-            sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, palette=palette, zorder=1)
+                                legend_loc=legend_loc, legend_fontsize=font_size,
+                                size=point_size, alpha=alpha, palette=palette, zorder=1)
 
         if legend_loc == 'on data':
             for text in ax.texts:
