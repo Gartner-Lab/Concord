@@ -93,28 +93,13 @@ def compute_betti_entropy(betti_values):
 # ──────────────────────────────────────────────────────────────
 def betti_stability(betti_values: np.ndarray) -> float:
     """
-    Return a stability score in [0,1] from a Betti‑curve vector.
+    Return a stability score in [0,1] from a Betti curve vector.
 
-    Stability := 1 − H / H_max,          where
-        H      = Shannon entropy of the (normalised) Betti values
-        H_max  = log(k) with k = number of *occupied* bins (non‑zero entries)
-
-    * 1  → perfectly concentrated Betti curve (all mass in one bin)
-    * 0  → maximally spread across its support
+    Stability := 1 / (1 + variance), where variance is np.var(betti_values).
+    Caps large variances; 1 for var=0 (constants), approaches 0 for high var.
     """
-    from scipy.stats import entropy
-    n_bins = betti_values.size
-    total = betti_values.sum()
-    if total == 0:
-        return 0.0                       # degenerate curve → unstable
-
-    # probability mass function
-    p = betti_values / total
-
-    H     = entropy(p)                  # natural‑log entropy
-    Hmax  = np.log(n_bins)           # maximum entropy for n_bins
-
-    return 1.0 - H / Hmax
+    var = np.var(betti_values)
+    return 1.0 / (1.0 + var)
 
 
 def interpolate_betti_curve(betti_values, original_sampling, common_sampling):

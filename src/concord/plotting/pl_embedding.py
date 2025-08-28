@@ -14,6 +14,18 @@ from matplotlib.collections import PathCollection, LineCollection
 logger = logging.getLogger(__name__)
 
 
+def _limits_from_spec(arr, spec):
+    if spec is None:
+        return None
+    mode, a, b = spec
+    if mode == 'q':   # quantiles
+        lo, hi = np.quantile(arr, [a, b])
+    elif mode == 'abs':  # absolute bounds
+        lo, hi = float(a), float(b)
+    else:
+        raise ValueError("x_zoom/y_zoom must be ('q', qmin, qmax) or ('abs', min, max)")
+    return lo, hi
+
 def plot_embedding(adata, basis, color_by=None, 
                    pal=None, 
                    highlight_indices=None, 
@@ -31,6 +43,10 @@ def plot_embedding(adata, basis, color_by=None,
                    colorbar_loc='right',
                    vmax_quantile=None, vmax=None,
                    font_size=8, point_size=10, path_width=1, legend_loc='on data', 
+                   legend_markerscale=1.0,
+                   x_zoom=None,  # ('q', 0.45, 0.75) or ('abs', xmin, xmax)
+                   y_zoom=None,  # ('q', 0.50, 0.80) or ('abs', ymin, ymax)
+                   square_zoom=False,
                    rasterized=True,
                    seed=42,
                    save_path=None):
@@ -75,7 +91,7 @@ def plot_embedding(adata, basis, color_by=None,
     """
 
     warnings.filterwarnings('ignore')
-
+    
     if color_by is None or len(color_by) == 0:
         color_by = [None]  # Use a single plot without coloring
 
@@ -114,31 +130,32 @@ def plot_embedding(adata, basis, color_by=None,
                 else:
                     raise ValueError(f"Unknown column '{col}' in adata")
             else:
-                local_vmax = data_col.max()           
+                local_vmax = data_col.max()  
 
-        if col is None:
-            sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
-                                 legend_loc='right margin', legend_fontsize=font_size,
-                                 size=point_size, alpha=alpha, zorder=1)
-            for collection in ax.collections:
-                collection.set_color(default_color)
-        elif pd.api.types.is_numeric_dtype(data_col):
-            if col in adata.var_names:
-                sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc='right margin', legend_fontsize=font_size,
-                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                                vmin=0, vmax=local_vmax,
-                                zorder=1)
+        with plt.rc_context({'legend.markerscale': legend_markerscale}):
+            if col is None:
+                sc.pl.embedding(adata, basis=basis, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, zorder=1)
+                for collection in ax.collections:
+                    collection.set_color(default_color)
+            elif pd.api.types.is_numeric_dtype(data_col):
+                if col in adata.var_names:
+                    sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                    vmin=0, vmax=local_vmax,
+                                    zorder=1)
+                else:
+                    sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
+                                    legend_loc='right margin', legend_fontsize=font_size,
+                                    size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
+                                    vmax=local_vmax,
+                                    zorder=1)
             else:
                 sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                                legend_loc='right margin', legend_fontsize=font_size,
-                                size=point_size, alpha=alpha, cmap=cmap, colorbar_loc=colorbar_loc,
-                                vmax=local_vmax,
-                                zorder=1)
-        else:
-            sc.pl.embedding(adata, basis=basis, color=col, ax=ax, show=False,
-                            legend_loc=legend_loc, legend_fontsize=font_size,
-                            size=point_size, alpha=alpha, palette=palette, zorder=1)
+                                legend_loc=legend_loc, legend_fontsize=font_size,
+                                size=point_size, alpha=alpha, palette=palette, zorder=1)
 
         if legend_loc == 'on data':
             for text in ax.texts:
@@ -229,6 +246,29 @@ def plot_embedding(adata, basis, color_by=None,
         ax.set_ylabel('' if ylabel is None else ylabel, fontsize=font_size-2)
         ax.set_xticks([]) if not xticks else None
         ax.set_yticks([]) if not yticks else None
+
+        # Zoom in utilities
+        emb = adata.obsm[basis]
+        x = emb[:, 0]
+        y = emb[:, 1]
+
+        xlim = _limits_from_spec(x, x_zoom)
+        ylim = _limits_from_spec(y, y_zoom)
+
+        if xlim is not None:
+            ax.set_xlim(*xlim)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
+        if square_zoom and (xlim is not None or ylim is not None):
+            # enforce a square view box centered on the current limits
+            cur_xlim = ax.get_xlim()
+            cur_ylim = ax.get_ylim()
+            cx = 0.5 * (cur_xlim[0] + cur_xlim[1])
+            cy = 0.5 * (cur_ylim[0] + cur_ylim[1])
+            half = max(cur_xlim[1]-cur_xlim[0], cur_ylim[1]-cur_ylim[0]) / 2.0
+            ax.set_xlim(cx - half, cx + half)
+            ax.set_ylim(cy - half, cy + half)
 
         if hasattr(ax, 'collections') and len(ax.collections) > 0:
             cbar = ax.collections[-1].colorbar

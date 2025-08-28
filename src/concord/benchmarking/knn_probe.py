@@ -22,6 +22,7 @@ class KNNProbeEvaluator:
 
     # extras
     return_preds: bool = False
+    predict_all: bool = False  # whether to predict on all cells or only validation set
     seed: int = 0
 
     # bookkeeping
@@ -139,10 +140,24 @@ class KNNProbeEvaluator:
             self._history.append(metric_dict)
 
             if self.return_preds:
-                self._pred_bank[key] = pd.DataFrame(
-                    {"y_true": y_val_store, "y_pred": y_pred_store},
-                    index=obs_names[idx_val],
-                )
+                if self.predict_all:
+                    y_pred_all = model.predict(X_all)
+                    if self.task == "classification":
+                        y_pred_all_store = enc.inverse_transform(y_pred_all)
+                        y_true_all_store = enc.inverse_transform(y_all)
+                    else:
+                        y_pred_all_store = y_pred_all * sigma + mu
+                        y_true_all_store = y_all * sigma + mu
+
+                    self._pred_bank[key] = pd.DataFrame(
+                        {"y_true": y_true_all_store, "y_pred": y_pred_all_store},
+                        index=obs_names,                     # ← all kept cells
+                    )
+                else: 
+                    self._pred_bank[key] = pd.DataFrame(
+                        {"y_true": y_val_store, "y_pred": y_pred_store},
+                        index=obs_names[idx_val],
+                    )
 
         metrics_df = pd.DataFrame(self._history).set_index("embedding")
         if self.return_preds:

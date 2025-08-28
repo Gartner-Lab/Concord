@@ -717,6 +717,7 @@ def run_probe_benchmark(adata,
                         plot: bool = False,
                         plot_kw: Optional[dict] = None,
                         return_preds: bool = False,
+                        predict_all: bool = False,   # ← NEW
                         verbose: Optional[bool] = False):
     from concord.benchmarking import (
         LinearProbeEvaluator, KNNProbeEvaluator, probe_dict_to_df
@@ -737,7 +738,7 @@ def run_probe_benchmark(adata,
         evaluator = LinearProbeEvaluator(
             adata, embedding_keys, key_name_mapping[key],
             task="auto", epochs=20, ignore_values=ignore_values,
-            device="cpu", return_preds=return_preds
+            device="cpu", return_preds=return_preds, predict_all=predict_all
         )
         if return_preds:
             metrics_df, preds_bank   = evaluator.run()
@@ -756,7 +757,7 @@ def run_probe_benchmark(adata,
         logger.info(f"Running k-NN probe for {key} with keys {embedding_keys}")
         knn_eval = KNNProbeEvaluator(
             adata, embedding_keys, key_name_mapping[key], ignore_values=ignore_values, k=knn_k,
-            return_preds=return_preds
+            return_preds=return_preds, predict_all=predict_all
         )
         if return_preds:
             metrics_df, preds_bank   = knn_eval.run()
