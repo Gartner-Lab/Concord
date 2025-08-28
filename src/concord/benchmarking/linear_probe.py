@@ -2,7 +2,7 @@
 Linear-probe evaluation for AnnData embeddings
 =============================================
 
-* Trains a *single* frozen linear layer (“probe”) on each embedding.
+* Trains a *single* linear layer (“probe”) on each embedding.
 * Z-scores regression targets during training, converts predictions
   back to the original scale for metrics.
 * Auto-detects **classification** vs **regression**.
