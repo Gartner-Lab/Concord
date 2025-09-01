@@ -29,13 +29,16 @@ class Config:
 
     def to_dict(self):
         def serialize(value):
-            if isinstance(value, (torch.device,)):
+            if isinstance(value, torch.device):
                 return str(value)
-            # Add more cases if needed for other non-serializable types
+            if isinstance(value, (pd.Index, pd.CategoricalIndex)):
+                return value.tolist()
+            if isinstance(value, np.ndarray):
+                return value.tolist()
             return value
-
-        return {key: serialize(getattr(self, key)) for key in dir(self)
-                if not key.startswith('__') and not callable(getattr(self, key))}
+        return {k: serialize(getattr(self, k))
+                for k in dir(self)
+                if not k.startswith('__') and not callable(getattr(self, k))}
 
 
 class Concord:
@@ -566,7 +569,12 @@ class Concord:
 
             if return_class and self.config.unique_classes is not None:
                 class_preds = self.config.unique_classes[class_preds] if class_preds is not None else None
-                class_true = self.config.unique_classes[class_true] if class_true is not None else None
+                if class_true is not None:
+                    mask = class_true != self.config.unlabeled_class_code
+                    mapped_true = np.empty(len(class_true), dtype=object)
+                    mapped_true[~mask] = self.config.unlabeled_class
+                    mapped_true[mask] = self.config.unique_classes[class_true[mask]]
+                    class_true = mapped_true
                 if return_class_prob and class_probs is not None:
                     class_probs = pd.DataFrame(class_probs, columns=self.config.unique_classes)
 
@@ -738,6 +746,12 @@ class Concord:
         # Override device if specified by user
         if device:
             concord_args['device'] = device
+
+        if 'unique_classes' in concord_args and isinstance(concord_args['unique_classes'], list):
+            concord_args['unique_classes'] = pd.Index(concord_args['unique_classes'])
+        if 'unique_classes_code' in concord_args and isinstance(concord_args['unique_classes_code'], list):
+            concord_args['unique_classes_code'] = np.array(concord_args['unique_classes_code'])
+        concord_args['device'] = torch.device(concord_args['device'])
         
         # --- 3. Create and configure the Concord object ---
         # We create a "skeletal" object without an AnnData object, as we are
@@ -912,15 +926,28 @@ class Concord:
                 raise ValueError(f"Class key {self.config.class_key} not found in adata.obs. Please provide a valid class key.")
             ensure_categorical(self.adata, obs_key=self.config.class_key, drop_unused=True)
 
-            self.config.unique_classes = self.adata.obs[self.config.class_key].cat.categories.tolist()
-            self.config.unique_classes_code = [code for code, _ in enumerate(self.config.unique_classes)]
+            cats = list(self.adata.obs[self.config.class_key].cat.categories)
             if self.config.unlabeled_class is not None:
-                if self.config.unlabeled_class in self.config.unique_classes:
-                    self.config.unlabeled_class_code = self.config.unique_classes.get_loc(self.config.unlabeled_class)
-                    self.config.unique_classes_code = self.config.unique_classes_code[self.config.unique_classes_code != self.config.unlabeled_class_code]
-                    self.config.unique_classes = self.config.unique_classes[self.config.unique_classes != self.config.unlabeled_class]
+                if self.config.unlabeled_class in cats:
+                    # Reorder: remove unlabeled and append to end
+                    cats.remove(self.config.unlabeled_class)
+                    cats.append(self.config.unlabeled_class)
+                    # Update the categorical with new order
+                    self.adata.obs[self.config.class_key] = pd.Categorical(
+                        self.adata.obs[self.config.class_key].values,  # Use .values to avoid index issues
+                        categories=cats
+                    )
                 else:
                     raise ValueError(f"Unlabeled class {self.config.unlabeled_class} not found in the class key.")
+            
+            # Now set configs based on (possibly reordered) categories
+            cats = self.adata.obs[self.config.class_key].cat.categories  # Reload after update
+            self.config.unique_classes = pd.Index(cats)            
+            self.config.unique_classes_code = np.arange(len(cats), dtype=int)
+            if self.config.unlabeled_class is not None:
+                self.config.unlabeled_class_code = len(cats) - 1
+                self.config.unique_classes_code = self.config.unique_classes_code[:-1]
+                self.config.unique_classes = self.config.unique_classes[:-1]
             else:
                 self.config.unlabeled_class_code = None
 

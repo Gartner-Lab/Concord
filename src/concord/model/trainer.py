@@ -137,7 +137,7 @@ class Trainer:
             labeled_mask = (class_labels != self.unlabeled_class).to(self.device) if self.unlabeled_class is not None else torch.ones_like(class_labels, dtype=torch.bool, device=self.device)
             if labeled_mask.sum() > 0:
                 class_labels = class_labels[labeled_mask]
-                class_pred = class_pred[labeled_mask] 
+                class_pred = class_pred[labeled_mask]
                 loss_classifier = self.classifier_criterion(class_pred, class_labels) * self.classifier_weight
             else:
                 class_labels = None
@@ -256,7 +256,7 @@ class Trainer:
         )
         
         if self.use_classifier:
-            self._log_classification(epoch, "train" if train else "val", preds, labels, unique_classes=self.unique_classes, logger=self.logger)
+            self._log_classification(epoch, "train" if train else "val", preds, labels)
 
         return avg_loss
 
@@ -270,11 +270,11 @@ class Trainer:
         return avg_loss, avg_mse, avg_clr, avg_classifier, avg_importance_penalty
     
 
-    def _log_classification(epoch, phase, preds, labels, unique_classes, logger):
+    def _log_classification(self, epoch, phase, preds, labels):
         from sklearn.metrics import classification_report
-        
-        unique_classes_str = [str(cls) for cls in unique_classes]
-        report = classification_report(y_true=labels, y_pred=preds, labels=unique_classes, output_dict=True)
+
+        unique_classes_str = [str(cls) for cls in self.unique_classes]
+        report = classification_report(y_true=labels, y_pred=preds, labels=self.unique_classes, output_dict=True)
         accuracy = report['accuracy']
         precision = {label: metrics['precision'] for label, metrics in report.items() if label in unique_classes_str}
         recall = {label: metrics['recall'] for label, metrics in report.items() if label in unique_classes_str}
@@ -286,7 +286,7 @@ class Trainer:
         f1_str = ", ".join([f"{label}: {value:.2f}" for label, value in f1.items()])
 
         # Log to console
-        logger.info(
+        self.logger.info(
             f'Epoch: {epoch:3d} | {phase.capitalize()} accuracy: {accuracy:5.2f} | precision: {precision_str} | recall: {recall_str} | f1: {f1_str}')
 
         return accuracy, precision, recall, f1
