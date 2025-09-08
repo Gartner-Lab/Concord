@@ -4,7 +4,7 @@ Qin Zhu, Gartner Lab, UCSF
 
 ## Description
 
-**Batch integration**, **denoising**, and **dimensionality reduction** remain fundamental challenges in single-cell data analysis. While many machine learning tools aim to overcome these challenges by engineering model architectures, we use a different strategy, building on the insight that optimized mini-batch sampling during training can profoundly influence learning outcomes. We present **CONCORD (COntrastive learNing for Cross-dOmain Reconciliation and Discovery)**, a self-supervised learning approach that implements a unified, probabilistic data sampling scheme combining neighborhood-aware and dataset-aware sampling: the former enhancing resolution while the latter removing batch effects. Using only a minimalist one-hidden-layer neural network and contrastive learning, CONCORD achieves state-of-the-art performance without relying on deep architectures, auxiliary losses, or supervision. It generates high-resolution cell atlases that seamlessly integrate data across batches, technologies, and species, without relying on prior assumptions about data structure. The resulting latent representations are denoised, interpretable, and biologically meaningful—capturing gene co-expression programs, resolving subtle cellular states, and preserving both local geometric relationships and global topological organization. We demonstrate CONCORD’s broad applicability across diverse datasets, establishing it as a general-purpose framework for learning unified, high-fidelity representations of cellular identity and dynamics.
+Revealing the underlying cell-state landscape from single-cell data requires overcoming the critical obstacles of **batch integration**, **denoising**, and **dimensionality reduction**. We present **CONCORD**, a unified framework that simultaneously addresses these challenges within a single self-supervised model. At its core, CONCORD implements a unified probabilistic sampling strategy that corrects batch effects via dataset-aware sampling and enhances biological resolution through hard-negative sampling. Remarkably, using only a minimalist neural network with a single hidden layer and contrastive learning, CONCORD surpasses state-of-the-art performance without relying on deep architectures, auxiliary losses, or external supervision. It seamlessly integrates data across batches, technologies, and even species to generate high-resolution cell atlases. The resulting latent representations are denoised and biologically meaningful—capturing gene co-expression programs, revealing detailed lineage trajectories, and preserving both local geometric relationships and global topological structures. We demonstrate CONCORD’s broad applicability across diverse datasets, establishing it as a general-purpose framework for learning unified, high-fidelity representations of cellular identity and dynamics.
 
 **Full Documentation available at https://qinzhu.github.io/Concord_documentation/.**
 
@@ -47,7 +47,7 @@ For **GO enrichment, benchmarking, and R integration**, install:
 pip install "concord-sc[optional]"
 ```
 
-### (Recommended) Install FAISS for Accelerated KNN Search
+### (Optional) Install FAISS for Accelerated kNN mode
 > **Note:** If using **Mac**, you may need to disable FAISS when running Concord:
 > ```python
 > cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, use_faiss=False, device=device)
@@ -101,7 +101,7 @@ feature_list = ccd.ul.select_features(adata, n_top_features=5000, flavor='seurat
 # Initialize Concord with an AnnData object, skip input_feature to use all features
 cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device) 
 
-# If integrating data across batch, simply add the domain_key argument to indicate the batch key in adata.obs
+# If integrate across batches, provide domain_key (a column in adata.obs that contains batch label):
 # cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
