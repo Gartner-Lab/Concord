@@ -2,13 +2,8 @@
 from __future__ import annotations
 import os
 import time
-import psutil
-import resource
-import gc
 import logging
-from ..utils import args_merge
 from typing import Any, Callable, Dict, Tuple
-
 try:
     import torch
 except ImportError:  # keep import‑time cost low if PyTorch is absent
@@ -61,6 +56,7 @@ class MemoryProfiler:
     # ----------------------- RAM --------------------------------------------
     @staticmethod
     def get_ram_mb() -> float:
+        import psutil
         """Current resident‑set size (RSS) in **MB**."""
         process = psutil.Process(os.getpid())
         return process.memory_info().rss / 1024 ** 2
@@ -71,6 +67,7 @@ class MemoryProfiler:
 
         Good for overall memory footprint monitoring, independent of deltas.
         """
+        import resource
         ru_peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         # On Linux/macOS ru_maxrss is KiB; on Windows it is bytes.
         scale = 1 if os.name == "posix" else 1024
@@ -118,6 +115,7 @@ def profiled_run(
     A small helper so other scripts can time/profile any function with the same
     logic we use in the integration pipeline.
     """
+    import gc
     if logger is None:
         logger = logging.getLogger(__name__)
 
