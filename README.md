@@ -83,10 +83,11 @@ import scanpy as sc
 import torch
 # Load and prepare example data
 adata = sc.datasets.pbmc3k_processed()
-adata = adata.raw.to_adata()  # Get all genes
-# If you have raw counts in adata.X, then do normalization and log1p transformation before running CONCORD
-# sc.pp.normalize_total(adata, target_sum=1e4)
-# sc.pp.log1p(adata)
+adata = adata.raw.to_adata()  # Assume starting from raw counts
+# (Optional) Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)
+feature_list = ccd.ul.select_features(adata, n_top_features=2000, flavor='seurat_v3')
+sc.pp.normalize_total(adata) # Normalize counts per cell
+sc.pp.log1p(adata) # Log-transform data
 ```
 
 ### Run CONCORD:
@@ -95,14 +96,11 @@ adata = adata.raw.to_adata()  # Get all genes
 # Set device to cpu or to gpu (if your torch has been set up correctly to use GPU), for mac you can use either torch.device('mps') or torch.device('cpu')
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-# (Optional) Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)
-feature_list = ccd.ul.select_features(adata, n_top_features=5000, flavor='seurat_v3')
-
-# Initialize Concord with an AnnData object, skip input_feature to use all features
-cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device) 
+# Initialize Concord with an AnnData object, skip input_feature to use all features, set preload_dense=False if your data is very large
+cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device, preload_dense=True) 
 
 # If integrate across batches, provide domain_key (a column in adata.obs that contains batch label):
-# cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device) 
+# cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device, preload_dense=True) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
 cur_ccd.fit_transform(output_key='Concord')
@@ -113,7 +111,7 @@ cur_ccd.fit_transform(output_key='Concord')
 CONCORD latent embeddings can be directly used for downstream analyses such as visualization with UMAP and t-SNE or constructing k-nearest neighbor (kNN) graphs. Unlike PCA, it is important to utilize the full CONCORD latent embedding in downstream analyses, as each dimension is designed to capture meaningful and complementary aspects of the underlying data structure.
 
 ```python
-ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP', n_components=2, n_neighbors=15, min_dist=0.1, metric='euclidean')
+ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP', n_components=2, n_neighbors=30, min_dist=0.1, metric='euclidean')
 
 # Plot the UMAP embeddings
 color_by = ['n_genes', 'louvain'] # Choose which variables you want to visualize
@@ -126,9 +124,10 @@ ccd.pl.plot_embedding(
 The latent space produced by CONCORD often capture complex biological structures that may not be fully visualized in 2D projections. We recommend exploring the latent space using a 3D UMAP to more effectively capture and examine the intricacies of the data. For example:
 
 ```python
-ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=15, min_dist=0.1, metric='euclidean')
-
+ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=30, min_dist=0.1, metric='euclidean')
 # Plot the 3D UMAP embeddings
+import plotly.io as pio
+pio.renderers.default = 'notebook'
 col = 'louvain'
 fig = ccd.pl.plot_embedding_3d(
     adata, basis='Concord_UMAP_3D', color_by=col, 

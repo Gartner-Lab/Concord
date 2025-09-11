@@ -136,7 +136,7 @@ class Concord:
             use_ivf=True,
             ivf_nprobe=10,
             pretrained_model=None,
-            load_data_into_memory=False,  # Whether to load the entire dataset into memory
+            preload_dense=False,  # Whether to densify the data in memory
             num_workers=None,  # Number of workers for DataLoader
             chunked=False,
             chunk_size=10000,
@@ -311,7 +311,7 @@ class Concord:
             use_faiss=self.config.use_faiss, 
             use_ivf=self.config.use_ivf, 
             ivf_nprobe=self.config.ivf_nprobe, 
-            load_into_memory=self.config.load_data_into_memory,
+            preload_dense=self.config.preload_dense,
             device=self.config.device
         )
 

@@ -292,7 +292,10 @@ def plot_embedding(adata, basis, color_by=None,
 
 
 # Portal method to choose either plot_embedding_3d_plotly or plot_embedding_3d_matplotlib, given the engine parameter
-def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, point_size=3, opacity=0.7, seed=42, width=800, height=600, engine='plotly', autosize=True, static=False, static_format='png'):
+def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, save_path=None, 
+                      point_size=3, opacity=0.7, seed=42, width=800, height=600, 
+                      view_azim=None, view_elev=None, view_dist=None,
+                      engine='plotly', autosize=True, static=False, static_format='png'):
     """
     Plots a 3D embedding using Plotly or Matplotlib.
 
@@ -319,12 +322,25 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, s
         ValueError: If the engine is not `'plotly'` or `'matplotlib'`.
     """
     if engine == 'plotly':
-        return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, autosize, static, static_format)
+        return plot_embedding_3d_plotly(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, 
+                                        view_azim=view_azim, view_elev=view_elev, view_dist=view_dist,
+                                        autosize=autosize, static=static, static_format=static_format)
     elif engine == 'matplotlib':
-        return plot_embedding_3d_matplotlib(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, static_format=static_format)
+        return plot_embedding_3d_matplotlib(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, 
+                                            azim=view_azim, elev=view_elev, zoom_factor=view_dist,
+                                            static_format=static_format)
     else:
         raise ValueError(f"Unknown engine '{engine}' for 3D embedding plot. Use 'plotly' or 'matplotlib'.")
 
+
+def _camera_from_angles(azim_deg: float, elev_deg: float, r: float = 1.25):
+    """Convert Matplotlib-style (azim, elev) to Plotly camera eye coordinates."""
+    az = np.deg2rad(azim_deg)
+    el = np.deg2rad(elev_deg)
+    x = r * np.cos(el) * np.cos(az)
+    y = r * np.cos(el) * np.sin(az)
+    z = r * np.sin(el)
+    return dict(eye=dict(x=x, y=y, z=z), up=dict(x=0, y=0, z=1))
 
 def plot_embedding_3d_plotly(
         adata, 
@@ -340,7 +356,10 @@ def plot_embedding_3d_plotly(
         autosize=True,
         static=False,                 # <--- New parameter
         static_format='png',          # <--- New parameter
-        title=None
+        title=None,
+        view_azim=None,      # e.g., 290
+        view_elev=None,      # e.g., 75
+        view_dist=1.25,
     ):
 
     import numpy as np
@@ -405,6 +424,11 @@ def plot_embedding_3d_plotly(
             )
 
         fig.update_traces(marker=dict(size=point_size))
+
+        if view_azim is not None and view_elev is not None:
+            cam = _camera_from_angles(view_azim, view_elev, r=view_dist)
+            fig.update_layout(scene_camera=cam)
+
         if autosize:
             fig.update_layout(autosize=True,height=height)
         else:

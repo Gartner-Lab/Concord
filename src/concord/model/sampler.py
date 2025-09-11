@@ -18,7 +18,7 @@ class ConcordSampler(Sampler):
                  domain_ids, 
                  neighborhood, 
                  p_intra_knn=0.3, 
-                 p_intra_domain=.95, 
+                 p_intra_domain=1.0, 
                  min_batch_size=4, 
                  domain_minibatch_strategy='proportional',
                  domain_minibatch_min_count=1,
