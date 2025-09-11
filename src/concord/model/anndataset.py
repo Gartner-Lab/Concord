@@ -28,7 +28,7 @@ class AnnDataset(Dataset):
         covariate_tensors (dict): A dictionary containing tensors for covariate labels.
         indices (np.ndarray): Array of dataset indices.
     """
-    def __init__(self, adata, domain_key='domain', class_key=None, covariate_keys=None, load_into_memory=False):
+    def __init__(self, adata, domain_key='domain', class_key=None, covariate_keys=None, preload_dense=False):
         """
         Initializes a lightweight AnnDataset that only manages labels and indices.
         """
@@ -36,11 +36,11 @@ class AnnDataset(Dataset):
         self.domain_key = domain_key
         self.class_key = class_key
 
-        self.load_into_memory = load_into_memory
+        self.preload_dense = preload_dense
         self.covariate_keys = list(covariate_keys) if covariate_keys is not None else []
         
         # --- MODE-SPECIFIC INITIALIZATION ---
-        if self.load_into_memory:
+        if self.preload_dense:
             # Get the data matrix and convert to a dense tensor
             data_matrix = self.adata.X.toarray() if issparse(self.adata.X) else self.adata.X
             self.data = torch.tensor(data_matrix, dtype=torch.float32)
@@ -147,7 +147,7 @@ class AnnDataset(Dataset):
     
 
     def __getitem__(self, idx):
-        if self.load_into_memory:
+        if self.preload_dense:
             # Return a complete dictionary for the sample.
             # PyTorch's default collator will stack these dicts into a batch.
             batch = {
@@ -186,5 +186,5 @@ class AnnDataset(Dataset):
         """
         # Create a new AnnDataset with only the selected idx
         subset_adata = self.adata[idx].copy()
-        return AnnDataset(subset_adata, self.domain_key, self.class_key, self.covariate_keys, self.device)
+        return AnnDataset(subset_adata, self.domain_key, self.class_key, self.covariate_keys, self.preload_dense)
 

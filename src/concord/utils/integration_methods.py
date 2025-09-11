@@ -157,7 +157,7 @@ def run_concord(
     device: str = "cpu",
     n_epochs: int | None = None,  
     save_dir: str | None = None,
-    load_data_into_memory: bool = False,
+    preload_dense: bool = False,
     verbose: bool = False,
     return_corrected: bool = False,
     # ------------------------------------------------- convenience optionals
@@ -221,7 +221,7 @@ def run_concord(
         "sampler_knn":           sampler_knn,
         "lr":                    lr,
         "dropout_prob":          dropout_prob,
-        "load_data_into_memory": load_data_into_memory,
+        "preload_dense": preload_dense,
         "domain_coverage":       domain_coverage,
     }
     kwargs.update({k: v for k, v in optional_params.items() if v is not None})

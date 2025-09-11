@@ -77,12 +77,12 @@ class DataLoaderManager:
                  sampler_domain_minibatch_strategy='proportional',
                  domain_coverage=None,
                  p_intra_knn=0.3, 
-                 p_intra_domain=0.95,
+                 p_intra_domain=1.0,
                  dist_metric='euclidean',
                  use_faiss=True, 
                  use_ivf=False,
                  ivf_nprobe=8,
-                 load_into_memory=False,
+                 preload_dense=False,
                  num_workers=None,
                  device=None):
         """
@@ -108,10 +108,10 @@ class DataLoaderManager:
         self.ivf_nprobe = ivf_nprobe
         self.dist_metric = dist_metric
         
-        self.load_into_memory = load_into_memory
+        self.preload_dense = preload_dense
         if num_workers is None:
             # Use 0 worker for in-memory, otherwise use available cores
-            self.num_workers = 0 if load_into_memory else min(4, os.cpu_count())
+            self.num_workers = 0 if preload_dense else min(4, os.cpu_count())
         else:
             # Allow user to override
             self.num_workers = num_workers
@@ -204,14 +204,14 @@ class DataLoaderManager:
                              domain_key=self.domain_key, 
                              class_key=self.class_key, 
                              covariate_keys=self.covariate_keys,
-                             load_into_memory=self.load_into_memory)
+                             preload_dense=self.preload_dense)
 
-        if self.load_into_memory:
+        if self.preload_dense:
             my_collate_fn = None
-            logger.info("Loading all data into memory for fast access. This may consume a lot of RAM. If you run out of memory, please set `load_data_into_memory=False`.")
+            logger.info("Loading all data into memory for fast access. This may consume a lot of RAM. If you run out of memory, please set `preload_dense=False`.")
         else:
             my_collate_fn = AnnDataCollator(dataset)
-            logger.info("Using AnnData collator for batching. This is more memory efficient but may slightly reduce speed. Set `load_data_into_memory=True` to load all data into memory for faster access.")
+            logger.info("Using AnnData collator for batching. This is more memory efficient but may slightly reduce speed. Set `preload_dense=True` to load all data into memory for faster access.")
 
         if self.use_sampler:
             if self.train_frac == 1.0:
