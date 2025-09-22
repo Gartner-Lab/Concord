@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 import scipy.sparse as sp
 import scanpy as sc
 from .. import logger
@@ -41,6 +42,24 @@ def convert_to_sparse_r_matrix(matrix):
     return sparse_matrix_r
 
 
+def get_projection_df(adata, key):
+    """
+    Safely creates a DataFrame from an anndata.obsm entry,
+    handling both pandas DataFrame and NumPy array inputs.
+    """
+    # Get the data from the .obsm slot
+    data_source = adata.obsm[key]
+    
+    # np.asarray() efficiently gets the raw data from either input type
+    raw_data = np.asarray(data_source)
+    
+    # Create the new DataFrame using the raw data
+    proj_df = pd.DataFrame(
+        raw_data,
+        index=adata.obs.index,
+        columns=[f"{key}_{i+1}" for i in range(raw_data.shape[1])]
+    )
+    return proj_df
 
 def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='hsa', clist_only = False):
     """
@@ -134,7 +153,7 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     # Prepare and save the clist object
     proj_list = {}
     for key in adata.obsm_keys():
-        proj_df = pd.DataFrame(adata.obsm[key], index=adata.obs.index, columns=[f"{key}_{i+1}" for i in range(adata.obsm[key].shape[1])])
+        proj_df = get_projection_df(adata, key)
         proj_r_df = ro.conversion.py2rpy(proj_df)
         # change column name to valid R column name with make.names
         proj_r_df.colnames = base.make_names(proj_r_df.colnames)
@@ -217,11 +236,7 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster
         # Prepare proj slot (latent spaces)
         proj_list = {}
         for key in adata_subset.obsm.keys():
-            proj_df = pd.DataFrame(
-                adata_subset.obsm[key],
-                index=adata_subset.obs.index,
-                columns=[f"{key}_{i+1}" for i in range(adata_subset.obsm[key].shape[1])]
-            )
+            proj_df = get_projection_df(adata_subset, key)
             proj_r_df = ro.conversion.py2rpy(proj_df)
             proj_r_df.colnames = base.make_names(proj_r_df.colnames)  # Ensure valid R column names
             proj_list[key] = proj_r_df
