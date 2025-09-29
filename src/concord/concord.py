@@ -603,8 +603,9 @@ class Concord:
         
         if class_probs is not None and not class_probs.empty:
             class_probs.index = adata_to_update.obs.index
-            for col in class_probs.columns:
-                adata_to_update.obs[f"{output_key}_class_prob_{col}"] = class_probs[col]
+            # Rename columns and add all at once to avoid fragmentation
+            prob_df = class_probs.rename(columns=lambda col: f"{output_key}_class_prob_{col}")
+            adata_to_update.obs = pd.concat([adata_to_update.obs, prob_df], axis=1)
 
         logger.info(f"Predictions added to AnnData object with base key '{output_key}'.")
 
