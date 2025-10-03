@@ -530,10 +530,6 @@ def plot_embedding_3d_matplotlib(
     # Get color mapping
     data_col, cmap, palette_dict = get_color_mapping(adata, color_by, pal, seed=seed)
 
-    print("palette_dict", palette_dict)
-    print("color_by", color_by)
-    print("pal", pal)   
-    print("cmap", cmap)
     # Create fig/ax if not provided
     created_new_fig = False
     if ax is None:

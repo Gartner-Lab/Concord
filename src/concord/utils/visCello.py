@@ -81,10 +81,10 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     """
     # Import the required R packages
     import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri, ListVector
+    from rpy2.robjects import ListVector  # Removed pandas2ri import (no longer needed globally)
     from rpy2.robjects.packages import importr
+    from rpy2.robjects import pandas2ri  # Keep for converter
 
-    pandas2ri.activate()
     base = importr('base')
     methods = importr('methods')
     biobase = importr('Biobase')
@@ -105,7 +105,7 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     ''')
     
     if not clist_only:
-        # Convert the expression matrix to a sparse matrix in R
+        # Convert the expression matrix to a sparse matrix in R (no pandas conversion needed here)
         if 'counts' in adata.layers:
             exprs_sparse_r = convert_to_sparse_r_matrix(adata.layers['counts'].T)
         else:
@@ -115,10 +115,11 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         # Convert the normalized expression matrix to a sparse matrix in R
         norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
         
-        # Convert phenoData and featureData to R
+        # NEW: Wrap pandas-to-R conversions in context manager
         fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
-        annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
-        annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))
+        with (ro.default_converter + pandas2ri.converter).context():
+            annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
+            annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))
 
         # Create the ExpressionSet object in R
         eset = methods.new(
@@ -152,17 +153,20 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     
     # Prepare and save the clist object
     proj_list = {}
-    for key in adata.obsm_keys():
-        proj_df = get_projection_df(adata, key)
-        proj_r_df = ro.conversion.py2rpy(proj_df)
-        # change column name to valid R column name with make.names
-        proj_r_df.colnames = base.make_names(proj_r_df.colnames)
-        proj_list[key] = proj_r_df
+    # NEW: Wrap projection conversions in context manager (multiple py2rpy calls)
+    with (ro.default_converter + pandas2ri.converter).context():
+        for key in adata.obsm_keys():
+            proj_df = get_projection_df(adata, key)
+            proj_r_df = ro.conversion.py2rpy(proj_df)
+            # change column name to valid R column name with make.names
+            proj_r_df.colnames = base.make_names(proj_r_df.colnames)
+            proj_list[key] = proj_r_df
 
     # Assign the proj list to the cello object
     proj_list_r = ListVector(proj_list)
 
     cell_index = ro.IntVector(range(1, adata.n_obs + 1))  # assuming all cells are used
+    # Note: Cello creation doesn't need further pandas conversion here
     cello = methods.new("Cello", name="All cells", idx=cell_index, proj=proj_list_r)
 
     # Create the clist and save it
@@ -172,8 +176,6 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
     ro.r['saveRDS'](clist, file=clist_file)
 
     print(f"VisCello project created at {output_dir}")
-
-
 
 
 def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster_key = None):
@@ -197,9 +199,9 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster
     import os
     import pandas as pd
     import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri, ListVector
+    from rpy2.robjects import ListVector, pandas2ri  # Added pandas2ri for converter
     from rpy2.robjects.packages import importr
-    pandas2ri.activate()
+    # Removed: pandas2ri.activate()
 
     # Define the Cello class in R from Python
     ro.r('''
@@ -235,11 +237,13 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster
 
         # Prepare proj slot (latent spaces)
         proj_list = {}
-        for key in adata_subset.obsm.keys():
-            proj_df = get_projection_df(adata_subset, key)
-            proj_r_df = ro.conversion.py2rpy(proj_df)
-            proj_r_df.colnames = base.make_names(proj_r_df.colnames)  # Ensure valid R column names
-            proj_list[key] = proj_r_df
+        # NEW: Wrap projection conversions in context manager
+        with (ro.default_converter + pandas2ri.converter).context():
+            for key in adata_subset.obsm.keys():
+                proj_df = get_projection_df(adata_subset, key)
+                proj_r_df = ro.conversion.py2rpy(proj_df)
+                proj_r_df.colnames = base.make_names(proj_r_df.colnames)  # Ensure valid R column names
+                proj_list[key] = proj_r_df
 
         # Convert proj_list to an R ListVector
         proj_list_r = ListVector(proj_list)
@@ -247,7 +251,9 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster
         # Prepare pmeta slot (clustering results)
         if cluster_key:
             clustering_results = adata_subset.obs[[cluster_key]]
-            pmeta_r = ro.conversion.py2rpy(clustering_results)
+            # NEW: Wrap pmeta conversion in context manager
+            with (ro.default_converter + pandas2ri.converter).context():
+                pmeta_r = ro.conversion.py2rpy(clustering_results)
         else:
             # Make empty data frame with same rownames as adata_subset.obs
             pmeta_r = ro.r['data.frame'](rownames=ro.StrVector(adata_subset.obs.index))
@@ -272,5 +278,4 @@ def update_clist_with_subsets(global_adata, adata_subsets, viscello_dir, cluster
     output_file = os.path.join(viscello_dir, "clist.rds")
     ro.r['saveRDS'](updated_clist, file=str(output_file))  # Convert pathlib.Path to str
     print(f"Updated clist saved to: {output_file}")
-
 
