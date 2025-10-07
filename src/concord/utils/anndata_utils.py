@@ -462,3 +462,125 @@ def filter_cells_min_genes(
     # --- return filtered AnnData --------------------------------------------
     return adata[keep_mask].copy()
 
+
+
+
+def load_anndata_from_dir(sample_dir):
+    """
+    Load Seurat-exported directory into an AnnData object (CSR format).
+
+    Expected structure:
+      sample_dir/
+        counts.mtx or data.mtx   # main matrix
+        obs.tsv                  # cell metadata
+        var.tsv                  # gene metadata
+        [other .mtx files]       # extra layers (e.g., counts.mtx, data.mtx)
+        [*_embeddings.tsv]       # embeddings (optional)
+
+    Returns
+    -------
+    adata : anndata.AnnData
+        Loaded AnnData object with CSR matrices in X and layers.
+    """
+    import os
+    import pandas as pd
+    import anndata as ad
+    from scipy.io import mmread
+    from scipy.sparse import csr_matrix
+    # --- 1. Identify matrix files
+    all_files = os.listdir(sample_dir)
+    layer_files = [f for f in all_files if f.endswith('.mtx')]
+
+    # --- 2. Choose main matrix
+    main_mtx_file = 'data.mtx' if 'data.mtx' in layer_files else 'counts.mtx'
+    if main_mtx_file not in layer_files:
+        raise ValueError(f"No main matrix file found in {sample_dir}. Expected 'data.mtx' or 'counts.mtx'.")
+
+    # --- 3. Load matrices (convert to CSR)
+    main_mtx = csr_matrix(mmread(os.path.join(sample_dir, main_mtx_file)).T)  # cells × genes
+
+    # --- 4. Load obs / var metadata
+    obs = pd.read_csv(os.path.join(sample_dir, 'obs.tsv'), sep='\t', index_col=0)
+    var = pd.read_csv(os.path.join(sample_dir, 'var.tsv'), sep='\t', index_col=0)
+
+    # --- 5. Build AnnData
+    adata = ad.AnnData(X=main_mtx, obs=obs, var=var)
+
+    # --- 6. Additional layers (convert each to CSR)
+    for lf in layer_files:
+        if lf != main_mtx_file:
+            layer_name = lf.replace('.mtx', '')
+            layer_mtx = csr_matrix(mmread(os.path.join(sample_dir, lf)).T)
+            adata.layers[layer_name] = layer_mtx
+
+    # --- 7. Load dimensional reductions (optional)
+    emb_files = [f for f in all_files if f.endswith('_embeddings.tsv')]
+    for ef in emb_files:
+        red_name = ef.replace('_embeddings.tsv', '')
+        emb_df = pd.read_csv(os.path.join(sample_dir, ef), sep='\t', index_col=0)
+        adata.obsm[f'X_{red_name}'] = emb_df.values
+
+    return adata
+
+
+def _to_csr(x):
+    from scipy.sparse import csr_matrix, issparse
+
+    if issparse(x):
+        return x.tocsr()
+    # dense → csr
+    return csr_matrix(x)
+
+def _mmwrite_genes_by_cells(path, M):
+    """
+    Write a matrix as genes x cells Matrix Market (.mtx).
+    AnnData stores X as cells x genes; we transpose on disk.
+    """
+    from scipy.io import mmwrite
+    M = _to_csr(M)
+    GxC = M.T  # genes x cells on disk
+    with open(path, "wb") as f:
+        mmwrite(f, GxC, field="real")  # "real" works for counts/normalized
+
+def export_anndata_to_dir(adata: ad.AnnData, out_dir: str):
+    """
+    Export AnnData to a simple directory:
+      - obs.tsv, var.tsv
+      - data.mtx if adata.layers['data'] exists; otherwise uses adata.X as data.mtx
+      - counts.mtx if adata.layers['counts'] exists
+      - ALL obsm entries -> <name>_embeddings.tsv (name without leading 'X_')
+    """
+    from pathlib import Path
+    import pandas as pd
+    import numpy as np
+    p = Path(out_dir)
+    p.mkdir(parents=True, exist_ok=True)
+
+    # --- obs / var ---
+    adata.obs.to_csv(p / "obs.tsv", sep="\t")
+    adata.var.to_csv(p / "var.tsv", sep="\t")
+
+    # --- main matrices ---
+    # Prefer true normalized 'data' for data.mtx; else write X as data.mtx
+    if "data" in adata.layers:
+        _mmwrite_genes_by_cells(p / "data.mtx", adata.layers["data"])
+    else:
+        _mmwrite_genes_by_cells(p / "data.mtx", adata.X)
+
+    # If counts exists, write it as well (in addition)
+    if "counts" in adata.layers:
+        _mmwrite_genes_by_cells(p / "counts.mtx", adata.layers["counts"])
+
+    # --- write ALL obsm to <name>_embeddings.tsv
+    for key, val in adata.obsm.items():
+        # Convert to DataFrame with cells as index
+        if isinstance(val, np.ndarray):
+            cols = [f"{key}_{i+1}" for i in range(val.shape[1])]
+            df = pd.DataFrame(val, index=adata.obs_names, columns=cols)
+        else:
+            df = pd.DataFrame(val)
+            # ensure correct index
+            if df.shape[0] == adata.n_obs:
+                df.index = adata.obs_names
+        
+        df.to_csv(p / f"{key}_embeddings.tsv", sep="\t")
