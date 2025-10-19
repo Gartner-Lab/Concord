@@ -116,7 +116,8 @@ def anndata_to_viscello(adata, output_dir, project_name="MyProject", organism='h
         norm_exprs_sparse_r = convert_to_sparse_r_matrix(adata.X.T)
         
         # NEW: Wrap pandas-to-R conversions in context manager
-        fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
+        #fmeta = pd.DataFrame({'gene_short_name': adata.var.index}, index=adata.var.index)
+        fmeta = adata.var.assign(gene_short_name=adata.var.index)
         with (ro.default_converter + pandas2ri.converter).context():
             annotated_pmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(adata.obs))
             annotated_fmeta = methods.new("AnnotatedDataFrame", data=ro.conversion.py2rpy(fmeta))

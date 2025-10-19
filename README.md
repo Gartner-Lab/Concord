@@ -85,7 +85,7 @@ import torch
 adata = sc.datasets.pbmc3k_processed()
 adata = adata.raw.to_adata()  # Assume starting from raw counts
 # (Optional) Select top variably expressed/accessible features for analysis (other methods besides seurat_v3 available)
-feature_list = ccd.ul.select_features(adata, n_top_features=2000, flavor='seurat_v3')
+feature_list = ccd.ul.select_features(adata, n_top_features=2000, flavor='seurat_v3') # For complex dataset, increase n_top_features may be necessary
 sc.pp.normalize_total(adata) # Normalize counts per cell
 sc.pp.log1p(adata) # Log-transform data
 ```
@@ -99,7 +99,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 # Initialize Concord with an AnnData object, skip input_feature to use all features, set preload_dense=False if your data is very large
 cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device, preload_dense=True) 
 
-# If integrate across batches, provide domain_key (a column in adata.obs that contains batch label):
+# If integrate across batches, provide domain_key (a column in adata.obs that contains batch label, make sure to use the most granular “domain_key” to indicate batch. For example, if for each dataset there are several different experiments, then use experiment as the domain key):
 # cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device, preload_dense=True) 
 
 # Encode data, saving the latent embedding in adata.obsm['Concord']
