@@ -97,9 +97,9 @@ sc.pp.log1p(adata) # Log-transform data
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # Initialize Concord with an AnnData object, skip input_feature to use all features, set preload_dense=False if your data is very large
+# Provide 'domain_key' if integrating across batches, see below
 cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device, preload_dense=True) 
 
-# See below if integrating across batches
 # Encode data, saving the latent embedding in adata.obsm['Concord']
 cur_ccd.fit_transform(output_key='Concord')
 ```
