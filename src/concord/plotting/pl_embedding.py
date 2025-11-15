@@ -327,8 +327,7 @@ def plot_embedding_3d(adata, basis='encoded_UMAP', color_by='batch', pal=None, s
                                         autosize=autosize, static=static, static_format=static_format)
     elif engine == 'matplotlib':
         return plot_embedding_3d_matplotlib(adata, basis, color_by, pal, save_path, point_size, opacity, seed, width, height, 
-                                            azim=view_azim, elev=view_elev, zoom_factor=view_dist,
-                                            static_format=static_format)
+                                            azim=view_azim, elev=view_elev, zoom_factor=view_dist)
     else:
         raise ValueError(f"Unknown engine '{engine}' for 3D embedding plot. Use 'plotly' or 'matplotlib'.")
 
@@ -475,7 +474,8 @@ def plot_embedding_3d_matplotlib(
     height=6,
     dpi=300,
     show_legend=True,
-
+    legend_font_size=8,
+    legend_orientation='vertical',
     # Appearance toggles
     title=None,
     show_title=True,
@@ -549,9 +549,10 @@ def plot_embedding_3d_matplotlib(
         ax.set_title(title_str, fontsize=title_font_size)
 
     # Convert categorical data to colors
+    print("vmax_quantile:", vmax_quantile)
     if pd.api.types.is_numeric_dtype(data_col):
         if vmax_quantile is not None:
-            vmax = np.percentile(data_col, vmax_quantile * 100)
+            vmax = np.nanpercentile(data_col, vmax_quantile * 100)
             print(f"Using vmax={vmax} based on quantile {vmax_quantile}")
             data_col = np.clip(data_col, 0, vmax)
         colors = data_col
@@ -611,6 +612,63 @@ def plot_embedding_3d_matplotlib(
             zorder=3  # Ensures they are plotted last
         )
 
+    from matplotlib.colors import Normalize
+    from matplotlib.lines import Line2D
+
+    # Build legend/colorbar if requested
+    if show_legend:
+        if pd.api.types.is_numeric_dtype(data_col):
+            # ---- NUMERIC: horizontal/vertical colorbar ----
+            arr = np.asarray(data_col)  # robust to Series or ndarray
+
+            if vmax_quantile is not None:
+                vmax_used = np.nanpercentile(arr, vmax_quantile * 100.0)
+                vmin_used = 0.0  # for gene expr; change if signed values possible
+            else:
+                vmin_used = np.nanmin(arr)
+                vmax_used = np.nanmax(arr)
+                if np.isfinite(vmin_used) and np.isfinite(vmax_used) and vmin_used == vmax_used:
+                    vmin_used = 0.0
+                    vmax_used = max(1.0, vmax_used)
+
+            norm = Normalize(vmin=vmin_used, vmax=vmax_used)
+            sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+            sm.set_array([])
+
+            if legend_orientation == 'horizontal':
+                # top horizontal colorbar
+                cbar = fig.colorbar(sm, ax=ax, orientation='horizontal',
+                                    fraction=0.046, pad=0.10)
+                cbar.ax.xaxis.set_ticks_position('top')
+                cbar.ax.xaxis.set_label_position('top')
+            else:
+                # default vertical colorbar
+                cbar = fig.colorbar(sm, ax=ax, fraction=0.035, pad=0.02)
+
+            cbar.ax.tick_params(labelsize=tick_label_font_size)
+
+        else:
+            # ---- CATEGORICAL: legend handles ----
+            categories = pd.Categorical(data_col).categories
+            handles = [
+                Line2D([0], [0], marker='o', linestyle='',
+                    markerfacecolor=palette_dict.get(cat, 'gray'),
+                    markeredgecolor='none', markersize=6, label=str(cat))
+                for cat in categories
+            ]
+
+            if legend_orientation == 'horizontal':
+                ax.legend(handles=handles,
+                        loc='upper center',
+                        bbox_to_anchor=(0.5, 1.15),
+                        ncol=len(categories) if len(categories) > 0 else 1,
+                        fontsize=legend_font_size,
+                        frameon=False)
+            else:
+                ax.legend(handles=handles, loc='best',
+                        fontsize=legend_font_size, frameon=False)
+                
+            
     # Axis labels
     if show_axis_labels:
         ax.set_xlabel("DIM1", fontsize=axis_label_font_size)

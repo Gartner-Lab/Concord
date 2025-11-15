@@ -207,10 +207,8 @@ class DataLoaderManager:
                              preload_dense=self.preload_dense)
 
         if self.preload_dense:
-            my_collate_fn = None
             logger.info("Loading all data into memory for fast access. This may consume a lot of RAM. If you run out of memory, please set `preload_dense=False`.")
         else:
-            my_collate_fn = AnnDataCollator(dataset)
             logger.info("Using AnnData collator for batching. This is more memory efficient but may slightly reduce speed. Set `preload_dense=True` to load all data into memory for faster access.")
 
         if self.use_sampler:
@@ -218,10 +216,14 @@ class DataLoaderManager:
                 if self.p_intra_knn > 0.0:
                     self.compute_neighborhood(self.adata, self.sampler_emb)
 
+                if self.preload_dense:
+                    train_collate = None
+                else:
+                    train_collate = AnnDataCollator(dataset)
                 self.train_sampler = self.build_sampler(ConcordSampler, neighborhood=self.neighborhood)
                 train_dataloader = DataLoader(dataset, batch_sampler=self.train_sampler, 
                                               num_workers=self.num_workers,
-                                              collate_fn=my_collate_fn,
+                                              collate_fn=train_collate,
                                               pin_memory=True)
                 val_dataloader = None
             else:
@@ -234,19 +236,38 @@ class DataLoaderManager:
                 val_dataset = dataset.subset(val_indices)
 
                 self.train_sampler = self.build_sampler(ConcordSampler, indices=train_indices, neighborhood=None)
-                self.val_sampler = self.build_sampler(ConcordSampler, indices=val_indices, neighborhood=None)
+                if self.preload_dense:
+                    train_collate = None
+                    val_collate   = None
+                else:
+                    train_collate = AnnDataCollator(train_dataset)
+                    val_collate   = AnnDataCollator(val_dataset)
                 train_dataloader = DataLoader(train_dataset, batch_sampler=self.train_sampler, 
                                               num_workers=self.num_workers,
-                                              collate_fn=my_collate_fn,
+                                              collate_fn=train_collate,
                                               pin_memory=True)
-                val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler, 
-                                            num_workers=self.num_workers,
-                                             collate_fn=my_collate_fn,
-                                             pin_memory=True)
+                
+                # self.val_sampler = self.build_sampler(ConcordSampler, indices=val_indices, neighborhood=None)
+                # val_dataloader = DataLoader(val_dataset, batch_sampler=self.val_sampler, 
+                #                             num_workers=self.num_workers,
+                #                              collate_fn=my_collate_fn,
+                #                              pin_memory=True)
+                val_dataloader = DataLoader(
+                    val_dataset,
+                    batch_size=self.batch_size,
+                    shuffle=True,       
+                    num_workers=self.num_workers,
+                    collate_fn=val_collate,
+                    pin_memory=True,
+                ) # Uniform sampler instead of ConcordSampler for validation
         else: 
+            if self.preload_dense:
+                train_collate = None
+            else:
+                train_collate = AnnDataCollator(dataset)
             train_dataloader = DataLoader(dataset, batch_size=self.batch_size, 
                                           num_workers=self.num_workers,  
-                                           collate_fn=my_collate_fn,
+                                           collate_fn=train_collate,
                                            pin_memory=True)
             val_dataloader = None
 

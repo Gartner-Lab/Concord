@@ -74,7 +74,7 @@ def plot_trustworthiness(
 
 
 
-def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, fontsize=10, rasterize=True, dpi=300, save_path=None):
+def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.6), cbar=True, vmax=None, fontsize=10, rasterize=True, dpi=300, save_path=None):
     """
     Plots heatmaps of pairwise distance matrices in a grid layout.
 
@@ -135,6 +135,7 @@ def plot_distance_heatmap(distances, n_cols=3, annot_value=False, figsize=(2, 1.
             xticklabels=False,
             yticklabels=False,
             annot=annot_value, fmt=".2f", annot_kws={"size": 6},
+            vmax=vmax,
             cbar=cbar,  # Pass the value of cbar here to toggle the color bar
             cbar_kws=cbar_kws
         )
