@@ -139,10 +139,9 @@ class ConcordModel(nn.Module):
 
         out['encoded'] = self.encode(x)
 
-        embeddings = self.get_embeddings(domain_labels, covariate_tensors)
-
         if self.use_decoder:
             x = out['encoded']
+            embeddings = self.get_embeddings(domain_labels, covariate_tensors)
             if embeddings:
                 x = torch.cat([x] + embeddings, dim=1)
             out['decoded'] = self.decoder(x)
@@ -150,6 +149,7 @@ class ConcordModel(nn.Module):
 
         if self.use_classifier:
             x = out['encoded']
+            # embeddings = self.get_embeddings(domain_labels, covariate_tensors)
             # if embeddings:
             #     x = torch.cat([x] + embeddings, dim=1)
             out['class_pred'] = self.classifier(x)
