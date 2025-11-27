@@ -106,7 +106,7 @@ cur_ccd.fit_transform(output_key='Concord')
 
 **Batch Integration**: To integrate data across different batches, provide the `domain_key` parameter (the column name in adata.obs containing batch labels).
 
-**Best Practice**: Always use the most **granular** label available for your `domain_key`. For example, if a dataset contains multiple experiments, use the specific experiment ID rather than broad categories like species or technology. This prevents the model from learning batch effects during contrasting.
+**Best Practice**: Always use the most **granular** label available for your `domain_key`. For example, if a dataset contains multiple experiments from different labs, species or technologies, use the experiment ID rather than broad categories like lab, species or technology. This prevents the model from learning batch effects during contrasting.
 
 ```
 # Not run for this example
