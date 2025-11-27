@@ -104,9 +104,12 @@ cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, device=device, pr
 cur_ccd.fit_transform(output_key='Concord')
 ```
 
-If integrate across batches, provide domain_key (a column in adata.obs that contains batch label). Make sure to use the most granular “domain_key” to indicate batch. For example, if for each dataset there are several different experiments, then use experiment as the domain key:
+**Batch Integration**: To integrate data across different batches, provide the `domain_key` parameter (the column name in adata.obs containing batch labels).
+
+**Best Practice**: Always use the most **granular** label available for your `domain_key`. For example, if a dataset contains multiple experiments, use the specific experiment ID rather than broad categories like species or technology. This prevents the model from learning batch effects during contrasting.
 
 ```
+# Not run for this example
 # cur_ccd = ccd.Concord(adata=adata, input_feature=feature_list, domain_key='batch', device=device, preload_dense=True) 
 ```
 
