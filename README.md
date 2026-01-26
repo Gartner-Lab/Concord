@@ -115,10 +115,13 @@ cur_ccd.fit_transform(output_key='Concord')
 
 ### Visualization:
 
-CONCORD latent embeddings can be directly used for downstream analyses such as visualization with UMAP and t-SNE or constructing k-nearest neighbor (kNN) graphs. Unlike PCA, it is important to utilize the full CONCORD latent embedding in downstream analyses, as each dimension is designed to capture meaningful and complementary aspects of the underlying data structure.
+CONCORD latent embeddings are designed for direct use in UMAP, t-SNE, or kNN graph construction.
+
+* Use all dimensions: Unlike PCA, do not subset the latent space; use the full embedding for all downstream tasks.
+* Use cosine distance: We strongly recommend using cosine distance (metric='cosine') rather than Euclidean distance to remain consistent with the contrastive objective used during training.
 
 ```python
-ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP', n_components=2, n_neighbors=30, min_dist=0.1, metric='euclidean')
+ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP', n_components=2, n_neighbors=30, min_dist=0.1, metric='cosine')
 
 # Plot the UMAP embeddings
 color_by = ['n_genes', 'louvain'] # Choose which variables you want to visualize
@@ -131,7 +134,7 @@ ccd.pl.plot_embedding(
 The latent space produced by CONCORD often capture complex biological structures that may not be fully visualized in 2D projections. We recommend exploring the latent space using a 3D UMAP to more effectively capture and examine the intricacies of the data. For example:
 
 ```python
-ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=30, min_dist=0.1, metric='euclidean')
+ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP_3D', n_components=3, n_neighbors=30, min_dist=0.1, metric='cosine')
 # Plot the 3D UMAP embeddings
 import plotly.io as pio
 pio.renderers.default = 'notebook'
