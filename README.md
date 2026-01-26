@@ -118,7 +118,7 @@ cur_ccd.fit_transform(output_key='Concord')
 CONCORD latent embeddings are designed for direct use in UMAP, t-SNE, or kNN graph construction.
 
 * Use all dimensions: Unlike PCA, do not subset the latent space; use the full embedding for all downstream tasks.
-* Use cosine distance: We strongly recommend using cosine distance (metric='cosine') rather than Euclidean distance to remain consistent with the contrastive objective used during training.
+* Distance: We recommend using cosine distance (metric='cosine') rather than Euclidean distance.
 
 ```python
 ccd.ul.run_umap(adata, source_key='Concord', result_key='Concord_UMAP', n_components=2, n_neighbors=30, min_dist=0.1, metric='cosine')
