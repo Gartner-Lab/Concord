@@ -738,7 +738,7 @@ class Concord:
             concord_args['pretrained_model'] = model_file
 
         # infer input_dim from the checkpoint
-        sd = torch.load(model_file, map_location='cpu')
+        sd = torch.load(model_file, map_location='cpu', weights_only=False)
         if "encoder.0.weight" in sd:
             input_dim = sd["encoder.0.weight"].shape[1]
         else:

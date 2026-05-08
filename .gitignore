@@ -6,6 +6,9 @@ save/
 notebook/
 jobs/
 dist/
+plan/
 Concord.egg-info/
 __pycache__/
 /src/*.egg-info/
+.DS_Store
+**/.DS_Store
