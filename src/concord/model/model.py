@@ -177,7 +177,7 @@ class ConcordModel(nn.Module):
             path (str or Path): Path to the saved model checkpoint.
             device (torch.device): Device to load the model onto.
         """
-        state_dict = torch.load(path, map_location=device)
+        state_dict = torch.load(path, map_location=device, weights_only=False)
         model_state_dict = self.state_dict()
 
         # Filter out layers with mismatched sizes

@@ -474,8 +474,16 @@ def load_anndata_from_dir(sample_dir):
         counts.mtx or data.mtx   # main matrix
         obs.tsv                  # cell metadata
         var.tsv                  # gene metadata
+        [cells.tsv]              # canonical cell order matching .mtx columns
         [other .mtx files]       # extra layers (e.g., counts.mtx, data.mtx)
         [*_embeddings.tsv]       # embeddings (optional)
+
+    If `cells.tsv` is present (one cell ID per line, in the same order as the
+    .mtx columns), obs is reindexed to that order so that obs rows align with
+    X rows. Without `cells.tsv`, obs.tsv is trusted to already be in the same
+    order as the .mtx columns -- which is fragile in Seurat v5 because
+    JoinLayers() can reorder cells relative to seu_obj@meta.data. Use the
+    updated seu_dir_conversion.R, which always writes cells.tsv.
 
     Returns
     -------
@@ -483,6 +491,7 @@ def load_anndata_from_dir(sample_dir):
         Loaded AnnData object with CSR matrices in X and layers.
     """
     import os
+    import warnings
     import pandas as pd
     import anndata as ad
     from scipy.io import mmread
@@ -503,6 +512,26 @@ def load_anndata_from_dir(sample_dir):
     obs = pd.read_csv(os.path.join(sample_dir, 'obs.tsv'), sep='\t', index_col=0)
     var = pd.read_csv(os.path.join(sample_dir, 'var.tsv'), sep='\t', index_col=0)
 
+    # --- 4b. Reorder obs to canonical .mtx column order if cells.tsv was written
+    cells_tsv = os.path.join(sample_dir, 'cells.tsv')
+    if os.path.exists(cells_tsv):
+        with open(cells_tsv) as f:
+            canonical_cells = [line.strip() for line in f if line.strip()]
+        if len(canonical_cells) != main_mtx.shape[0]:
+            raise ValueError(
+                f"cells.tsv has {len(canonical_cells)} entries but main matrix has "
+                f"{main_mtx.shape[0]} cells; export is inconsistent."
+            )
+        if set(canonical_cells) != set(obs.index):
+            raise ValueError("cells.tsv and obs.tsv reference different cell sets.")
+        if list(obs.index) != canonical_cells:
+            warnings.warn(
+                f"obs.tsv row order differs from .mtx column order; "
+                f"reindexing obs to canonical order from cells.tsv. "
+                f"({sample_dir})"
+            )
+            obs = obs.reindex(canonical_cells)
+
     # --- 5. Build AnnData
     adata = ad.AnnData(X=main_mtx, obs=obs, var=var)
 
@@ -514,11 +543,26 @@ def load_anndata_from_dir(sample_dir):
             adata.layers[layer_name] = layer_mtx
 
     # --- 7. Load dimensional reductions (optional)
+    # Embeddings are reindexed to adata.obs_names; row order in the .tsv may
+    # differ from obs.tsv (Seurat returns reductions in cell-creation order
+    # while meta.data is barcode-sorted), and assigning .values directly would
+    # silently mis-pair coordinates with cells.
     emb_files = [f for f in all_files if f.endswith('_embeddings.tsv')]
     for ef in emb_files:
         red_name = ef.replace('_embeddings.tsv', '')
         emb_df = pd.read_csv(os.path.join(sample_dir, ef), sep='\t', index_col=0)
-        adata.obsm[f'X_{red_name}'] = emb_df.values
+        if emb_df.index.equals(adata.obs_names):
+            aligned = emb_df
+        else:
+            missing = adata.obs_names.difference(emb_df.index)
+            if len(missing):
+                warnings.warn(
+                    f"{ef}: {len(missing)} of {adata.n_obs} cells are not in the "
+                    "embedding; those rows will be NaN in adata.obsm['X_"
+                    f"{red_name}']."
+                )
+            aligned = emb_df.reindex(adata.obs_names)
+        adata.obsm[f'X_{red_name}'] = aligned.values
 
     return adata
 
@@ -556,9 +600,13 @@ def export_anndata_to_dir(adata: ad.AnnData, out_dir: str):
     p = Path(out_dir)
     p.mkdir(parents=True, exist_ok=True)
 
-    # --- obs / var ---
+    # --- obs / var / cells ---
     adata.obs.to_csv(p / "obs.tsv", sep="\t")
     adata.var.to_csv(p / "var.tsv", sep="\t")
+    # Explicit cell order matching the .mtx column order; loader uses this to
+    # detect/repair any future drift between obs.tsv rows and .mtx columns.
+    with open(p / "cells.tsv", "w") as f:
+        f.write("\n".join(adata.obs_names) + "\n")
 
     # --- main matrices ---
     # Prefer true normalized 'data' for data.mtx; else write X as data.mtx

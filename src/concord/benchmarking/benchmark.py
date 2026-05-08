@@ -319,8 +319,8 @@ def benchmark_geometry(adata, keys,
                 path, _ = shortest_path_on_knn_graph(adata, emb_key=basis, k=pseudotime_k, point_a=start_point, point_b=end_point, use_faiss=True)
                 time_dict[basis] = compute_pseudotime_from_shortest_path(adata, path=path, basis=basis, pseudotime_key=pseudotime_key)
                 path_dict[basis] = path
-            except:
-                logger.info(f"Failed to compute shortest path for {basis}")
+            except Exception as e:
+                logger.warning(f"Failed to compute shortest path for {basis}: {e}")
                 continue
 
         time_dict[truetime_key] = adata.obs[truetime_key]
