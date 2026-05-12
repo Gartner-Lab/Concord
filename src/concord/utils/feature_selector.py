@@ -160,6 +160,25 @@ def iff_select(adata,
 
 
 
+def _stratified_choice(labels: np.ndarray, target: int, rng: np.random.Generator) -> np.ndarray:
+    """Stratified random sample of `target` indices preserving label proportions.
+
+    Each group is allocated `round(target * group_size / N)` slots, clipped to
+    that group's actual size, with a floor of 1 so no group is dropped. The
+    realised sample size may differ from `target` by a handful of cells
+    because of rounding and the per-group cap.
+    """
+    unique, sizes = np.unique(labels, return_counts=True)
+    total = sizes.sum()
+    alloc = np.maximum(1, np.round(target * sizes / total).astype(int))
+    alloc = np.minimum(alloc, sizes)
+    chunks = []
+    for u, n in zip(unique, alloc):
+        idx = np.where(labels == u)[0]
+        chunks.append(rng.choice(idx, size=int(n), replace=False))
+    return np.sort(np.concatenate(chunks))
+
+
 def select_features(
     adata: ad.AnnData,
     n_top_features: int = 2000,
@@ -167,6 +186,7 @@ def select_features(
     filter_gene_by_counts: Union[int, bool] = False,
     normalize: bool = False,
     log1p: bool = False,
+    batch_key: Optional[str] = None,
     grouping: Union[str, pd.Series, List[str]] = 'cluster',
     emb_key: str = 'X_pca',
     k: int = 512,
@@ -190,6 +210,14 @@ def select_features(
         filter_gene_by_counts (Union[int, bool], optional): Minimum count threshold for feature filtering. Defaults to False.
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
+        batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
+            (1) it is forwarded to `sc.pp.highly_variable_genes` so HVGs are
+            ranked per batch and aggregated, reducing the chance that batch
+            effects drive feature selection; (2) any subsampling (via
+            `subsample_frac` or the >100 k auto-downsample) becomes stratified
+            by this column, so every batch contributes cells to HVG ranking
+            instead of being randomly under-sampled. Ignored when
+            `flavor='iff'`. Defaults to None.
         grouping (Union[str, pd.Series, List[str]], optional): Clustering/grouping strategy for IFF method. Defaults to 'cluster'.
         emb_key (str, optional): Embedding key in `adata.obsm` used for clustering. Defaults to 'X_pca'.
         k (int, optional): Number of neighbors for k-NN if `grouping='knn'`. Defaults to 512.
@@ -203,11 +231,26 @@ def select_features(
     Returns:
         List[str]: List of selected feature names.
     """
-    # Subsample the data if too large
-    sampled_indices=None
+    if batch_key is not None:
+        if batch_key not in adata.obs.columns:
+            raise ValueError(f"batch_key {batch_key!r} not found in adata.obs")
+        if flavor == "iff":
+            logger.warning("batch_key is only used by HVG-based flavors; ignored for flavor='iff'.")
+
+    # Subsample the data if too large. Stratify by batch_key when set so every
+    # batch contributes to HVG ranking (uniform random would under-sample
+    # small batches).
+    sampled_indices = None
     if 0 < subsample_frac < 1.0:
         np.random.seed(random_state)
-        sampled_indices = np.random.choice(adata.n_obs, int(subsample_frac * adata.n_obs), replace=False)
+        target = int(subsample_frac * adata.n_obs)
+        if batch_key is not None:
+            rng = np.random.default_rng(random_state)
+            sampled_indices = _stratified_choice(
+                adata.obs[batch_key].astype(str).values, target, rng
+            )
+        else:
+            sampled_indices = np.random.choice(adata.n_obs, target, replace=False)
         sampled_size = len(sampled_indices)
     else:
         sampled_size = adata.n_obs
@@ -216,8 +259,19 @@ def select_features(
         logger.warning(f"The number of cells for VEG selection ({sampled_size}) exceeds the limit of 100,000. "
                         f"Downsampling cells to 50,000 for VEG selection."
                         f"Note you can set subsample_frac to a value between 0 and 1 to control the number of cells.")
-        sampled_indices = np.random.choice(adata.n_obs, 50000, replace=False)
-        sampled_size = 50000
+        if batch_key is not None:
+            rng = np.random.default_rng(random_state)
+            sampled_indices = _stratified_choice(
+                adata.obs[batch_key].astype(str).values, 50000, rng
+            )
+            sampled_size = len(sampled_indices)
+            logger.info(
+                f"Stratified subsample of {sampled_size} cells across "
+                f"{adata.obs[batch_key].nunique()} {batch_key} levels for HVG selection."
+            )
+        else:
+            sampled_indices = np.random.choice(adata.n_obs, 50000, replace=False)
+            sampled_size = 50000
     
     # Handle backed mode and subsampling
     if adata.isbacked:
@@ -248,8 +302,17 @@ def select_features(
     
     # Determine features based on the flavor
     if flavor != "iff":
-        logger.info(f"Selecting highly variable features with flavor {flavor}...")
-        sc.pp.highly_variable_genes(sampled_data, n_top_genes=n_top_features, flavor=flavor)
+        logger.info(
+            f"Selecting highly variable features with flavor {flavor}"
+            + (f" (batch_key={batch_key!r})" if batch_key is not None else "")
+            + "..."
+        )
+        sc.pp.highly_variable_genes(
+            sampled_data,
+            n_top_genes=n_top_features,
+            flavor=flavor,
+            batch_key=batch_key,
+        )
         feature_list = sampled_data.var[sampled_data.var['highly_variable']].index.tolist()
     else:
         logger.info("Selecting informative features using IFF...")
