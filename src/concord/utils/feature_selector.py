@@ -184,6 +184,7 @@ def select_features(
     n_top_features: int = 2000,
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
+    min_cells: int = 10,
     normalize: bool = False,
     log1p: bool = False,
     batch_key: Optional[str] = None,
@@ -208,6 +209,15 @@ def select_features(
             - 'iff': Uses Informative Feature Filtering (IFF) method.
             Defaults to "seurat_v3".
         filter_gene_by_counts (Union[int, bool], optional): Minimum count threshold for feature filtering. Defaults to False.
+        min_cells (int, optional): If >0, drop genes expressed in fewer than
+            this many cells (`sc.pp.filter_genes(min_cells=...)`) before HVG
+            selection. Standard preprocessing for single-cell pipelines;
+            **essential when `batch_key` is set**, because scanpy's per-batch
+            seurat_v3 HVG runs a loess fit inside each batch and very sparse
+            genes make that loess design matrix near-singular (crashing with
+            `ValueError: reciprocal condition number`). Operates on the
+            working subsample, so the caller's AnnData is not mutated. Set to
+            0 to disable. Defaults to 10.
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
         batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
@@ -286,6 +296,16 @@ def select_features(
         sc.pp.filter_genes(
             sampled_data,
             min_counts=filter_gene_by_counts if isinstance(filter_gene_by_counts, int) else None,
+        )
+
+    # Filter sparse genes — required for stable per-batch seurat_v3 HVG when
+    # batch_key is set; harmless otherwise.
+    if min_cells > 0:
+        n_before = sampled_data.n_vars
+        sc.pp.filter_genes(sampled_data, min_cells=min_cells)
+        logger.info(
+            f"Filtered to genes seen in >= {min_cells} cells: "
+            f"{n_before} -> {sampled_data.n_vars} genes."
         )
 
     # Normalize and log1p transform
