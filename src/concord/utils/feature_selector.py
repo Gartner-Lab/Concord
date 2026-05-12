@@ -184,7 +184,7 @@ def select_features(
     n_top_features: int = 2000,
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
-    min_cells: int = 0,
+    min_cells: int = 10,
     normalize: bool = False,
     log1p: bool = False,
     batch_key: Optional[str] = None,
@@ -211,12 +211,13 @@ def select_features(
         filter_gene_by_counts (Union[int, bool], optional): Minimum count threshold for feature filtering. Defaults to False.
         min_cells (int, optional): If >0, drop genes expressed in fewer than
             this many cells (`sc.pp.filter_genes(min_cells=...)`) before HVG
-            selection. **Recommended (e.g. 10) when `batch_key` is set**:
-            scanpy's per-batch seurat_v3 HVG runs a loess fit inside each
-            batch, and very sparse genes can make that loess design matrix
-            near-singular, crashing with `ValueError: reciprocal condition
-            number`. Operates on the working subsample, so the caller's
-            AnnData is not mutated. Defaults to 0 (no filtering).
+            selection. Standard preprocessing for single-cell pipelines;
+            **essential when `batch_key` is set**, because scanpy's per-batch
+            seurat_v3 HVG runs a loess fit inside each batch and very sparse
+            genes make that loess design matrix near-singular (crashing with
+            `ValueError: reciprocal condition number`). Operates on the
+            working subsample, so the caller's AnnData is not mutated. Set to
+            0 to disable. Defaults to 10.
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
         batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
