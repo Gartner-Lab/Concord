@@ -185,6 +185,7 @@ def select_features(
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
     min_cells: int = 10,
+    min_cells_per_batch: int = 0,
     normalize: bool = False,
     log1p: bool = False,
     batch_key: Optional[str] = None,
@@ -211,13 +212,18 @@ def select_features(
         filter_gene_by_counts (Union[int, bool], optional): Minimum count threshold for feature filtering. Defaults to False.
         min_cells (int, optional): If >0, drop genes expressed in fewer than
             this many cells (`sc.pp.filter_genes(min_cells=...)`) before HVG
-            selection. Standard preprocessing for single-cell pipelines;
-            **essential when `batch_key` is set**, because scanpy's per-batch
-            seurat_v3 HVG runs a loess fit inside each batch and very sparse
-            genes make that loess design matrix near-singular (crashing with
-            `ValueError: reciprocal condition number`). Operates on the
-            working subsample, so the caller's AnnData is not mutated. Set to
-            0 to disable. Defaults to 10.
+            selection. Standard preprocessing for single-cell pipelines.
+            Operates on the working subsample, so the caller's AnnData is not
+            mutated. Set to 0 to disable. Defaults to 10.
+        min_cells_per_batch (int, optional): If >0 AND `batch_key` is set,
+            drop any gene with fewer than this many cells expressing in any
+            single batch. Required to keep scanpy's per-batch seurat_v3 HVG
+            loess fit stable on developmental atlases — without it, batches
+            that contain many zero-variance genes make the loess design
+            matrix singular and the fit crashes with
+            `ValueError: reciprocal condition number`. Trade-off: this drops
+            lineage-restricted markers that are expressed in only a subset of
+            batches. Defaults to 0 (no per-batch filtering).
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
         batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
@@ -266,22 +272,12 @@ def select_features(
         sampled_size = adata.n_obs
 
     if sampled_size > 100000:
-        logger.warning(f"The number of cells for VEG selection ({sampled_size}) exceeds the limit of 100,000. "
-                        f"Downsampling cells to 50,000 for VEG selection."
-                        f"Note you can set subsample_frac to a value between 0 and 1 to control the number of cells.")
-        if batch_key is not None:
-            rng = np.random.default_rng(random_state)
-            sampled_indices = _stratified_choice(
-                adata.obs[batch_key].astype(str).values, 50000, rng
-            )
-            sampled_size = len(sampled_indices)
-            logger.info(
-                f"Stratified subsample of {sampled_size} cells across "
-                f"{adata.obs[batch_key].nunique()} {batch_key} levels for HVG selection."
-            )
-        else:
-            sampled_indices = np.random.choice(adata.n_obs, 50000, replace=False)
-            sampled_size = 50000
+        logger.warning(
+            f"VEG selection on {sampled_size} cells may be slow and consume "
+            f"significant memory. Modern scanpy handles large datasets, but "
+            f"if you need to cap memory/time, set subsample_frac to a value "
+            f"in (0, 1) (with batch_key set, that subsample is stratified)."
+        )
     
     # Handle backed mode and subsampling
     if adata.isbacked:
@@ -298,13 +294,39 @@ def select_features(
             min_counts=filter_gene_by_counts if isinstance(filter_gene_by_counts, int) else None,
         )
 
-    # Filter sparse genes — required for stable per-batch seurat_v3 HVG when
-    # batch_key is set; harmless otherwise.
+    # Filter sparse genes — standard single-cell preprocessing.
     if min_cells > 0:
         n_before = sampled_data.n_vars
         sc.pp.filter_genes(sampled_data, min_cells=min_cells)
         logger.info(
             f"Filtered to genes seen in >= {min_cells} cells: "
+            f"{n_before} -> {sampled_data.n_vars} genes."
+        )
+
+    # Per-batch sparsity filter (only meaningful with batch_key set, because
+    # scanpy's per-batch seurat_v3 loess fit crashes on near-singular design
+    # matrices when many genes have zero variance within a batch). Drops any
+    # gene that falls below `min_cells_per_batch` in any single batch.
+    if min_cells_per_batch > 0 and batch_key is not None:
+        from scipy import sparse as _sp
+        batch_vals = sampled_data.obs[batch_key].astype(str).values
+        unique_batches = np.unique(batch_vals)
+        keep = np.ones(sampled_data.n_vars, dtype=bool)
+        X = sampled_data.X
+        is_sparse = _sp.issparse(X)
+        for b in unique_batches:
+            mask = batch_vals == b
+            sub = X[mask, :]
+            if is_sparse:
+                n_per_gene = np.asarray((sub > 0).sum(axis=0)).ravel()
+            else:
+                n_per_gene = (sub > 0).sum(axis=0)
+            keep &= (n_per_gene >= min_cells_per_batch)
+        n_before = sampled_data.n_vars
+        sampled_data = sampled_data[:, keep].copy()
+        logger.info(
+            f"Per-batch filter (>= {min_cells_per_batch} cells in every "
+            f"{batch_key} batch, {len(unique_batches)} batches): "
             f"{n_before} -> {sampled_data.n_vars} genes."
         )
 
