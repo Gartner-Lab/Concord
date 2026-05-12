@@ -186,6 +186,7 @@ def select_features(
     filter_gene_by_counts: Union[int, bool] = False,
     min_cells: int = 10,
     min_cells_per_batch: int = 0,
+    min_batch_size: int = 0,
     normalize: bool = False,
     log1p: bool = False,
     batch_key: Optional[str] = None,
@@ -223,7 +224,17 @@ def select_features(
             matrix singular and the fit crashes with
             `ValueError: reciprocal condition number`. Trade-off: this drops
             lineage-restricted markers that are expressed in only a subset of
-            batches. Defaults to 0 (no per-batch filtering).
+            batches. Pair with `min_batch_size` when batch sizes are
+            heterogeneous (tiny batches can't satisfy any nonzero threshold).
+            Defaults to 0 (no per-batch filtering).
+        min_batch_size (int, optional): If >0 AND `batch_key` is set, drop
+            cells whose batch contains fewer than this many cells *for the
+            HVG calculation only* (the caller's AnnData is not mutated, so
+            those cells still participate in any downstream training). Use
+            this when batch sizes are very uneven — small batches can't
+            yield stable per-batch variance estimates and force the
+            `min_cells_per_batch` filter to be unusable. Defaults to 0 (keep
+            all batches).
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
         batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
@@ -302,6 +313,26 @@ def select_features(
             f"Filtered to genes seen in >= {min_cells} cells: "
             f"{n_before} -> {sampled_data.n_vars} genes."
         )
+
+    # Drop tiny batches from the HVG calculation (they can't yield stable
+    # per-batch variance estimates and would force any nonzero
+    # min_cells_per_batch threshold to drop every gene). Cells from the
+    # dropped batches still live in the caller's AnnData — this only affects
+    # the working subsample used for feature selection.
+    if min_batch_size > 0 and batch_key is not None:
+        batch_vals = sampled_data.obs[batch_key].astype(str).values
+        sizes = pd.Series(batch_vals).value_counts()
+        keep_batches = sizes[sizes >= min_batch_size].index
+        if len(keep_batches) < len(sizes):
+            keep_cells = np.isin(batch_vals, keep_batches.values)
+            n_before_cells = sampled_data.n_obs
+            sampled_data = sampled_data[keep_cells].copy()
+            logger.info(
+                f"Dropped {len(sizes) - len(keep_batches)} {batch_key} "
+                f"batches < {min_batch_size} cells from HVG sample: "
+                f"{n_before_cells} -> {sampled_data.n_obs} cells, "
+                f"{len(sizes)} -> {len(keep_batches)} batches."
+            )
 
     # Per-batch sparsity filter (only meaningful with batch_key set, because
     # scanpy's per-batch seurat_v3 loess fit crashes on near-singular design
