@@ -185,7 +185,7 @@ def select_features(
     flavor: str = "seurat_v3",
     filter_gene_by_counts: Union[int, bool] = False,
     min_cells: int = 10,
-    min_cells_per_batch: int = 0,
+    min_batch_size: int = 0,
     normalize: bool = False,
     log1p: bool = False,
     batch_key: Optional[str] = None,
@@ -215,15 +215,14 @@ def select_features(
             selection. Standard preprocessing for single-cell pipelines.
             Operates on the working subsample, so the caller's AnnData is not
             mutated. Set to 0 to disable. Defaults to 10.
-        min_cells_per_batch (int, optional): If >0 AND `batch_key` is set,
-            drop any gene with fewer than this many cells expressing in any
-            single batch. Required to keep scanpy's per-batch seurat_v3 HVG
-            loess fit stable on developmental atlases — without it, batches
-            that contain many zero-variance genes make the loess design
-            matrix singular and the fit crashes with
-            `ValueError: reciprocal condition number`. Trade-off: this drops
-            lineage-restricted markers that are expressed in only a subset of
-            batches. Defaults to 0 (no per-batch filtering).
+        min_batch_size (int, optional): If >0 AND `batch_key` is set, drop
+            cells whose batch contains fewer than this many cells *for the
+            HVG calculation only* (the caller's AnnData is not mutated, so
+            those cells still participate in any downstream training). Use
+            this when batch sizes are very uneven — small batches can't
+            yield stable per-batch variance estimates and were the actual
+            driver of the per-batch seurat_v3 loess crashes observed on
+            developmental atlases. Defaults to 0 (keep all batches).
         normalize (bool, optional): Whether to normalize the data before feature selection. Defaults to False.
         log1p (bool, optional): Whether to apply log1p transformation before feature selection. Defaults to False.
         batch_key (Optional[str], optional): Column in `adata.obs` identifying batches. When set, two things change:
@@ -303,32 +302,25 @@ def select_features(
             f"{n_before} -> {sampled_data.n_vars} genes."
         )
 
-    # Per-batch sparsity filter (only meaningful with batch_key set, because
-    # scanpy's per-batch seurat_v3 loess fit crashes on near-singular design
-    # matrices when many genes have zero variance within a batch). Drops any
-    # gene that falls below `min_cells_per_batch` in any single batch.
-    if min_cells_per_batch > 0 and batch_key is not None:
-        from scipy import sparse as _sp
+    # Drop tiny batches from the HVG calculation — small batches can't yield
+    # stable per-batch variance estimates and are the main contributor to the
+    # seurat_v3 per-batch loess crash on heterogeneous developmental atlases.
+    # Cells from the dropped batches still live in the caller's AnnData — this
+    # only affects the working subsample used for feature selection.
+    if min_batch_size > 0 and batch_key is not None:
         batch_vals = sampled_data.obs[batch_key].astype(str).values
-        unique_batches = np.unique(batch_vals)
-        keep = np.ones(sampled_data.n_vars, dtype=bool)
-        X = sampled_data.X
-        is_sparse = _sp.issparse(X)
-        for b in unique_batches:
-            mask = batch_vals == b
-            sub = X[mask, :]
-            if is_sparse:
-                n_per_gene = np.asarray((sub > 0).sum(axis=0)).ravel()
-            else:
-                n_per_gene = (sub > 0).sum(axis=0)
-            keep &= (n_per_gene >= min_cells_per_batch)
-        n_before = sampled_data.n_vars
-        sampled_data = sampled_data[:, keep].copy()
-        logger.info(
-            f"Per-batch filter (>= {min_cells_per_batch} cells in every "
-            f"{batch_key} batch, {len(unique_batches)} batches): "
-            f"{n_before} -> {sampled_data.n_vars} genes."
-        )
+        sizes = pd.Series(batch_vals).value_counts()
+        keep_batches = sizes[sizes >= min_batch_size].index
+        if len(keep_batches) < len(sizes):
+            keep_cells = np.isin(batch_vals, keep_batches.values)
+            n_before_cells = sampled_data.n_obs
+            sampled_data = sampled_data[keep_cells].copy()
+            logger.info(
+                f"Dropped {len(sizes) - len(keep_batches)} {batch_key} "
+                f"batches < {min_batch_size} cells from HVG sample: "
+                f"{n_before_cells} -> {sampled_data.n_obs} cells, "
+                f"{len(sizes)} -> {len(keep_batches)} batches."
+            )
 
     # Normalize and log1p transform
     if normalize:
@@ -349,12 +341,47 @@ def select_features(
             + (f" (batch_key={batch_key!r})" if batch_key is not None else "")
             + "..."
         )
-        sc.pp.highly_variable_genes(
-            sampled_data,
-            n_top_genes=n_top_features,
-            flavor=flavor,
-            batch_key=batch_key,
-        )
+        try:
+            sc.pp.highly_variable_genes(
+                sampled_data,
+                n_top_genes=n_top_features,
+                flavor=flavor,
+                batch_key=batch_key,
+            )
+        except (ValueError, np.linalg.LinAlgError) as e:
+            # The per-batch seurat_v3 loess fit can crash with `ValueError:
+            # reciprocal condition number ...` when many genes have near-
+            # zero within-batch variance — common on developmental atlases
+            # with many small / heterogeneous batches. Re-raise with an
+            # actionable message rather than letting the opaque scanpy
+            # traceback bubble up. We deliberately do NOT auto-normalize
+            # here: the dispersion-based fallback flavor needs log-
+            # normalized counts in .X, and silently mutating the caller's
+            # data would hide what state .X is in from the user.
+            msg = str(e)
+            is_loess_fail = (
+                isinstance(e, np.linalg.LinAlgError)
+                or "reciprocal condition number" in msg.lower()
+                or "loess" in msg.lower()
+            )
+            if flavor in ("seurat_v3", "seurat_v3_paper") and is_loess_fail:
+                raise RuntimeError(
+                    f"sc.pp.highly_variable_genes(flavor={flavor!r}"
+                    + (f", batch_key={batch_key!r}" if batch_key else "")
+                    + f") failed with {type(e).__name__}: {msg}. "
+                    "This is the standard per-batch loess failure mode on "
+                    "heterogeneous / developmental atlases — too many genes "
+                    "have near-zero within-batch variance and the loess "
+                    "design matrix becomes singular. Recommended fix: "
+                    "explicitly normalize and log-transform your data "
+                    "(sc.pp.normalize_total(adata); sc.pp.log1p(adata)) and "
+                    "re-call select_features with flavor='seurat' "
+                    "(dispersion-based, robust to per-batch heterogeneity). "
+                    "Note that 'seurat' needs log-normalized counts in .X "
+                    "while 'seurat_v3' needs raw counts, so the data state "
+                    "must match the chosen flavor."
+                ) from e
+            raise
         feature_list = sampled_data.var[sampled_data.var['highly_variable']].index.tolist()
     else:
         logger.info("Selecting informative features using IFF...")
