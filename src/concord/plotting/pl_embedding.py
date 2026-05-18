@@ -49,7 +49,8 @@ def plot_embedding(adata, basis, color_by=None,
                    square_zoom=False,
                    rasterized=True,
                    seed=42,
-                   save_path=None):
+                   save_path=None,
+                   show=True):
     
     """
     Plots a 2D embedding (e.g., UMAP, PCA) with optional highlighting and color mapping.
@@ -85,6 +86,11 @@ def plot_embedding(adata, basis, color_by=None,
         rasterized (bool, optional): If True, rasterizes the points for efficient plotting. Defaults to True.
         seed (int, optional): Random seed for reproducibility. Defaults to 42.
         save_path (str, optional): Path to save the figure. Defaults to None.
+        show (bool, optional): Whether to call plt.show() at the end. Defaults
+            to True. Set to False when calling from Jupyter and wanting to keep
+            the figure alive for a follow-up fig.savefig() — under the inline
+            backend plt.show() closes the figure (InlineBackend.close_figures)
+            and plt.gcf() afterward returns a new empty figure.
 
     Returns:
         None
@@ -287,7 +293,7 @@ def plot_embedding(adata, basis, color_by=None,
     if save_path is not None and not return_single_ax:
         fig.savefig(save_path, dpi=dpi)
 
-    if not return_single_ax:
+    if show and not return_single_ax:
         plt.show()
 
 
